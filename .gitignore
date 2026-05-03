@@ -31,3 +31,4 @@ migrations/versions/__pycache__/
 .idea/
 *.swp
 *.swo
+docs/
