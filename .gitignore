@@ -34,3 +34,6 @@ migrations/versions/__pycache__/
 docs/
 tests/
 landingpage_swarmwright/
+
+# Claude Code
+.claude/
