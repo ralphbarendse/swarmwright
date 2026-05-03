@@ -4,6 +4,7 @@ import hashlib
 import json
 import os
 import re
+import shutil
 
 import yaml
 from flask import Blueprint, jsonify, request, current_app
@@ -175,6 +176,12 @@ def delete_workspace(workspace_id: str):
                 }
             }), 409
 
+        data_dir = current_app.config["DATA_DIR"]
+        ws_dir = os.path.join(data_dir, "workspaces", workspace.name)
         session.delete(workspace)
         session.commit()
-        return "", 204
+
+    if os.path.isdir(ws_dir):
+        shutil.rmtree(ws_dir)
+
+    return "", 204
