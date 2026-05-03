@@ -90,20 +90,12 @@ input, textarea, select { font: inherit; }
 }
 
 .topbar-right { display: flex; align-items: center; gap: var(--sp-3); }
-.topbar-search {
-  width: 240px; height: 32px;
-  border: 1px solid var(--color-cream-line);
-  border-radius: 999px;
-  background: var(--color-card);
-  color: var(--color-ink);
-  padding: 0 var(--sp-4);
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  outline: none;
-  transition: border-color .12s, background .12s;
+.topbar-tab-settings {
+  color: var(--color-ink-faint) !important;
+  font-size: 11px !important;
 }
-.topbar-search::placeholder { color: var(--color-ink-faint); }
-.topbar-search:focus { border-color: var(--color-amber); background: #fffaf0; }
+.topbar-tab-settings:hover { color: var(--color-ink-soft) !important; }
+.topbar-tab-settings.active { color: #2b2418 !important; }
 
 /* ── Main content area ────────────────────────────────────────────────────── */
 #main { flex: 1; overflow: hidden; position: relative; background: transparent; }

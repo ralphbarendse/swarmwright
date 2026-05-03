@@ -172,6 +172,38 @@
 .pal-dot-caller        { background: #6b8e6b; }   /* Phase 6 — sage green */
 .pal-dot-informer      { background: #5b7fa6; }   /* Phase 6.1 — slate blue */
 .pal-sep { border: none; border-top: 1px dashed var(--color-cream-line); margin: var(--sp-1) 0; }
+.pal-tip {
+  margin-left: auto;
+  flex-shrink: 0;
+  width: 16px; height: 16px;
+  border-radius: 50%;
+  border: 1px solid var(--color-cream-line);
+  background: var(--color-bg);
+  color: var(--color-ink-faint);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 15px;
+  text-align: center;
+  cursor: help;
+  position: relative;
+}
+.pal-tip:hover::after {
+  content: attr(title);
+  position: absolute;
+  left: 22px; top: 50%;
+  transform: translateY(-50%);
+  background: #2b2418;
+  color: #f5f0e8;
+  font-size: 11px;
+  line-height: 1.5;
+  padding: 6px 10px;
+  border-radius: 6px;
+  white-space: normal;
+  width: 200px;
+  z-index: 999;
+  pointer-events: none;
+  box-shadow: 0 2px 8px rgba(0,0,0,.25);
+}
 .pal-toggle {
   display: flex; align-items: center; gap: var(--sp-2);
   font-family: var(--font-mono);

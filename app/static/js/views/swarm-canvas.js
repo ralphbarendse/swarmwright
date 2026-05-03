@@ -994,16 +994,16 @@ function _showEdgeInspector(container, edge, swarmId, hierarchy, reload) {
 
 function _buildPalette(pal, swarmId) {
   const layers = [
-    { layer: "policy",       label: "Policy",       cls: "pal-dot-policy" },
-    { layer: "orchestrator", label: "Orchestrator", cls: "pal-dot-orchestrator" },
-    { layer: "executioner",  label: "Executioner",  cls: "pal-dot-executioner" },
-    { layer: "perceptionist",label: "Perceptionist",cls: "pal-dot-perceptionist" },
+    { layer: "policy",        label: "Policy",        cls: "pal-dot-policy",        tip: "Governs rules and guardrails. Defines boundaries that other agents must respect." },
+    { layer: "orchestrator",  label: "Orchestrator",  cls: "pal-dot-orchestrator",  tip: "Coordinates other agents. Routes work, decides what runs next." },
+    { layer: "executioner",   label: "Executioner",   cls: "pal-dot-executioner",   tip: "Does the actual work — calls tools, APIs, or external systems." },
+    { layer: "perceptionist", label: "Perceptionist", cls: "pal-dot-perceptionist", tip: "Interprets and classifies incoming data before passing it further." },
   ];
 
   const triggers = [
-    { kind: "heartbeat",  label: "Heartbeat",  cls: "pal-dot-trigger" },
-    { kind: "listener",   label: "Listener",   cls: "pal-dot-trigger" },
-    { kind: "invocation", label: "Invocation", cls: "pal-dot-trigger" },
+    { kind: "heartbeat",  label: "Heartbeat",  cls: "pal-dot-trigger", tip: "Fires the swarm on a cron schedule." },
+    { kind: "listener",   label: "Listener",   cls: "pal-dot-trigger", tip: "Fires when an external webhook event arrives." },
+    { kind: "invocation", label: "Invocation", cls: "pal-dot-trigger", tip: "Fires when called directly via the API or manually from the Control Room." },
   ];
 
   pal.innerHTML = `
@@ -1012,6 +1012,7 @@ function _buildPalette(pal, swarmId) {
       <div class="pal-item" data-layer="${l.layer}" draggable="true">
         <span class="pal-dot ${l.cls}"></span>
         ${l.label}
+        <span class="pal-tip" title="${l.tip}">?</span>
       </div>`).join("")}
     <hr class="pal-sep">
     <div class="sec-header">Add trigger</div>
@@ -1019,18 +1020,21 @@ function _buildPalette(pal, swarmId) {
       <div class="pal-item" data-trigger-kind="${t.kind}">
         <span class="pal-dot ${t.cls}"></span>
         ${t.label}
+        <span class="pal-tip" title="${t.tip}">?</span>
       </div>`).join("")}
     <hr class="pal-sep">
     <div class="sec-header">Add caller</div>
     <div class="pal-item" id="pal-add-caller">
       <span class="pal-dot pal-dot-caller"></span>
       Caller (human-in-loop)
+      <span class="pal-tip" title="A human participant who can approve, reject, or respond to requests raised by the swarm.">?</span>
     </div>
     <hr class="pal-sep">
     <div class="sec-header">Add informer</div>
     <div class="pal-item" id="pal-add-informer">
       <span class="pal-dot pal-dot-informer"></span>
       Informer (notify only)
+      <span class="pal-tip" title="Receives output from the swarm for visibility — no response expected.">?</span>
     </div>`;
 
   const reload = () => {
