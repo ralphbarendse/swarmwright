@@ -1,8 +1,6 @@
 services:
   swarm:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile
+    image: ralphbarendse/swarmwright:latest
     network_mode: host
     volumes:
       - ../data:/data
