@@ -32,3 +32,4 @@ migrations/versions/__pycache__/
 *.swp
 *.swo
 docs/
+tests/
