@@ -1,0 +1,12 @@
+services:
+  swarm:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    ports:
+      - "5001:5000"
+    volumes:
+      - ../data:/data
+    env_file:
+      - ../.env
+    restart: unless-stopped

@@ -1,0 +1,1141 @@
+from __future__ import annotations
+
+import json
+import logging
+import os
+import threading
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from typing import Any
+
+import frontmatter
+from sqlalchemy import select
+
+from app.core.hierarchy import ParsedHierarchy
+from app.core.secrets import get_llm_credentials
+from app.core.registry import get_hierarchy
+from app.core.resolver import resolve, ResolverError
+from app.core.skill_runner import (
+    run_skill,
+    load_skill_config,
+    validate_skill_input,
+    validate_skill_output,
+    SkillError,
+    SkillValidationError,
+)
+from app.db import get_session
+from app.models.agent import Agent
+from app.models.caller import Caller
+from app.models.human_action import (
+    HumanAction,
+    STATUS_PENDING as HA_STATUS_PENDING,
+    STATUS_YES as HA_STATUS_YES,
+    STATUS_NO as HA_STATUS_NO,
+)
+from app.models.informer import Informer
+from app.models.human_inform import HumanInform, STATUS_UNREAD as HI_STATUS_UNREAD
+from app.models.run import (
+    Run,
+    STATUS_RUNNING,
+    STATUS_COMPLETED,
+    STATUS_FAILED,
+    STATUS_AWAITING_HUMAN,
+)
+from app.models.run_step import (
+    RunStep,
+    STEP_AGENT_CALL,
+    STEP_SKILL_CALL,
+    STEP_PERCEPTIONIST_CALL,
+    STEP_HUMAN_ESCALATION,
+    STEP_CALLER_CALL,
+    STEP_INFORMER_NOTIFY,
+    STEP_TOPOLOGY_VIOLATION,
+)
+
+logger = logging.getLogger(__name__)
+
+# Guards against infinite loops within a single run
+MAX_AGENT_TURNS = 10   # max LLM calls per agent before we bail
+MAX_DEPTH = 20         # max recursive call depth (agent → agent → …)
+
+# Optional SSE broadcast hook — set by app/__init__.py
+_notify_fn = None
+
+
+def set_notify_fn(fn) -> None:
+    global _notify_fn
+    _notify_fn = fn
+
+
+def _notify(event_type: str, data: dict) -> None:
+    if _notify_fn is not None:
+        try:
+            _notify_fn(event_type, data)
+        except Exception:
+            logger.warning("SSE notify raised an exception", exc_info=True)
+
+_RESPONSE_FORMAT = """
+When you respond, output ONLY a JSON object — no prose before or after — with this structure:
+
+{
+  "action": "<one of: escalate | delegate | report | consult_perceptionist | consult_caller | inform_informer | skill_call | escalate_to_human | complete>",
+  "target": "<name of agent, perceptionist, skill, or caller being called — omit for complete/escalate_to_human>",
+  "purpose_match": "<exact purpose string from Allowed Actions below — omit for complete/escalate_to_human>",
+  "input": { <data to pass to the target, or your final output for complete> },
+  "reasoning": "<free-text explanation of why you are taking this action>"
+}
+"""
+
+
+# ── Public exceptions ─────────────────────────────────────────────────────────
+
+class RuntimeError(Exception):
+    """Base class for swarm runtime errors."""
+
+
+class TopologyViolationError(RuntimeError):
+    """Raised when an agent attempts an action not declared in hierarchy.json."""
+
+
+class RunDepthError(RuntimeError):
+    """Raised when the maximum recursive call depth is exceeded."""
+
+
+class MaxTurnsError(RuntimeError):
+    """Raised when an agent exceeds the maximum number of LLM turns."""
+
+
+class RunSuspended(Exception):
+    """Raised internally when a run hits a `call` edge and must wait for a human.
+
+    Carries the `human_action_id` so `start_run` can move the run into
+    `awaiting_human` status without treating the suspend as a failure. Not
+    surfaced to API callers — runs.status is the visible signal.
+    """
+    def __init__(self, human_action_id: str):
+        super().__init__(f"Run suspended awaiting human action {human_action_id}")
+        self.human_action_id = human_action_id
+
+
+# ── Run context ───────────────────────────────────────────────────────────────
+
+@dataclass
+class RunContext:
+    """Shared mutable state passed through the recursive execution of a run."""
+
+    run_id: str
+    swarm_id: str
+    swarm_path: str
+    workspace_path: str
+    data_dir: str
+    hierarchy: ParsedHierarchy
+
+    _sequence: int = field(default=0, repr=False)
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+
+    def next_sequence(self) -> int:
+        with self._lock:
+            self._sequence += 1
+            return self._sequence
+
+
+# ── Public API ────────────────────────────────────────────────────────────────
+
+def start_run(
+    event_id: str,
+    swarm_id: str,
+    swarm_path: str,
+    workspace_path: str,
+    data_dir: str,
+    payload: dict,
+    *,
+    entry_point_override: str | None = None,
+) -> Run:
+    """Create a Run for the given event and execute the swarm's entry-point agent.
+
+    Args:
+        event_id:       ID of the triggering Event.
+        swarm_id:       ID of the Swarm row in the database.
+        swarm_path:     Absolute path to the swarm folder on disk.
+        workspace_path: Absolute path to the workspace folder on disk.
+        data_dir:       Absolute path to the data/ root directory.
+        payload:        The event payload (passed as the first user message).
+
+    Returns:
+        The completed or failed Run object.
+
+    Raises:
+        RuntimeError: If the swarm hierarchy is not cached or has no entry_point.
+    """
+    hierarchy = get_hierarchy(swarm_id)
+    if hierarchy is None:
+        raise RuntimeError(
+            f"Swarm {swarm_id!r} hierarchy not found in cache — is the swarm enabled?"
+        )
+
+    # Phase 6.1: a trigger can override the swarm's default entry_point so
+    # different triggers can fire into different agents in the same swarm.
+    # The override must still resolve to a declared agent.
+    effective_entry = entry_point_override or hierarchy.entry_point
+    if not effective_entry:
+        raise RuntimeError(
+            f"Swarm {swarm_id!r} has no entry_point and no override was provided"
+        )
+    if effective_entry not in hierarchy.agents:
+        raise RuntimeError(
+            f"Entry point {effective_entry!r} is not in the agents list of swarm {swarm_id!r}"
+        )
+
+    with get_session() as session:
+        run = Run(
+            event_id=event_id,
+            swarm_id=swarm_id,
+            status=STATUS_RUNNING,
+            started_at=datetime.now(timezone.utc),
+        )
+        session.add(run)
+        session.commit()
+        session.refresh(run)
+        run_id = run.id
+
+    _notify("run.started", {"run_id": run_id, "swarm_id": swarm_id, "event_id": event_id})
+
+    ctx = RunContext(
+        run_id=run_id,
+        swarm_id=swarm_id,
+        swarm_path=swarm_path,
+        workspace_path=workspace_path,
+        data_dir=data_dir,
+        hierarchy=hierarchy,
+    )
+
+    try:
+        initial_messages = [{"role": "user", "content": json.dumps(payload)}]
+        _execute_agent_call(
+            agent_name=effective_entry,
+            messages=initial_messages,
+            ctx=ctx,
+            depth=0,
+            edge_purpose=None,
+            step_type=STEP_AGENT_CALL,
+        )
+        _finish_run(run_id, STATUS_COMPLETED)
+        _notify("run.completed", {"run_id": run_id, "swarm_id": swarm_id, "status": "completed"})
+        logger.info("Run %s completed successfully", run_id)
+
+    except RunSuspended as exc:
+        # The run hit a `call` edge. Move it into awaiting_human (do NOT
+        # mark it failed — it's pending, not broken).
+        _finish_run(run_id, STATUS_AWAITING_HUMAN)
+        _notify("run.awaiting_human", {
+            "run_id": run_id,
+            "swarm_id": swarm_id,
+            "human_action_id": exc.human_action_id,
+        })
+        logger.info("Run %s suspended awaiting human action %s", run_id, exc.human_action_id)
+
+    except Exception as exc:
+        logger.exception("Run %s failed: %s", run_id, exc)
+        _finish_run(run_id, STATUS_FAILED, error=str(exc))
+        _notify("run.failed", {"run_id": run_id, "swarm_id": swarm_id, "status": "failed", "error": str(exc)})
+
+    with get_session() as session:
+        return session.get(Run, run_id)
+
+
+# ── Resume a suspended run after a human decision (Phase 6) ──────────────────
+
+def resume_run(human_action_id: str) -> Run | None:
+    """Resume a paused run after the inbox API has written a decision.
+
+    The HumanAction row must already have status == approved or rejected and
+    a decision_payload_json populated. The runtime loads the saved snapshot,
+    appends the decision payload to the conversation as the call's result,
+    re-enters the agent loop, and either completes the run, suspends again
+    (on a chained call), or fails.
+
+    Returns the Run, or None if the action / run cannot be loaded.
+    """
+    with get_session() as session:
+        ha = session.get(HumanAction, human_action_id)
+        if ha is None:
+            logger.warning("resume_run: human_action %s not found", human_action_id)
+            return None
+        if ha.status not in (HA_STATUS_YES, HA_STATUS_NO):
+            logger.warning(
+                "resume_run: human_action %s status=%s, not resumable",
+                human_action_id, ha.status,
+            )
+            return None
+        run = session.get(Run, ha.run_id)
+        if run is None or run.status != STATUS_AWAITING_HUMAN:
+            logger.warning(
+                "resume_run: run %s status=%s, expected awaiting_human",
+                ha.run_id, run.status if run else "(missing)",
+            )
+            return None
+
+        snapshot = json.loads(ha.runtime_snapshot_json or "{}")
+        run_id = run.id
+        swarm_id = run.swarm_id
+
+    hierarchy = get_hierarchy(swarm_id)
+    if hierarchy is None:
+        logger.warning("resume_run: hierarchy missing for swarm %s", swarm_id)
+        _finish_run(run_id, STATUS_FAILED, error="Hierarchy missing on resume")
+        return None
+
+    # Reconstruct paths the same way start_run did. We assume the DATA_DIR /
+    # workspace name / swarm name haven't changed between suspend and resume.
+    from flask import current_app
+    data_dir = current_app.config.get("DATA_DIR", "/data")
+    from app.models.swarm import Swarm
+    from app.models.workspace import Workspace
+    with get_session() as session:
+        swarm = session.get(Swarm, swarm_id)
+        workspace = session.get(Workspace, swarm.workspace_id) if swarm else None
+        if not swarm or not workspace:
+            _finish_run(run_id, STATUS_FAILED, error="Swarm/workspace gone on resume")
+            return None
+        workspace_path = os.path.join(data_dir, "workspaces", workspace.name)
+        swarm_path = os.path.join(workspace_path, "swarms", swarm.name)
+
+    ctx = RunContext(
+        run_id=run_id,
+        swarm_id=swarm_id,
+        swarm_path=swarm_path,
+        workspace_path=workspace_path,
+        data_dir=data_dir,
+        hierarchy=hierarchy,
+    )
+
+    # Build the decision result the agent sees as the call's outcome.
+    # `payload` is always the original; `amend` is the human's optional
+    # amendment (present on yes OR no). The agent reads both.
+    action_result: dict = {
+        "decision": "yes" if ha.status == HA_STATUS_YES else "no",
+        "payload": json.loads(ha.payload_json),
+    }
+    if ha.amend_json:
+        action_result["amend"] = json.loads(ha.amend_json)
+    if ha.decision_reason:
+        action_result["reason"] = ha.decision_reason
+
+    # Run is back in the running state; mark it before continuing.
+    with get_session() as session:
+        run = session.get(Run, run_id)
+        run.status = STATUS_RUNNING
+        run.error = None
+        session.commit()
+
+    _notify("run.resumed", {
+        "run_id": run_id,
+        "swarm_id": swarm_id,
+        "human_action_id": human_action_id,
+        "decision": decision,
+    })
+
+    # Append the action_result to the snapshot's messages and re-enter the
+    # agent loop. If the agent completes, finish; if it suspends again,
+    # mark awaiting_human again; otherwise propagate failure.
+    messages = list(snapshot.get("messages") or [])
+    messages.append({"role": "user", "content": json.dumps({"action_result": action_result})})
+    agent_name = snapshot.get("agent_name") or hierarchy.entry_point
+    depth = snapshot.get("depth", 0)
+
+    # We need the agent's md_path. Re-resolve it via _lookup_agent.
+    _, md_path = _lookup_agent(agent_name, swarm_id, None)
+
+    try:
+        _run_agent_loop(
+            agent_name=agent_name,
+            md_path=md_path,
+            initial_messages=messages,
+            ctx=ctx,
+            depth=depth,
+        )
+        _finish_run(run_id, STATUS_COMPLETED)
+        _notify("run.completed", {"run_id": run_id, "swarm_id": swarm_id, "status": "completed"})
+    except RunSuspended as exc:
+        _finish_run(run_id, STATUS_AWAITING_HUMAN)
+        _notify("run.awaiting_human", {
+            "run_id": run_id,
+            "swarm_id": swarm_id,
+            "human_action_id": exc.human_action_id,
+        })
+    except Exception as exc:
+        logger.exception("Resumed run %s failed: %s", run_id, exc)
+        _finish_run(run_id, STATUS_FAILED, error=str(exc))
+        _notify("run.failed", {"run_id": run_id, "swarm_id": swarm_id, "status": "failed", "error": str(exc)})
+
+    with get_session() as session:
+        return session.get(Run, run_id)
+
+
+# ── Agent execution ───────────────────────────────────────────────────────────
+
+def _execute_agent_call(
+    agent_name: str,
+    messages: list[dict],
+    ctx: RunContext,
+    depth: int,
+    *,
+    edge_purpose: str | None,
+    step_type: str,
+    md_path_override: str | None = None,
+) -> dict:
+    """Record a run_step for this agent, run it, update the step, return its output.
+
+    Args:
+        agent_name:      Name of the agent to execute (as stored in the DB).
+        messages:        Conversation messages to pass to the agent.
+        ctx:             The shared run context.
+        depth:           Current recursion depth (used for RunDepthError guard).
+        edge_purpose:    The purpose string that authorized this call (None for entry point).
+        step_type:       STEP_AGENT_CALL or STEP_PERCEPTIONIST_CALL.
+        md_path_override: If provided, skip DB lookup and use this constitution path.
+
+    Returns:
+        The agent's final output dict (from its `complete` action's `input` field).
+    """
+    if depth > MAX_DEPTH:
+        raise RunDepthError(
+            f"Maximum call depth ({MAX_DEPTH}) exceeded at agent '{agent_name}'"
+        )
+
+    # Resolve agent_id and md_path from the database
+    agent_id, md_path = _lookup_agent(agent_name, ctx.swarm_id, md_path_override)
+
+    seq = ctx.next_sequence()
+    started_at = datetime.now(timezone.utc)
+
+    with get_session() as session:
+        step = RunStep(
+            run_id=ctx.run_id,
+            agent_id=agent_id,
+            step_type=step_type,
+            step_name=agent_name,
+            edge_purpose=edge_purpose,
+            input_json=json.dumps(messages[-1].get("content", "") if messages else ""),
+            sequence=seq,
+            started_at=started_at,
+        )
+        session.add(step)
+        session.commit()
+        session.refresh(step)
+        step_id = step.id
+
+    try:
+        output = _run_agent_loop(
+            agent_name=agent_name,
+            md_path=md_path,
+            initial_messages=messages,
+            ctx=ctx,
+            depth=depth,
+        )
+        _update_step(step_id, output_json=json.dumps(output))
+        _notify("run.step", {
+            "run_id": ctx.run_id, "swarm_id": ctx.swarm_id,
+            "step_name": agent_name, "step_type": step_type, "sequence": seq,
+        })
+        return output
+
+    except Exception as exc:
+        _update_step(step_id, error=str(exc))
+        raise
+
+
+def _run_agent_loop(
+    agent_name: str,
+    md_path: str | None,
+    initial_messages: list[dict],
+    ctx: RunContext,
+    depth: int,
+) -> dict:
+    """Multi-turn loop: call LLM, dispatch actions, continue until complete.
+
+    Returns the agent's final output when it returns 'complete'.
+    Raises for topology violations, max turns, or human escalations.
+    """
+    if md_path is None or not os.path.isfile(md_path):
+        raise RuntimeError(
+            f"Constitution file not found for agent '{agent_name}'"
+            + (f": {md_path}" if md_path else "")
+        )
+
+    post = frontmatter.load(md_path)
+    constitution_body: str = post.content
+    knowledge_refs: list[str] = post.get("knowledge", []) or []
+    model: str | None = post.get("model")
+
+    knowledge_text = _load_knowledge(knowledge_refs, ctx)
+    system_prompt = _build_system_prompt(
+        constitution_body=constitution_body,
+        knowledge_text=knowledge_text,
+        agent_name=agent_name,
+        ctx=ctx,
+    )
+
+    # Resolve provider + API key through secrets. This picks up the
+    # GUI-stored encrypted key in preference to the legacy ANTHROPIC_API_KEY /
+    # OPENAI_API_KEY env vars so operators can rotate creds without redeploying.
+    llm = get_llm_credentials(model=model)
+    messages = list(initial_messages)
+
+    for turn in range(MAX_AGENT_TURNS):
+        raw = llm.complete(system=system_prompt, messages=messages)
+        messages.append({"role": "assistant", "content": raw})
+
+        action_dict = _parse_action(raw, agent_name)
+        action = action_dict.get("action", "")
+
+        if action == "complete":
+            return action_dict.get("input") or {}
+
+        if action == "escalate_to_human":
+            reasoning = action_dict.get("reasoning", "(no reasoning given)")
+            seq = ctx.next_sequence()
+            now = datetime.now(timezone.utc)
+            with get_session() as session:
+                step = RunStep(
+                    run_id=ctx.run_id,
+                    agent_id=None,
+                    step_type=STEP_HUMAN_ESCALATION,
+                    step_name=agent_name,
+                    edge_purpose=None,
+                    input_json=json.dumps(action_dict.get("input") or {}),
+                    sequence=seq,
+                    started_at=now,
+                    ended_at=now,
+                )
+                session.add(step)
+                session.commit()
+            raise RuntimeError(
+                f"Agent '{agent_name}' escalated to human: {reasoning}"
+            )
+
+        # Dispatchable action — run it and feed the result back. `messages`
+        # is passed so the dispatcher can snapshot it when suspending on a
+        # `call` edge (the only branch that does this).
+        result = _dispatch_sub_action(action_dict, agent_name, ctx, depth, messages=messages)
+        messages.append({
+            "role": "user",
+            "content": json.dumps({"action_result": result}),
+        })
+
+    raise MaxTurnsError(
+        f"Agent '{agent_name}' exceeded the maximum of {MAX_AGENT_TURNS} turns without completing"
+    )
+
+
+# ── Action dispatching ────────────────────────────────────────────────────────
+
+def _dispatch_sub_action(
+    action_dict: dict,
+    agent_name: str,
+    ctx: RunContext,
+    depth: int,
+    *,
+    messages: list[dict] | None = None,
+) -> dict:
+    """Validate the action against the topology and dispatch it.
+
+    Returns the result dict from the sub-call (agent output, skill output, etc.).
+    Raises TopologyViolationError on any topology mismatch.
+    """
+    action = action_dict.get("action", "")
+    target = action_dict.get("target", "")
+    purpose_match = action_dict.get("purpose_match", "")
+    input_data = action_dict.get("input") or {}
+
+    # ── Agent edges (escalate / delegate / report) ────────────────────────────
+    if action in ("escalate", "delegate", "report"):
+        edge = ctx.hierarchy.find_edge(agent_name, target, action)
+        if edge is None:
+            return _record_topology_violation(
+                agent_name=agent_name,
+                attempted=f"{action} → {target!r} — no such edge declared",
+                ctx=ctx,
+            )
+        if edge["purpose"] != purpose_match:
+            return _record_topology_violation(
+                agent_name=agent_name,
+                attempted=(
+                    f"{action} → {target!r} with purpose_match {purpose_match!r}, "
+                    f"but declared purpose is {edge['purpose']!r}"
+                ),
+                ctx=ctx,
+            )
+        return _execute_agent_call(
+            agent_name=target,
+            messages=[{"role": "user", "content": json.dumps(input_data)}],
+            ctx=ctx,
+            depth=depth + 1,
+            edge_purpose=edge["purpose"],
+            step_type=STEP_AGENT_CALL,
+        )
+
+    # ── Perceptionist consultation ────────────────────────────────────────────
+    if action == "consult_perceptionist":
+        consultation = ctx.hierarchy.find_consultation(agent_name, target)
+        if consultation is None:
+            return _record_topology_violation(
+                agent_name=agent_name,
+                attempted=f"consult_perceptionist → {target!r} — not declared in consultations",
+                ctx=ctx,
+            )
+        if consultation["purpose"] != purpose_match:
+            return _record_topology_violation(
+                agent_name=agent_name,
+                attempted=(
+                    f"consult_perceptionist → {target!r} with purpose_match {purpose_match!r}, "
+                    f"but declared purpose is {consultation['purpose']!r}"
+                ),
+                ctx=ctx,
+            )
+        try:
+            _, perc_path = resolve(
+                target,
+                "perceptionist",
+                data_dir=ctx.data_dir,
+                swarm_path=ctx.swarm_path,
+                workspace_path=ctx.workspace_path,
+            )
+        except ResolverError as exc:
+            raise RuntimeError(
+                f"Could not resolve perceptionist '{target}': {exc}"
+            ) from exc
+
+        # Use the unqualified name (basename without extension) for the step name
+        perc_name = os.path.splitext(os.path.basename(perc_path))[0]
+        return _execute_agent_call(
+            agent_name=perc_name,
+            messages=[{"role": "user", "content": json.dumps(input_data)}],
+            ctx=ctx,
+            depth=depth + 1,
+            edge_purpose=consultation["purpose"],
+            step_type=STEP_PERCEPTIONIST_CALL,
+            md_path_override=perc_path,
+        )
+
+    # ── Skill call ────────────────────────────────────────────────────────────
+    if action == "skill_call":
+        skill_entry = ctx.hierarchy.find_skill(agent_name, target)
+        if skill_entry is None:
+            return _record_topology_violation(
+                agent_name=agent_name,
+                attempted=f"skill_call → {target!r} — not declared in skills",
+                ctx=ctx,
+            )
+        if skill_entry["purpose"] != purpose_match:
+            return _record_topology_violation(
+                agent_name=agent_name,
+                attempted=(
+                    f"skill_call → {target!r} with purpose_match {purpose_match!r}, "
+                    f"but declared purpose is {skill_entry['purpose']!r}"
+                ),
+                ctx=ctx,
+            )
+        return _execute_skill_call(
+            skill_ref=target,
+            input_data=input_data,
+            agent_name=agent_name,
+            ctx=ctx,
+            edge_purpose=skill_entry["purpose"],
+        )
+
+    # ── Caller (human-in-the-loop, Phase 6) ───────────────────────────────────
+    if action == "consult_caller":
+        call_entry = ctx.hierarchy.find_call(agent_name, target)
+        if call_entry is None:
+            return _record_topology_violation(
+                agent_name=agent_name,
+                attempted=f"consult_caller → {target!r} — not declared in calls",
+                ctx=ctx,
+            )
+        if call_entry["purpose"] != purpose_match:
+            return _record_topology_violation(
+                agent_name=agent_name,
+                attempted=(
+                    f"consult_caller → {target!r} with purpose_match {purpose_match!r}, "
+                    f"but declared purpose is {call_entry['purpose']!r}"
+                ),
+                ctx=ctx,
+            )
+
+        # Resolve the caller's md_path for traceability + verify file exists.
+        try:
+            _, caller_path = resolve(
+                target,
+                "caller",
+                data_dir=ctx.data_dir,
+                swarm_path=ctx.swarm_path,
+                workspace_path=ctx.workspace_path,
+            )
+        except ResolverError as exc:
+            raise RuntimeError(f"Could not resolve caller '{target}': {exc}") from exc
+
+        # Find the registered Caller row by md_path (registry handles uniqueness)
+        with get_session() as session:
+            caller_row = session.execute(
+                select(Caller).where(Caller.md_path == caller_path)
+            ).scalar_one_or_none()
+            if caller_row is None:
+                raise RuntimeError(
+                    f"Caller '{target}' is not in the registry — boot scan may have failed"
+                )
+            caller_id = caller_row.id
+
+        # Persist a run_step row recording the call. The runtime snapshot the
+        # agent is mid-step through goes onto the human_action row, not the
+        # step row — the step is the public audit trail; the snapshot is
+        # internal resume state.
+        seq = ctx.next_sequence()
+        now = datetime.now(timezone.utc)
+        with get_session() as session:
+            step = RunStep(
+                run_id=ctx.run_id,
+                agent_id=None,
+                step_type=STEP_CALLER_CALL,
+                step_name=target,
+                edge_purpose=call_entry["purpose"],
+                caller_id=caller_id,
+                input_json=json.dumps(input_data),
+                sequence=seq,
+                started_at=now,
+            )
+            session.add(step)
+            session.commit()
+            session.refresh(step)
+            step_id = step.id
+
+        # Capture the runtime snapshot: which agent is asking, what messages
+        # we've collected so far, current depth. Resume rebuilds an agent
+        # loop from this snapshot with the human's decision payload appended
+        # as the call result.
+        snapshot = {
+            "agent_name": agent_name,
+            "messages": list(messages) if messages is not None else [],
+            "depth": depth,
+        }
+        with get_session() as session:
+            ha = HumanAction(
+                run_id=ctx.run_id,
+                step_id=step_id,
+                caller_id=caller_id,
+                purpose=call_entry["purpose"],
+                payload_json=json.dumps(input_data),
+                runtime_snapshot_json=json.dumps(snapshot),
+                status=HA_STATUS_PENDING,
+            )
+            session.add(ha)
+            session.commit()
+            session.refresh(ha)
+            ha_id = ha.id
+
+        _notify("human_action.pending", {
+            "human_action_id": ha_id,
+            "run_id": ctx.run_id,
+            "swarm_id": ctx.swarm_id,
+            "caller_id": caller_id,
+            "caller_name": target,
+            "purpose": call_entry["purpose"],
+        })
+
+        # Suspend — propagates up to start_run which will mark the run as
+        # awaiting_human. The exception is internal; not surfaced to the agent.
+        raise RunSuspended(ha_id)
+
+    # ── Informer (fire-and-forget notify, Phase 6.1) ──────────────────────────
+    if action == "inform_informer":
+        inform_entry = ctx.hierarchy.find_inform(agent_name, target)
+        if inform_entry is None:
+            return _record_topology_violation(
+                agent_name=agent_name,
+                attempted=f"inform_informer → {target!r} — not declared in informs",
+                ctx=ctx,
+            )
+        if inform_entry["purpose"] != purpose_match:
+            return _record_topology_violation(
+                agent_name=agent_name,
+                attempted=(
+                    f"inform_informer → {target!r} with purpose_match {purpose_match!r}, "
+                    f"but declared purpose is {inform_entry['purpose']!r}"
+                ),
+                ctx=ctx,
+            )
+
+        try:
+            _, informer_path = resolve(
+                target,
+                "informer",
+                data_dir=ctx.data_dir,
+                swarm_path=ctx.swarm_path,
+                workspace_path=ctx.workspace_path,
+            )
+        except ResolverError as exc:
+            raise RuntimeError(f"Could not resolve informer '{target}': {exc}") from exc
+
+        with get_session() as session:
+            informer_row = session.execute(
+                select(Informer).where(Informer.md_path == informer_path)
+            ).scalar_one_or_none()
+            if informer_row is None:
+                raise RuntimeError(
+                    f"Informer '{target}' is not in the registry — boot scan may have failed"
+                )
+            informer_id = informer_row.id
+
+        seq = ctx.next_sequence()
+        now = datetime.now(timezone.utc)
+        with get_session() as session:
+            step = RunStep(
+                run_id=ctx.run_id,
+                agent_id=None,
+                step_type=STEP_INFORMER_NOTIFY,
+                step_name=target,
+                edge_purpose=inform_entry["purpose"],
+                informer_id=informer_id,
+                input_json=json.dumps(input_data),
+                sequence=seq,
+                started_at=now,
+                ended_at=now,
+            )
+            session.add(step)
+            session.commit()
+            session.refresh(step)
+            step_id = step.id
+
+        with get_session() as session:
+            hi = HumanInform(
+                run_id=ctx.run_id,
+                step_id=step_id,
+                informer_id=informer_id,
+                purpose=inform_entry["purpose"],
+                payload_json=json.dumps(input_data),
+                status=HI_STATUS_UNREAD,
+            )
+            session.add(hi)
+            session.commit()
+            session.refresh(hi)
+            hi_id = hi.id
+
+        _notify("human_inform.pending", {
+            "human_inform_id": hi_id,
+            "run_id": ctx.run_id,
+            "swarm_id": ctx.swarm_id,
+            "informer_id": informer_id,
+            "informer_name": target,
+            "purpose": inform_entry["purpose"],
+        })
+
+        # Non-blocking: return a simple ack so the agent loop continues.
+        return {"notified": target, "purpose": inform_entry["purpose"]}
+
+    # ── Unknown action ────────────────────────────────────────────────────────
+    return _record_topology_violation(
+        agent_name=agent_name,
+        attempted=f"unknown action {action!r}",
+        ctx=ctx,
+    )
+
+
+def _execute_skill_call(
+    skill_ref: str,
+    input_data: dict,
+    agent_name: str,
+    ctx: RunContext,
+    edge_purpose: str,
+) -> dict:
+    """Resolve the skill, run it in the sandbox, record the run_step."""
+    try:
+        _, skill_py_path = resolve(
+            skill_ref,
+            "skill",
+            data_dir=ctx.data_dir,
+            swarm_path=ctx.swarm_path,
+            workspace_path=ctx.workspace_path,
+        )
+    except ResolverError as exc:
+        raise RuntimeError(f"Could not resolve skill '{skill_ref}': {exc}") from exc
+
+    skill_yaml_path = os.path.splitext(skill_py_path)[0] + ".yaml"
+    timeout_seconds = 30
+    input_schema: dict | None = None
+    output_schema: dict | None = None
+    if os.path.isfile(skill_yaml_path):
+        try:
+            config = load_skill_config(skill_yaml_path)
+            timeout_seconds = int(config.get("timeout_seconds", 30))
+            input_schema = config.get("input_schema")
+            output_schema = config.get("output_schema")
+        except Exception as exc:
+            logger.warning("Could not read skill config %s: %s", skill_yaml_path, exc)
+
+    # Validate input against declared schema before running
+    if input_schema:
+        validate_skill_input(input_data, input_schema)
+
+    seq = ctx.next_sequence()
+    started_at = datetime.now(timezone.utc)
+
+    with get_session() as session:
+        step = RunStep(
+            run_id=ctx.run_id,
+            agent_id=None,
+            step_type=STEP_SKILL_CALL,
+            step_name=skill_ref,
+            edge_purpose=edge_purpose,
+            input_json=json.dumps(input_data),
+            sequence=seq,
+            started_at=started_at,
+        )
+        session.add(step)
+        session.commit()
+        session.refresh(step)
+        step_id = step.id
+
+    try:
+        skill_context = {
+            "run_id": ctx.run_id,
+            "agent_name": agent_name,
+            "swarm_id": ctx.swarm_id,
+        }
+        output = run_skill(
+            skill_py_path=skill_py_path,
+            input_data=input_data,
+            context=skill_context,
+            timeout_seconds=timeout_seconds,
+        )
+        # Validate output against declared schema after running
+        if output_schema:
+            validate_skill_output(output, output_schema)
+        _update_step(step_id, output_json=json.dumps(output))
+        return output
+
+    except SkillError as exc:
+        _update_step(step_id, error=str(exc))
+        raise RuntimeError(f"Skill '{skill_ref}' failed: {exc}") from exc
+
+
+def _record_topology_violation(
+    agent_name: str,
+    attempted: str,
+    ctx: RunContext,
+) -> dict:
+    """Record a topology_violation run_step and raise TopologyViolationError."""
+    message = f"Topology violation by '{agent_name}': {attempted}"
+    seq = ctx.next_sequence()
+    now = datetime.now(timezone.utc)
+
+    with get_session() as session:
+        step = RunStep(
+            run_id=ctx.run_id,
+            agent_id=None,
+            step_type=STEP_TOPOLOGY_VIOLATION,
+            step_name=agent_name,
+            edge_purpose=None,
+            input_json="{}",
+            error=message,
+            sequence=seq,
+            started_at=now,
+            ended_at=now,
+        )
+        session.add(step)
+        session.commit()
+
+    logger.warning(message)
+    raise TopologyViolationError(message)
+
+
+# ── Prompt building ───────────────────────────────────────────────────────────
+
+def _build_system_prompt(
+    constitution_body: str,
+    knowledge_text: str,
+    agent_name: str,
+    ctx: RunContext,
+) -> str:
+    hierarchy = ctx.hierarchy
+    parts: list[str] = [constitution_body.strip()]
+
+    if knowledge_text:
+        parts.append("\n\n# Reference Documents\n\n" + knowledge_text)
+
+    parts.append("\n\n# Allowed Actions\n")
+
+    edges = hierarchy.get_allowed_edges(agent_name)
+    escalations = [e for e in edges if e["kind"] == "escalate"]
+    delegations = [e for e in edges if e["kind"] == "delegate"]
+    reports = [e for e in edges if e["kind"] == "report"]
+
+    if escalations:
+        parts.append("You may escalate to:")
+        for e in escalations:
+            parts.append(f"  - {e['to']} — {e['purpose']}")
+        parts.append("")
+
+    if delegations:
+        parts.append("You may delegate to:")
+        for e in delegations:
+            parts.append(f"  - {e['to']} — {e['purpose']}")
+        parts.append("")
+
+    if reports:
+        parts.append("You may report to:")
+        for e in reports:
+            parts.append(f"  - {e['to']} — {e['purpose']}")
+        parts.append("")
+
+    consultations = hierarchy.get_allowed_consultations(agent_name)
+    if consultations:
+        parts.append("You may consult perceptionists:")
+        for c in consultations:
+            parts.append(f"  - {c['perceptionist']} — {c['purpose']}")
+        parts.append("")
+
+    skills = hierarchy.get_allowed_skills(agent_name)
+    if skills:
+        parts.append("You may invoke skills:")
+        for s in skills:
+            parts.append(f"  - {s['skill']} — {s['purpose']}")
+        parts.append("")
+
+    calls = hierarchy.get_allowed_calls(agent_name)
+    if calls:
+        parts.append(
+            "You may consult callers (humans-in-the-loop). Action=consult_caller. "
+            "The run pauses; you receive the human's decision (yes/no, optional amend, "
+            "optional reason) as the action_result on your next turn."
+        )
+        for c in calls:
+            parts.append(f"  - {c['caller']} — {c['purpose']}")
+        parts.append("")
+
+    informs = hierarchy.get_allowed_informs(agent_name)
+    if informs:
+        parts.append(
+            "You may notify informers (fire-and-forget). Action=inform_informer. "
+            "The run continues immediately; the informer receives the notification "
+            "in their inbox without blocking you."
+        )
+        for inf in informs:
+            parts.append(f"  - {inf['informer']} — {inf['purpose']}")
+        parts.append("")
+
+    parts.append("You may always use:")
+    parts.append("  - complete — signal that your work is done (put your result in 'input')")
+    parts.append("  - escalate_to_human — signal that human judgment is required")
+    parts.append("")
+
+    parts.append(_RESPONSE_FORMAT)
+
+    return "\n".join(parts)
+
+
+def _load_knowledge(refs: list[str], ctx: RunContext) -> str:
+    """Resolve each knowledge reference and return concatenated content."""
+    if not refs:
+        return ""
+    sections: list[str] = []
+    for ref in refs:
+        try:
+            _, path = resolve(
+                ref,
+                "knowledge",
+                data_dir=ctx.data_dir,
+                swarm_path=ctx.swarm_path,
+                workspace_path=ctx.workspace_path,
+            )
+            with open(path) as f:
+                sections.append(f.read().strip())
+        except (ResolverError, OSError) as exc:
+            logger.warning("Could not load knowledge document %r: %s", ref, exc)
+    return "\n\n---\n\n".join(sections)
+
+
+# ── Action parsing ────────────────────────────────────────────────────────────
+
+def _parse_action(raw: str, agent_name: str) -> dict:
+    """Parse the LLM's raw text response as a JSON action dict.
+
+    Strips markdown code fences if present.
+    Raises RuntimeError if the response is not valid JSON.
+    """
+    text = raw.strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        end = len(lines) - 1 if lines[-1].strip().startswith("```") else len(lines)
+        text = "\n".join(lines[1:end])
+
+    try:
+        obj = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            f"Agent '{agent_name}' returned a non-JSON response: {exc}. "
+            f"Output (first 400 chars): {raw[:400]}"
+        ) from exc
+
+    if "action" not in obj:
+        raise RuntimeError(
+            f"Agent '{agent_name}' response missing required 'action' field. Got: {obj}"
+        )
+    return obj
+
+
+# ── Database helpers ──────────────────────────────────────────────────────────
+
+def _lookup_agent(
+    agent_name: str,
+    swarm_id: str,
+    md_path_override: str | None,
+) -> tuple[str | None, str | None]:
+    """Return (agent_id, md_path) for an agent.
+
+    If md_path_override is provided, look up by path for the agent_id.
+    Otherwise look up by swarm_id + name.
+    """
+    with get_session() as session:
+        if md_path_override:
+            row = session.execute(
+                select(Agent).where(Agent.md_path == md_path_override)
+            ).scalar_one_or_none()
+        else:
+            row = session.execute(
+                select(Agent).where(
+                    Agent.swarm_id == swarm_id,
+                    Agent.name == agent_name,
+                )
+            ).scalar_one_or_none()
+
+        if row is None:
+            return None, md_path_override
+
+        return row.id, row.md_path
+
+
+def _finish_run(run_id: str, status: str, error: str | None = None) -> None:
+    with get_session() as session:
+        run = session.get(Run, run_id)
+        if run:
+            run.status = status
+            run.ended_at = datetime.now(timezone.utc)
+            run.error = error
+            session.commit()
+
+
+def _update_step(
+    step_id: str,
+    *,
+    output_json: str | None = None,
+    error: str | None = None,
+) -> None:
+    with get_session() as session:
+        step = session.get(RunStep, step_id)
+        if step:
+            step.ended_at = datetime.now(timezone.utc)
+            if output_json is not None:
+                step.output_json = output_json
+            if error is not None:
+                step.error = error
+            session.commit()

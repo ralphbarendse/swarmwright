@@ -1,0 +1,89 @@
+:root {
+  /* ── Palette — warm parchment / sketchbook ────────────────────── */
+  --color-parchment:   #f5f0e8;   /* canvas / app background */
+  --color-panel:       #ede8df;   /* side panels, palettes */
+  --color-card:        #faf7f2;   /* card / surface */
+  --color-cream-deep:  #e6dfcf;   /* hairlines, soft dividers */
+  --color-cream-line:  #d8cfb8;   /* sketched border */
+  --color-ink:         #2b2418;   /* primary ink (text) */
+  --color-ink-soft:    #5a5040;   /* secondary text */
+  --color-ink-faint:   #a09070;   /* tertiary, footnotes */
+  --color-rule:        #c8bfaa;   /* faint horizontal rule */
+
+  /* ── Brand-tunable colours (Phase 5: configurable in Settings → Branding) ─── */
+  --color-primary:       #d99a3f; /* primary action fill (was --color-mustard) */
+  --color-accent:        #c97c2a; /* highlights, live state, perceptionist accents */
+
+  /* Brand layer colours (icon circles / accents) */
+  --color-policy:        #1e3a5f; /* navy */
+  --color-orchestrator:  #2a6b6b; /* teal */
+  --color-executioner:   #3d4f7c; /* slate blue */
+  --color-perceptionist: var(--color-accent);
+  --color-amber:         var(--color-accent);
+  --color-amber-soft:    #e0a05a;
+  --color-mustard:       var(--color-primary);
+
+  /* Generic role aliases (used by older selectors) */
+  --color-topbar:      var(--color-parchment);
+  --color-navy:        var(--color-policy);
+  --color-slate:       var(--color-executioner);
+  --color-bg:          var(--color-parchment);
+  --color-surface:     var(--color-card);
+  --color-border:      var(--color-cream-line);
+  --color-border-soft: var(--color-cream-deep);
+  --color-text:        var(--color-ink);
+  --color-text-muted:  var(--color-ink-soft);
+  --color-text-faint:  var(--color-ink-faint);
+  --color-ice:         var(--color-ink);
+  --color-success:     #4f7a4a;
+  --color-danger:      #a8423a;
+  --color-warn:        #c97c2a;
+  --color-canvas-bg:   #f0e9dc;
+  --color-canvas-dot:  #d8cfb8;
+
+  /* ── Layer colours (Cytoscape nodes) ──────────────────────────── */
+  --node-policy-bg:          var(--color-policy);
+  --node-policy-fg:          #f5f0e8;
+  --node-orchestrator-bg:    var(--color-orchestrator);
+  --node-orchestrator-fg:    #f5f0e8;
+  --node-executioner-bg:     var(--color-executioner);
+  --node-executioner-fg:     #f5f0e8;
+  --node-perceptionist-bg:   #faf7f2;
+  --node-perceptionist-border: var(--color-perceptionist);
+  --node-skill-bg:           #ede8df;
+  --node-trigger-bg:         #2b2418;
+  --node-trigger-fg:         var(--color-amber);
+
+  /* ── Edge colours ─────────────────────────────────────────────── */
+  --edge-escalate: var(--color-amber);
+  --edge-delegate: var(--color-policy);
+  --edge-report:   var(--color-ink-faint);
+  --edge-consult:  var(--color-perceptionist);
+  --edge-skill:    var(--color-ink-faint);
+
+  /* ── Spacing ──────────────────────────────────────────────────── */
+  --sp-1: 4px;  --sp-2: 8px;  --sp-3: 12px; --sp-4: 16px;
+  --sp-5: 20px; --sp-6: 24px; --sp-8: 32px;
+
+  /* ── Typography ───────────────────────────────────────────────── */
+  --font-body:    'Caveat Brush', 'Architects Daughter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-sans:    'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono:    'IBM Plex Mono', 'Courier Prime', 'Courier New', ui-monospace, monospace;
+  --font-sketch:  'Special Elite', 'Courier Prime', 'Courier New', monospace;
+  --font-display: 'Special Elite', 'Courier Prime', Georgia, serif;
+  --text-xs:   11px; --text-sm:  12px;
+  --text-base: 13px; --text-md:  14px;
+  --text-lg:   16px; --text-xl:  22px;
+
+  /* ── Radii / Shadows ──────────────────────────────────────────── */
+  --radius-sm: 4px; --radius: 6px; --radius-md: 10px;
+  --shadow-sm: 0 1px 0 rgba(43,36,24,.06), 0 2px 4px rgba(43,36,24,.05);
+  --shadow:    0 1px 0 rgba(43,36,24,.08), 0 4px 10px rgba(43,36,24,.07);
+  --shadow-lg: 0 2px 0 rgba(43,36,24,.10), 0 12px 28px rgba(43,36,24,.14);
+
+  /* ── Layout ───────────────────────────────────────────────────── */
+  --topbar-h:    58px;
+  --palette-w:   190px;
+  --inspector-w: 320px;
+  --stream-h:    34px;
+}

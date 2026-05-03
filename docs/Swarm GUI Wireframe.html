@@ -1,0 +1,987 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Swarm GUI — Wireframe</title>
+<style>
+  /* ---------- Wireframe primitives ---------- */
+  :root{
+    --ink:#222;
+    --line:#888;
+    --line-soft:#bbb;
+    --line-dashed:#888;
+    --fill:#fff;
+    --fill-2:#f4f4f4;
+    --fill-3:#e6e6e6;
+    --fill-4:#d4d4d4;
+    --note:#7a7a7a;
+    --warn-line:#444;
+    --warn-fill:#ececec;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;background:#e8e8e8;color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:13px;line-height:1.4;}
+  .doc{max-width:1360px;margin:0 auto;padding:32px 16px 80px;}
+  .doc-title{font-size:20px;font-weight:600;margin:0 0 4px}
+  .doc-sub{color:var(--note);font-size:12px;margin:0 0 28px}
+  .screen-label{font-size:13px;font-weight:600;letter-spacing:.02em;margin:32px 0 8px;text-transform:uppercase;color:#444}
+  .screen-label .num{display:inline-block;border:1px solid var(--ink);padding:1px 7px;margin-right:8px;font-variant-numeric:tabular-nums}
+
+  /* Frame for one ~1280x800 screen */
+  .screen{
+    position:relative;
+    width:1280px;
+    height:800px;
+    background:var(--fill);
+    border:1px solid var(--ink);
+    margin:0 auto 12px;
+    overflow:hidden;
+  }
+  .screen-foot{
+    width:1280px;margin:0 auto 24px;
+    color:var(--note);font-size:11px;font-style:italic;
+    display:flex;justify-content:space-between;
+  }
+
+  /* Top bar */
+  .topbar{
+    height:56px;border-bottom:1px solid var(--ink);
+    display:grid;grid-template-columns:200px 1fr 360px;align-items:center;
+    padding:0 16px;gap:16px;background:var(--fill-2);
+  }
+  .logo{
+    width:80px;height:32px;border:1px solid var(--ink);
+    display:flex;align-items:center;justify-content:center;
+    font-size:11px;color:#555;background:#fff;
+  }
+  .tabs{display:flex;justify-content:center;gap:0}
+  .tab{
+    padding:8px 22px;border:1px solid var(--line);border-right:none;
+    background:#fff;font-size:12px;color:#444;
+  }
+  .tab:last-child{border-right:1px solid var(--line)}
+  .tab.active{background:var(--fill-4);color:#000;font-weight:600;border-color:var(--ink)}
+  .topright{display:flex;align-items:center;gap:12px;justify-content:flex-end}
+  .search{
+    flex:1;max-width:280px;height:30px;border:1px solid var(--line);background:#fff;
+    display:flex;align-items:center;padding:0 10px;font-size:11px;color:#999;
+  }
+  .avatar{width:30px;height:30px;border-radius:50%;border:1px solid var(--ink);background:#fff;display:flex;align-items:center;justify-content:center;font-size:10px;color:#777}
+
+  /* Generic */
+  .crumbs{font-size:12px;color:#555;padding:10px 24px;border-bottom:1px solid var(--line-soft);background:#fafafa}
+  .crumbs .sep{color:#999;margin:0 6px}
+  .crumbs .here{color:#000;font-weight:500}
+
+  .body{padding:20px 24px}
+  .h1{font-size:20px;font-weight:600;margin:0 0 4px;display:flex;align-items:center;gap:10px}
+  .h1 .editlink{font-size:11px;color:#555;text-decoration:underline;font-weight:400}
+  .sub{color:var(--note);font-size:12px;margin:0 0 18px}
+
+  /* Cards */
+  .grid{display:grid;gap:14px}
+  .card{
+    border:1px solid var(--line);background:#fff;
+    padding:12px;display:flex;flex-direction:column;gap:6px;
+  }
+  .card .icon{
+    width:24px;height:24px;border:1px solid var(--line);background:#fafafa;
+    display:flex;align-items:center;justify-content:center;font-size:10px;color:#888;
+  }
+  .card .title{font-size:13px;font-weight:600;color:#222}
+  .card .desc{font-size:11px;color:#666;line-height:1.4;flex:1}
+  .card .foot{font-size:11px;color:#555;border-top:1px dashed var(--line-soft);padding-top:6px;display:flex;justify-content:space-between}
+  .card.dashed{
+    border:1px dashed var(--line);background:transparent;
+    align-items:center;justify-content:center;color:#777;font-size:12px;min-height:100%;
+  }
+
+  /* Annotations */
+  .anno{
+    position:absolute;font-size:10.5px;font-style:italic;color:var(--note);
+    line-height:1.3;max-width:200px;
+  }
+  .anno::before{content:"→ ";color:#999}
+  .anno.noarrow::before{content:""}
+  .anno-line{position:absolute;border-top:1px dashed #aaa;height:0}
+
+  /* Section title */
+  .sec-h{font-size:12px;font-weight:600;color:#444;text-transform:uppercase;letter-spacing:.04em;margin:0 0 10px;border-bottom:1px solid var(--line-soft);padding-bottom:6px}
+
+  /* Buttons */
+  .btn{display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--ink);background:#fff;padding:6px 14px;font-size:12px;color:#222}
+  .btn.primary{background:var(--ink);color:#fff}
+  .btn.ghost{border:1px solid var(--line);color:#555}
+
+  /* Inspector chips / lines */
+  .ph-line{height:8px;background:#eee;border:1px solid #e0e0e0;margin:4px 0;border-radius:1px}
+  .ph-line.short{width:60%}
+  .ph-line.med{width:80%}
+
+  /* Two col layout helper */
+  .two-col{display:grid;gap:18px}
+
+  /* Canvas screen specifics */
+  .canvas-wrap{display:grid;grid-template-columns:180px 1fr 320px;gap:0;height:calc(800px - 56px - 38px - 30px)} /* topbar+crumb+stream */
+  .pal{border-right:1px solid var(--line-soft);padding:14px;background:#fafafa;overflow:hidden}
+  .pal .item{
+    border:1px solid var(--line);background:#fff;padding:8px 10px;font-size:12px;margin-bottom:8px;
+    display:flex;align-items:center;gap:8px;cursor:default;
+  }
+  .pal .item .grip{color:#aaa;font-size:11px}
+  .pal .toggle{display:flex;align-items:center;gap:8px;font-size:11px;color:#444;margin:6px 0}
+  .pal .toggle .box{width:12px;height:12px;border:1px solid var(--line);background:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:9px}
+  .pal .toggle .box.on{background:#666;color:#fff}
+
+  .canvas{
+    position:relative;background:
+      linear-gradient(#f6f6f6 1px,transparent 1px) 0 0/24px 24px,
+      linear-gradient(90deg,#f6f6f6 1px,transparent 1px) 0 0/24px 24px,
+      #fff;
+    overflow:hidden;border-right:1px solid var(--line-soft);
+  }
+  .node{
+    position:absolute;border:1px solid var(--ink);background:#fff;
+    padding:8px 12px;font-size:12px;min-width:120px;text-align:center;
+  }
+  .node .kind{font-size:10px;color:#777;text-transform:uppercase;letter-spacing:.05em}
+  .node .name{font-weight:600}
+  .node.selected{outline:2px solid #444;outline-offset:2px;background:var(--fill-3)}
+
+  .edge-label{
+    position:absolute;font-size:10px;background:#fff;border:1px solid var(--line-soft);
+    padding:1px 6px;color:#333;font-style:italic;
+  }
+
+  .insp{padding:14px;overflow:hidden;background:#fafafa}
+  .insp h4{font-size:12px;font-weight:600;margin:14px 0 6px;color:#333}
+  .insp .field{font-size:11px;color:#555;margin-bottom:4px}
+  .insp .pill{display:inline-block;border:1px solid var(--line);background:#fff;padding:2px 8px;font-size:11px;margin:2px 2px 2px 0}
+  .insp .listitem{font-size:11px;border:1px solid var(--line-soft);background:#fff;padding:6px 8px;margin-bottom:4px;display:flex;justify-content:space-between;color:#444}
+
+  .stream{
+    height:30px;border-top:1px solid var(--line-soft);background:#f0f0f0;
+    display:flex;align-items:center;justify-content:space-between;padding:0 16px;
+    font-size:11px;color:#555;
+  }
+  .stream .chev{font-size:11px;color:#666}
+
+  /* Modal */
+  .modal-veil{position:absolute;inset:0;background:rgba(80,80,80,.18);display:flex;align-items:center;justify-content:center;z-index:5}
+  .modal{
+    width:480px;background:#fff;border:1px solid var(--ink);
+    box-shadow:4px 4px 0 rgba(0,0,0,.08);
+  }
+  .modal h3{font-size:14px;margin:0;padding:12px 16px;border-bottom:1px solid var(--line-soft);font-weight:600}
+  .modal .body-m{padding:14px 16px;display:flex;flex-direction:column;gap:10px}
+  .row{display:flex;gap:10px;align-items:center}
+  .row .lbl{width:64px;font-size:11px;color:#666}
+  .row .val{flex:1;border:1px solid var(--line);background:#fafafa;padding:6px 10px;font-size:12px;color:#333}
+  .row .val.ro{background:#f0f0f0;color:#555}
+  .row .val.dd{display:flex;justify-content:space-between;align-items:center;background:#fff}
+  .ta{
+    border:1px solid var(--line);background:#fff;padding:8px 10px;font-size:12px;color:#999;height:80px;
+  }
+  .helper{font-size:10.5px;color:var(--note);font-style:italic}
+  .modal .foot{padding:12px 16px;border-top:1px solid var(--line-soft);display:flex;justify-content:flex-end;gap:8px}
+
+  /* Constitution screen */
+  .action-bar{
+    display:flex;justify-content:space-between;align-items:center;
+    padding:10px 24px;border-bottom:1px solid var(--line-soft);background:#fafafa;
+  }
+  .action-bar .file{font-family:ui-monospace,monospace;font-size:12px;display:flex;align-items:center;gap:8px}
+  .dot{width:8px;height:8px;border-radius:50%;background:#666;display:inline-block}
+  .form-field{margin-bottom:10px}
+  .form-field label{display:block;font-size:11px;color:#555;margin-bottom:3px}
+  .form-field .input{border:1px solid var(--line);background:#fff;padding:6px 10px;font-size:12px;color:#444}
+  .form-field .input.ro{background:#f4f4f4;color:#555}
+  .form-field .input.dd{display:flex;justify-content:space-between;align-items:center}
+  .chips{border:1px solid var(--line);background:#fff;padding:6px;display:flex;flex-wrap:wrap;gap:4px;align-items:center;min-height:32px}
+  .chip{border:1px solid var(--line-soft);background:#f4f4f4;padding:2px 8px;font-size:11px;display:flex;align-items:center;gap:4px}
+  .chip .x{color:#999;font-size:10px}
+  .editor{
+    border:1px solid var(--line);background:#fafafa;padding:12px;
+    font-family:ui-monospace,monospace;font-size:11.5px;line-height:1.6;color:#444;white-space:pre;overflow:hidden;
+  }
+  .editor .ln{color:#aaa;display:inline-block;width:22px}
+  .preview-pane{border:1px solid var(--line-soft);background:#fff;padding:14px;font-size:12px;color:#444}
+  .preview-pane h2{font-size:15px;margin:0 0 8px}
+  .preview-pane p{margin:0 0 8px;line-height:1.5;color:#555}
+  .preview-pane ul{margin:0 0 8px 16px;padding:0;color:#555}
+  .preview-pane ul li{margin-bottom:3px;font-size:11.5px}
+
+  /* Runs view */
+  .filterbar{
+    display:flex;gap:8px;padding:12px 24px;border-bottom:1px solid var(--line-soft);background:#fafafa;
+  }
+  .dd{
+    border:1px solid var(--line);background:#fff;padding:6px 10px;font-size:11px;color:#444;
+    display:flex;align-items:center;gap:6px;min-width:110px;justify-content:space-between;
+  }
+  .filterbar .search-mini{flex:1;border:1px solid var(--line);background:#fff;padding:6px 10px;font-size:11px;color:#999}
+
+  .runs-split{display:grid;grid-template-columns:35% 65%;height:calc(800px - 56px - 38px - 55px)}
+  .runs-list{border-right:1px solid var(--line-soft);overflow:hidden;background:#fafafa}
+  .run-card{
+    border-bottom:1px solid var(--line-soft);padding:10px 14px;display:grid;
+    grid-template-columns:14px 1fr auto;gap:8px;align-items:start;font-size:11.5px;color:#444;
+  }
+  .run-card .stat{width:10px;height:10px;border-radius:50%;border:1px solid #444;margin-top:3px}
+  .run-card.ok .stat{background:#888}
+  .run-card.fail .stat{background:#222;border-color:#000}
+  .run-card.run .stat{background:#fff;border-style:dashed}
+  .run-card.selected{background:#fff;border-left:3px solid #222;padding-left:11px}
+  .run-card .id{font-family:ui-monospace,monospace;font-size:11px;color:#222}
+  .run-card .meta{font-size:10.5px;color:#777;margin-top:2px}
+  .run-card .dur{font-size:10.5px;color:#666}
+
+  .run-detail{padding:14px 18px;overflow:hidden}
+  .run-header{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:1px solid var(--line-soft);padding-bottom:10px;margin-bottom:12px}
+  .run-header .left .id{font-family:ui-monospace,monospace;font-size:13px;font-weight:600}
+  .run-header .left .meta{font-size:11px;color:#666;margin-top:4px;display:flex;gap:14px}
+  .run-header .left .meta .badge{border:1px solid #444;padding:1px 6px;font-size:10px}
+  .panel-collapsed{
+    border:1px solid var(--line-soft);background:#fafafa;padding:8px 12px;
+    display:flex;justify-content:space-between;font-size:11.5px;color:#444;margin-bottom:12px;
+  }
+  .step-h{font-size:12px;font-weight:600;color:#333;margin:8px 0;text-transform:uppercase;letter-spacing:.04em}
+  .timeline{position:relative;padding-left:18px;border-left:1px dashed var(--line-soft);margin-left:8px}
+  .step{
+    position:relative;border:1px solid var(--line);background:#fff;padding:10px 12px;margin-bottom:10px;
+    display:grid;grid-template-columns:24px 1fr auto auto;gap:10px;align-items:center;font-size:11.5px;
+  }
+  .step::before{
+    content:"";position:absolute;left:-23px;top:14px;width:10px;height:10px;border:1px solid var(--ink);background:#fff;border-radius:50%;
+  }
+  .step .num{font-weight:600;color:#333;font-family:ui-monospace,monospace}
+  .step .who{color:#222;font-weight:500}
+  .step .who .typ{font-size:10px;color:#777;font-weight:400;display:block;margin-top:1px}
+  .step .purp{
+    border:1px solid var(--line-soft);background:#f4f4f4;padding:4px 8px;font-size:11px;color:#222;font-style:italic;
+    max-width:260px;
+  }
+  .step .purp .pl{font-size:9.5px;color:#888;font-style:normal;text-transform:uppercase;letter-spacing:.05em;display:block;margin-bottom:1px;font-weight:600}
+  .step .durx{font-size:10.5px;color:#666;font-family:ui-monospace,monospace}
+  .step .chev{color:#888;font-size:14px}
+  .step.bad{border:2px solid #222;background:#f4f4f4}
+  .step.bad::before{background:#222;border-color:#000}
+
+  .warn{
+    border:2px solid var(--ink);background:var(--warn-fill);
+    padding:12px 14px;margin-bottom:14px;
+  }
+  .warn .h{font-weight:600;font-size:13px;margin:0 0 4px;display:flex;align-items:center;gap:6px}
+  .warn p{margin:0 0 6px;font-size:11.5px;color:#333;line-height:1.45}
+  .warn .lnk{font-size:11px;text-decoration:underline;color:#000;font-weight:500}
+
+  /* Workspace detail two-col specifics */
+  .ws-cols{display:grid;grid-template-columns:70% 30%;gap:18px}
+  .panel{border:1px solid var(--line-soft);background:#fafafa;padding:14px}
+  .collapsible{
+    border:1px solid var(--line-soft);background:#fff;padding:10px 12px;
+    margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;font-size:12px;
+  }
+  .collapsible .left-c{display:flex;align-items:center;gap:8px}
+  .collapsible .count{color:#888;font-size:11px}
+  .collapsible .view{font-size:11px;text-decoration:underline;color:#444}
+</style>
+</head>
+<body>
+<div class="doc">
+
+  <h1 class="doc-title">Swarm GUI — Wireframe</h1>
+  <p class="doc-sub">Low-fidelity layout blueprint · 7 screens · grayscale · placeholders only</p>
+
+  <!-- ============================================================
+       SCREEN 1 — Org-design Landing
+  ============================================================= -->
+  <div class="screen-label"><span class="num">01</span> Org-design — Landing (Workspaces)</div>
+  <div class="screen" id="s1">
+    <!-- top bar -->
+    <div class="topbar">
+      <div class="logo">Logo</div>
+      <div class="tabs">
+        <div class="tab active">Org</div>
+        <div class="tab">Swarm</div>
+        <div class="tab">Constitution</div>
+        <div class="tab">Runs</div>
+      </div>
+      <div class="topright">
+        <div class="search">⌕  Search…</div>
+        <div class="avatar">U</div>
+      </div>
+    </div>
+
+    <div class="body">
+      <h2 class="h1">Workspaces</h2>
+      <p class="sub">Department-like containers for swarms</p>
+
+      <div class="grid" style="grid-template-columns:repeat(3,1fr);grid-auto-rows:170px">
+        <!-- 5 real cards + 1 dashed -->
+        <div class="card">
+          <div class="icon">▢</div>
+          <div class="title">Workspace name</div>
+          <div class="desc">Lorem ipsum description of what this workspace is responsible for.</div>
+          <div class="foot"><span>4 swarms</span><span>›</span></div>
+        </div>
+        <div class="card">
+          <div class="icon">▢</div>
+          <div class="title">Workspace name</div>
+          <div class="desc">Lorem ipsum description of what this workspace is responsible for.</div>
+          <div class="foot"><span>2 swarms</span><span>›</span></div>
+        </div>
+        <div class="card">
+          <div class="icon">▢</div>
+          <div class="title">Workspace name</div>
+          <div class="desc">Lorem ipsum description of what this workspace is responsible for.</div>
+          <div class="foot"><span>7 swarms</span><span>›</span></div>
+        </div>
+        <div class="card">
+          <div class="icon">▢</div>
+          <div class="title">Workspace name</div>
+          <div class="desc">Lorem ipsum description of what this workspace is responsible for.</div>
+          <div class="foot"><span>1 swarm</span><span>›</span></div>
+        </div>
+        <div class="card">
+          <div class="icon">▢</div>
+          <div class="title">Workspace name</div>
+          <div class="desc">Lorem ipsum description of what this workspace is responsible for.</div>
+          <div class="foot"><span>3 swarms</span><span>›</span></div>
+        </div>
+        <div class="card dashed">+ New workspace</div>
+      </div>
+    </div>
+
+    <!-- Annotations -->
+    <div class="anno" style="left:1075px;top:18px;width:190px">Top bar persists across all modes</div>
+    <div class="anno" style="left:60px;top:120px">Org mode = browse workspaces &amp; their swarms</div>
+    <div class="anno" style="left:1090px;top:300px;width:175px">Cards link into Workspace Detail (Screen 2)</div>
+  </div>
+  <div class="screen-foot"><span>Screen 1 / 7</span><span>~1280 × 800</span></div>
+
+  <!-- ============================================================
+       SCREEN 2 — Workspace Detail
+  ============================================================= -->
+  <div class="screen-label"><span class="num">02</span> Org-design — Workspace Detail</div>
+  <div class="screen" id="s2">
+    <div class="topbar">
+      <div class="logo">Logo</div>
+      <div class="tabs">
+        <div class="tab active">Org</div>
+        <div class="tab">Swarm</div>
+        <div class="tab">Constitution</div>
+        <div class="tab">Runs</div>
+      </div>
+      <div class="topright">
+        <div class="search">⌕  Search…</div>
+        <div class="avatar">U</div>
+      </div>
+    </div>
+
+    <div class="crumbs">Workspaces <span class="sep">›</span> <span class="here">Invoicing</span></div>
+
+    <div class="body">
+      <h2 class="h1">Invoicing <a class="editlink">Edit</a></h2>
+
+      <div class="ws-cols">
+        <!-- LEFT 70% -->
+        <div>
+          <div class="sec-h">Swarms</div>
+          <div class="grid" style="grid-template-columns:repeat(2,1fr);grid-auto-rows:128px">
+            <div class="card">
+              <div class="title">Swarm title</div>
+              <div class="desc">Lorem ipsum description of what this swarm does end-to-end.</div>
+              <div class="foot"><span>5 agents</span><span>Last run: 12:04 today</span></div>
+            </div>
+            <div class="card">
+              <div class="title">Swarm title</div>
+              <div class="desc">Lorem ipsum description of what this swarm does end-to-end.</div>
+              <div class="foot"><span>3 agents</span><span>Last run: yesterday</span></div>
+            </div>
+            <div class="card">
+              <div class="title">Swarm title</div>
+              <div class="desc">Lorem ipsum description of what this swarm does end-to-end.</div>
+              <div class="foot"><span>8 agents</span><span>Last run: 3d ago</span></div>
+            </div>
+            <div class="card dashed">+ New swarm</div>
+          </div>
+        </div>
+
+        <!-- RIGHT 30% -->
+        <div>
+          <div class="sec-h">Workspace resources</div>
+          <div class="panel" style="padding:10px">
+            <div class="collapsible">
+              <div class="left-c">▾ <span>Knowledge</span> <span class="count">12</span></div>
+              <a class="view">View all</a>
+            </div>
+            <div class="collapsible">
+              <div class="left-c">▾ <span>Skills</span> <span class="count">7</span></div>
+              <a class="view">View all</a>
+            </div>
+            <div class="collapsible">
+              <div class="left-c">▾ <span>Perceptionists</span> <span class="count">3</span></div>
+              <a class="view">View all</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="anno" style="left:880px;top:230px;width:180px">Resources are shared across all swarms in this workspace</div>
+    <div class="anno" style="left:60px;top:230px;width:200px">Each card opens the Swarm canvas (Screen 3)</div>
+  </div>
+  <div class="screen-foot"><span>Screen 2 / 7</span><span>~1280 × 800</span></div>
+
+  <!-- ============================================================
+       SCREEN 3 — Swarm canvas
+  ============================================================= -->
+  <div class="screen-label"><span class="num">03</span> Swarm-design — Canvas</div>
+  <div class="screen" id="s3">
+    <div class="topbar">
+      <div class="logo">Logo</div>
+      <div class="tabs">
+        <div class="tab">Org</div>
+        <div class="tab active">Swarm</div>
+        <div class="tab">Constitution</div>
+        <div class="tab">Runs</div>
+      </div>
+      <div class="topright">
+        <div class="search">⌕  Search…</div>
+        <div class="avatar">U</div>
+      </div>
+    </div>
+
+    <div class="crumbs">Workspaces <span class="sep">›</span> Invoicing <span class="sep">›</span> <span class="here">Invoice Intake</span></div>
+
+    <div class="canvas-wrap">
+      <!-- LEFT PALETTE -->
+      <aside class="pal">
+        <div class="sec-h">Palette</div>
+        <div class="item"><span class="grip">⋮⋮</span> Policy</div>
+        <div class="item"><span class="grip">⋮⋮</span> Orchestrator</div>
+        <div class="item"><span class="grip">⋮⋮</span> Executioner</div>
+        <div class="item"><span class="grip">⋮⋮</span> Perceptionist</div>
+        <div class="item"><span class="grip">⋮⋮</span> Skill</div>
+        <div class="item"><span class="grip">⋮⋮</span> Trigger</div>
+
+        <div class="sec-h" style="margin-top:18px">View</div>
+        <div class="toggle"><span class="box on">✓</span> Show purposes</div>
+        <div class="toggle"><span class="box">  </span> Show return paths</div>
+        <div class="toggle"><span class="box on">✓</span> Show triggers</div>
+      </aside>
+
+      <!-- CENTER CANVAS -->
+      <main class="canvas">
+        <!-- SVG edges -->
+        <svg width="100%" height="100%" style="position:absolute;inset:0" preserveAspectRatio="none">
+          <!-- Trigger -> Orchestrator -->
+          <line x1="120" y1="240" x2="350" y2="240" stroke="#444" stroke-width="1.2"/>
+          <polygon points="350,240 342,236 342,244" fill="#444"/>
+          <!-- Policy -> Orchestrator -->
+          <line x1="445" y1="120" x2="445" y2="210" stroke="#444" stroke-width="1.2"/>
+          <polygon points="445,210 441,202 449,202" fill="#444"/>
+          <!-- Orchestrator -> Executioner -->
+          <line x1="445" y1="285" x2="445" y2="380" stroke="#444" stroke-width="1.2"/>
+          <polygon points="445,380 441,372 449,372" fill="#444"/>
+          <!-- Orchestrator -> Perceptionist (dashed) -->
+          <line x1="540" y1="240" x2="700" y2="160" stroke="#444" stroke-width="1.2" stroke-dasharray="4,4"/>
+          <polygon points="700,160 690,162 696,170" fill="#444"/>
+        </svg>
+
+        <!-- Edge labels -->
+        <div class="edge-label" style="left:200px;top:222px">trigger</div>
+        <div class="edge-label" style="left:455px;top:155px">edge purpose</div>
+        <div class="edge-label" style="left:455px;top:325px">edge purpose</div>
+        <div class="edge-label" style="left:580px;top:185px">consult purpose</div>
+
+        <!-- Nodes -->
+        <div class="node" style="left:60px;top:215px"><div class="kind">Trigger</div><div class="name">Email arrives</div></div>
+        <div class="node" style="left:380px;top:90px"><div class="kind">Policy</div><div class="name">Policy A</div></div>
+        <div class="node" style="left:380px;top:215px;background:#f7f7f7"><div class="kind">Orchestrator</div><div class="name">Agent A</div></div>
+        <div class="node" style="left:380px;top:380px"><div class="kind">Executioner</div><div class="name">Agent B</div></div>
+        <div class="node" style="left:660px;top:115px"><div class="kind">Perceptionist</div><div class="name">Agent C</div></div>
+
+        <!-- Canvas-area annotation -->
+        <div class="anno" style="right:14px;bottom:14px;width:230px;text-align:right;position:absolute">Live mode would animate the active node here</div>
+      </main>
+
+      <!-- RIGHT INSPECTOR -->
+      <aside class="insp">
+        <div class="sec-h">Inspector</div>
+        <div class="field"><strong style="color:#222">Selected:</strong> <span style="color:#444">Orchestrator · Agent A</span></div>
+
+        <h4>Constitution preview</h4>
+        <div class="ph-line med"></div>
+        <div class="ph-line"></div>
+        <div class="ph-line short"></div>
+        <div class="ph-line med"></div>
+        <div class="ph-line short"></div>
+
+        <h4>Outgoing connections</h4>
+        <div class="insp listitem"><span>→ Agent B</span><span style="color:#888">delegate</span></div>
+        <div class="insp listitem"><span>→ Agent C</span><span style="color:#888">consult</span></div>
+
+        <h4>Incoming connections</h4>
+        <div class="insp listitem"><span>← Email trigger</span><span style="color:#888">trigger</span></div>
+        <div class="insp listitem"><span>← Policy A</span><span style="color:#888">policy</span></div>
+
+        <h4>Recent runs</h4>
+        <div class="insp listitem"><span>12:04 today</span><span style="color:#888">ok</span></div>
+        <div class="insp listitem"><span>09:41 today</span><span style="color:#888">ok</span></div>
+        <div class="insp listitem"><span>yesterday</span><span style="color:#888">fail</span></div>
+      </aside>
+    </div>
+
+    <!-- collapsed event stream -->
+    <div class="stream">
+      <span>Live event stream (collapsed)</span>
+      <span class="chev">▴ expand</span>
+    </div>
+
+    <!-- Outside annotations -->
+    <div class="anno" style="left:14px;top:108px;width:160px">Drag nodes onto canvas</div>
+    <div class="anno" style="right:340px;top:108px;width:165px;text-align:right">Inspector content changes based on selection</div>
+  </div>
+  <div class="screen-foot"><span>Screen 3 / 7</span><span>~1280 × 800</span></div>
+
+  <!-- ============================================================
+       SCREEN 4 — Edge creation modal
+  ============================================================= -->
+  <div class="screen-label"><span class="num">04</span> Swarm-design — Edge creation modal</div>
+  <div class="screen" id="s4">
+    <div class="topbar">
+      <div class="logo">Logo</div>
+      <div class="tabs">
+        <div class="tab">Org</div>
+        <div class="tab active">Swarm</div>
+        <div class="tab">Constitution</div>
+        <div class="tab">Runs</div>
+      </div>
+      <div class="topright">
+        <div class="search">⌕  Search…</div>
+        <div class="avatar">U</div>
+      </div>
+    </div>
+
+    <div class="crumbs">Workspaces <span class="sep">›</span> Invoicing <span class="sep">›</span> <span class="here">Invoice Intake</span></div>
+
+    <div class="canvas-wrap">
+      <aside class="pal">
+        <div class="sec-h">Palette</div>
+        <div class="item"><span class="grip">⋮⋮</span> Policy</div>
+        <div class="item"><span class="grip">⋮⋮</span> Orchestrator</div>
+        <div class="item"><span class="grip">⋮⋮</span> Executioner</div>
+        <div class="item"><span class="grip">⋮⋮</span> Perceptionist</div>
+        <div class="item"><span class="grip">⋮⋮</span> Skill</div>
+        <div class="item"><span class="grip">⋮⋮</span> Trigger</div>
+      </aside>
+
+      <main class="canvas">
+        <svg width="100%" height="100%" style="position:absolute;inset:0" preserveAspectRatio="none">
+          <line x1="445" y1="285" x2="445" y2="380" stroke="#bbb" stroke-width="1.2" stroke-dasharray="3,3"/>
+        </svg>
+        <div class="node" style="left:380px;top:215px;background:#f7f7f7"><div class="kind">Orchestrator</div><div class="name">Agent A</div></div>
+        <div class="node" style="left:380px;top:380px"><div class="kind">Executioner</div><div class="name">Agent B</div></div>
+
+        <!-- Modal overlay -->
+        <div class="modal-veil">
+          <div class="modal" role="dialog" aria-label="New connection">
+            <h3>New connection</h3>
+            <div class="body-m">
+              <div class="row"><span class="lbl">From</span><div class="val ro">Orchestrator · Agent A</div></div>
+              <div class="row"><span class="lbl">To</span><div class="val ro">Executioner · Agent B</div></div>
+              <div class="row"><span class="lbl">Kind</span><div class="val dd">Delegate <span style="color:#888">▾</span></div></div>
+
+              <div>
+                <div style="font-size:11px;color:#444;margin:4px 0 4px"><strong>Purpose</strong></div>
+                <div class="ta">Describe why this connection exists…</div>
+                <div class="helper" style="margin-top:6px">What is the reason for this connection? Required.</div>
+              </div>
+            </div>
+            <div class="foot">
+              <button class="btn ghost">Cancel</button>
+              <button class="btn primary">Create connection</button>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <aside class="insp">
+        <div class="sec-h">Inspector</div>
+        <div class="field" style="color:#888">Selected: [none]</div>
+      </aside>
+    </div>
+
+    <div class="stream">
+      <span>Live event stream (collapsed)</span>
+      <span class="chev">▴ expand</span>
+    </div>
+
+    <div class="anno" style="left:14px;top:520px;width:240px">Edges require a <strong>purpose</strong> string — this is enforced</div>
+    <div class="anno" style="right:14px;top:520px;width:240px;text-align:right">Modal blocks the canvas — this is the system's most important interaction</div>
+  </div>
+  <div class="screen-foot"><span>Screen 4 / 7</span><span>~1280 × 800</span></div>
+
+  <!-- ============================================================
+       SCREEN 5 — Constitution edit
+  ============================================================= -->
+  <div class="screen-label"><span class="num">05</span> Constitution-edit mode</div>
+  <div class="screen" id="s5">
+    <div class="topbar">
+      <div class="logo">Logo</div>
+      <div class="tabs">
+        <div class="tab">Org</div>
+        <div class="tab">Swarm</div>
+        <div class="tab active">Constitution</div>
+        <div class="tab">Runs</div>
+      </div>
+      <div class="topright">
+        <div class="search">⌕  Search…</div>
+        <div class="avatar">U</div>
+      </div>
+    </div>
+
+    <div class="crumbs">Workspaces <span class="sep">›</span> Invoicing <span class="sep">›</span> Invoice Intake <span class="sep">›</span> <span class="here">Orchestrator</span></div>
+
+    <div class="action-bar">
+      <div class="file"><span class="dot" title="unsaved"></span> Editing: <span style="color:#222">invoice-orchestrator.md</span></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn ghost">History</button>
+        <button class="btn ghost">Discard</button>
+        <button class="btn primary">Save</button>
+      </div>
+    </div>
+
+    <div class="body" style="display:grid;grid-template-columns:1fr 1fr;gap:18px;height:calc(800px - 56px - 38px - 50px);overflow:hidden">
+      <!-- LEFT -->
+      <div>
+        <div class="sec-h">Frontmatter</div>
+        <div class="panel" style="margin-bottom:14px">
+          <div class="form-field"><label>Name</label><div class="input ro">invoice-orchestrator</div></div>
+          <div class="form-field"><label>Layer</label><div class="input dd">Orchestrator <span style="color:#888">▾</span></div></div>
+          <div class="form-field"><label>Model</label><div class="input dd">claude-sonnet <span style="color:#888">▾</span></div></div>
+          <div class="form-field" style="margin-bottom:0">
+            <label>Knowledge</label>
+            <div class="chips">
+              <span class="chip">invoice-policy.md <span class="x">×</span></span>
+              <span class="chip">vendor-list.md <span class="x">×</span></span>
+              <span class="chip">accounting-rules.md <span class="x">×</span></span>
+              <span style="color:#aaa;font-size:11px;margin-left:4px">+ add</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="sec-h">Constitution body (markdown)</div>
+        <div class="editor"><span class="ln">1</span># Role
+<span class="ln">2</span>You are the invoice intake orchestrator.
+<span class="ln">3</span>
+<span class="ln">4</span>## Responsibilities
+<span class="ln">5</span>- Lorem ipsum dolor sit amet
+<span class="ln">6</span>- Consectetur adipiscing elit
+<span class="ln">7</span>- Sed do eiusmod tempor
+<span class="ln">8</span>
+<span class="ln">9</span>## Delegation
+<span class="ln">10</span>Delegate parsing to **invoice-parser**…</div>
+      </div>
+
+      <!-- RIGHT -->
+      <div>
+        <div class="sec-h">Preview</div>
+        <div class="preview-pane">
+          <h2>Role</h2>
+          <p>You are the invoice intake orchestrator.</p>
+          <h2 style="font-size:13px">Responsibilities</h2>
+          <ul>
+            <li>Lorem ipsum dolor sit amet</li>
+            <li>Consectetur adipiscing elit</li>
+            <li>Sed do eiusmod tempor</li>
+          </ul>
+          <h2 style="font-size:13px">Delegation</h2>
+          <p>Delegate parsing to <strong>invoice-parser</strong>, which handles… lorem ipsum dolor sit amet, consectetur adipiscing elit.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="anno" style="left:14px;top:108px;width:170px">Frontmatter ↔ form is bidirectional</div>
+    <div class="anno" style="left:560px;top:108px;width:200px">Preview re-renders as you type</div>
+    <div class="anno" style="right:14px;top:108px;width:160px;text-align:right">Unsaved-changes dot signals dirty state</div>
+  </div>
+  <div class="screen-foot"><span>Screen 5 / 7</span><span>~1280 × 800</span></div>
+
+  <!-- ============================================================
+       SCREEN 6 — Runs view
+  ============================================================= -->
+  <div class="screen-label"><span class="num">06</span> Runs view — list &amp; detail</div>
+  <div class="screen" id="s6">
+    <div class="topbar">
+      <div class="logo">Logo</div>
+      <div class="tabs">
+        <div class="tab">Org</div>
+        <div class="tab">Swarm</div>
+        <div class="tab">Constitution</div>
+        <div class="tab active">Runs</div>
+      </div>
+      <div class="topright">
+        <div class="search">⌕  Search…</div>
+        <div class="avatar">U</div>
+      </div>
+    </div>
+
+    <div class="filterbar">
+      <div class="dd">Status <span style="color:#888">▾</span></div>
+      <div class="dd">Source <span style="color:#888">▾</span></div>
+      <div class="dd">Swarm <span style="color:#888">▾</span></div>
+      <div class="dd">Date range <span style="color:#888">▾</span></div>
+      <div class="search-mini">⌕  Search runs…</div>
+    </div>
+
+    <div class="runs-split">
+      <!-- LEFT: list -->
+      <div class="runs-list">
+        <div class="run-card ok selected">
+          <div class="stat"></div>
+          <div>
+            <div class="id">run_2f8a91</div>
+            <div class="meta">Invoice Intake · started 12:04 · 4.2s</div>
+            <div class="meta">source: email trigger</div>
+          </div>
+          <div class="dur">ok</div>
+        </div>
+        <div class="run-card ok">
+          <div class="stat"></div>
+          <div>
+            <div class="id">run_2f8a90</div>
+            <div class="meta">Invoice Intake · 09:41 · 3.1s</div>
+            <div class="meta">source: api</div>
+          </div>
+          <div class="dur">ok</div>
+        </div>
+        <div class="run-card fail">
+          <div class="stat"></div>
+          <div>
+            <div class="id">run_2f8a8f</div>
+            <div class="meta">Vendor Onboard · yesterday · 1.8s</div>
+            <div class="meta">source: manual</div>
+          </div>
+          <div class="dur">fail</div>
+        </div>
+        <div class="run-card ok">
+          <div class="stat"></div>
+          <div>
+            <div class="id">run_2f8a8e</div>
+            <div class="meta">Invoice Intake · yesterday · 5.0s</div>
+            <div class="meta">source: email trigger</div>
+          </div>
+          <div class="dur">ok</div>
+        </div>
+        <div class="run-card run">
+          <div class="stat"></div>
+          <div>
+            <div class="id">run_2f8a8d</div>
+            <div class="meta">Reconcile · 3d ago · 12.4s</div>
+            <div class="meta">source: schedule</div>
+          </div>
+          <div class="dur">run</div>
+        </div>
+        <div class="run-card ok">
+          <div class="stat"></div>
+          <div>
+            <div class="id">run_2f8a8c</div>
+            <div class="meta">Invoice Intake · 3d ago · 2.9s</div>
+            <div class="meta">source: api</div>
+          </div>
+          <div class="dur">ok</div>
+        </div>
+      </div>
+
+      <!-- RIGHT: detail -->
+      <div class="run-detail">
+        <div class="run-header">
+          <div class="left">
+            <div class="id">run_2f8a91</div>
+            <div class="meta">
+              <span class="badge">ok</span>
+              <span>started 12:04:18</span>
+              <span>ended 12:04:22</span>
+              <span>4.2s</span>
+            </div>
+          </div>
+          <button class="btn ghost">Replay</button>
+        </div>
+
+        <div class="panel-collapsed">
+          <span>▸ Triggering event · email from vendor@example.com</span>
+          <span style="color:#888">expand</span>
+        </div>
+
+        <div class="step-h">Steps</div>
+        <div class="timeline">
+          <div class="step">
+            <div class="num">01</div>
+            <div class="who">invoice-orchestrator <span class="typ">orchestrator · delegate</span></div>
+            <div class="purp"><span class="pl">edge purpose</span>parse incoming invoice email</div>
+            <div class="durx">0.6s</div>
+            <div class="chev">▸</div>
+          </div>
+          <div class="step">
+            <div class="num">02</div>
+            <div class="who">invoice-parser <span class="typ">executioner · skill</span></div>
+            <div class="purp"><span class="pl">edge purpose</span>extract line items and total</div>
+            <div class="durx">1.4s</div>
+            <div class="chev">▸</div>
+          </div>
+          <div class="step">
+            <div class="num">03</div>
+            <div class="who">vendor-perceptionist <span class="typ">perceptionist · consult</span></div>
+            <div class="purp"><span class="pl">edge purpose</span>verify vendor is on approved list</div>
+            <div class="durx">0.9s</div>
+            <div class="chev">▸</div>
+          </div>
+          <div class="step">
+            <div class="num">04</div>
+            <div class="who">approval-orchestrator <span class="typ">orchestrator · delegate</span></div>
+            <div class="purp"><span class="pl">edge purpose</span>route to approver based on amount</div>
+            <div class="durx">1.3s</div>
+            <div class="chev">▸</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="anno" style="left:14px;top:130px;width:160px">Filters scope the list</div>
+    <div class="anno" style="right:14px;top:280px;width:185px;text-align:right">Edge purpose is the most important text on each step</div>
+  </div>
+  <div class="screen-foot"><span>Screen 6 / 7</span><span>~1280 × 800</span></div>
+
+  <!-- ============================================================
+       SCREEN 7 — Topology violation
+  ============================================================= -->
+  <div class="screen-label"><span class="num">07</span> Runs view — Topology violation</div>
+  <div class="screen" id="s7">
+    <div class="topbar">
+      <div class="logo">Logo</div>
+      <div class="tabs">
+        <div class="tab">Org</div>
+        <div class="tab">Swarm</div>
+        <div class="tab">Constitution</div>
+        <div class="tab active">Runs</div>
+      </div>
+      <div class="topright">
+        <div class="search">⌕  Search…</div>
+        <div class="avatar">U</div>
+      </div>
+    </div>
+
+    <div class="filterbar">
+      <div class="dd">Status <span style="color:#888">▾</span></div>
+      <div class="dd">Source <span style="color:#888">▾</span></div>
+      <div class="dd">Swarm <span style="color:#888">▾</span></div>
+      <div class="dd">Date range <span style="color:#888">▾</span></div>
+      <div class="search-mini">⌕  Search runs…</div>
+    </div>
+
+    <div class="runs-split">
+      <div class="runs-list">
+        <div class="run-card ok">
+          <div class="stat"></div>
+          <div>
+            <div class="id">run_2f8a91</div>
+            <div class="meta">Invoice Intake · 12:04 · 4.2s</div>
+            <div class="meta">source: email trigger</div>
+          </div>
+          <div class="dur">ok</div>
+        </div>
+        <div class="run-card fail selected">
+          <div class="stat"></div>
+          <div>
+            <div class="id">run_2f8a8f</div>
+            <div class="meta">Vendor Onboard · yesterday · 1.8s</div>
+            <div class="meta">source: manual</div>
+          </div>
+          <div class="dur">fail</div>
+        </div>
+        <div class="run-card ok">
+          <div class="stat"></div>
+          <div>
+            <div class="id">run_2f8a8e</div>
+            <div class="meta">Invoice Intake · yesterday · 5.0s</div>
+            <div class="meta">source: email trigger</div>
+          </div>
+          <div class="dur">ok</div>
+        </div>
+        <div class="run-card run">
+          <div class="stat"></div>
+          <div>
+            <div class="id">run_2f8a8d</div>
+            <div class="meta">Reconcile · 3d ago · 12.4s</div>
+            <div class="meta">source: schedule</div>
+          </div>
+          <div class="dur">run</div>
+        </div>
+        <div class="run-card ok">
+          <div class="stat"></div>
+          <div>
+            <div class="id">run_2f8a8c</div>
+            <div class="meta">Invoice Intake · 3d ago · 2.9s</div>
+            <div class="meta">source: api</div>
+          </div>
+          <div class="dur">ok</div>
+        </div>
+      </div>
+
+      <div class="run-detail">
+        <div class="run-header">
+          <div class="left">
+            <div class="id">run_2f8a8f</div>
+            <div class="meta">
+              <span class="badge" style="background:#222;color:#fff">fail</span>
+              <span>started 16:30:11</span>
+              <span>ended 16:30:13</span>
+              <span>1.8s</span>
+            </div>
+          </div>
+          <button class="btn ghost">Replay</button>
+        </div>
+
+        <div class="warn" role="alert">
+          <div class="h">⚠ Topology violation</div>
+          <p>Agent <strong>"invoice-orchestrator"</strong> attempted to call <strong>"send-email"</strong> but no skill connection is declared in <code>hierarchy.json</code> for this agent and skill.</p>
+          <a class="lnk">[ Open swarm topology → ]</a>
+        </div>
+
+        <div class="step-h">Steps</div>
+        <div class="timeline">
+          <div class="step">
+            <div class="num">01</div>
+            <div class="who">invoice-orchestrator <span class="typ">orchestrator · delegate</span></div>
+            <div class="purp"><span class="pl">edge purpose</span>parse incoming invoice email</div>
+            <div class="durx">0.6s</div>
+            <div class="chev">▸</div>
+          </div>
+          <div class="step">
+            <div class="num">02</div>
+            <div class="who">invoice-parser <span class="typ">executioner · skill</span></div>
+            <div class="purp"><span class="pl">edge purpose</span>extract line items and total</div>
+            <div class="durx">0.8s</div>
+            <div class="chev">▸</div>
+          </div>
+          <div class="step bad">
+            <div class="num">03</div>
+            <div class="who">invoice-orchestrator → send-email <span class="typ" style="color:#222">⚠ undeclared skill call</span></div>
+            <div class="purp" style="border-color:#222;background:#e0e0e0;color:#000"><span class="pl">edge purpose</span>(no declared edge)</div>
+            <div class="durx">0.4s</div>
+            <div class="chev">▸</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="anno" style="left:14px;top:130px;width:170px">Failed run shown selected</div>
+    <div class="anno" style="right:14px;top:200px;width:200px;text-align:right">Topology violations are first-class — not a generic error</div>
+  </div>
+  <div class="screen-foot"><span>Screen 7 / 7</span><span>~1280 × 800</span></div>
+
+</div>
+</body>
+</html>
