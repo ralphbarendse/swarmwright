@@ -4,7 +4,8 @@
 
 <p align="center">
   <a href="https://www.swarmwright.com">www.swarmwright.com</a> &nbsp;·&nbsp;
-  <a href="https://www.swarmwright.com/docs.html">Documentation</a>
+  <a href="https://www.swarmwright.com/docs.html">Documentation</a> &nbsp;·&nbsp;
+  <a href="LICENSE">CC BY-NC 4.0</a>
 </p>
 
 # SwarmWright
