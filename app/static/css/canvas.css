@@ -187,20 +187,18 @@
   cursor: help;
   position: relative;
 }
-.pal-tip:hover::after {
-  content: attr(title);
-  position: absolute;
-  left: 22px; top: 50%;
-  transform: translateY(-50%);
+.pal-tooltip {
+  position: fixed;
   background: #2b2418;
   color: #f5f0e8;
+  font-family: var(--font-mono);
   font-size: 11px;
   line-height: 1.5;
   padding: 6px 10px;
   border-radius: 6px;
   white-space: normal;
   width: 200px;
-  z-index: 999;
+  z-index: 9999;
   pointer-events: none;
   box-shadow: 0 2px 8px rgba(0,0,0,.25);
 }

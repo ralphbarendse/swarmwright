@@ -94,7 +94,7 @@ function render() {
 
 // ── Tab navigation ─────────────────────────────────────────────────────────
 
-document.getElementById("topbar-tabs").addEventListener("click", e => {
+function _handleTabClick(e) {
   const btn = e.target.closest("[data-view]");
   if (!btn) return;
   const v = btn.dataset.view;
@@ -105,7 +105,10 @@ document.getElementById("topbar-tabs").addEventListener("click", e => {
   else if (v === "library")  navigate("library");
   else if (v === "inbox")    navigate("inbox");
   else if (v === "settings") navigate("settings");
-});
+}
+
+document.getElementById("topbar-tabs").addEventListener("click", _handleTabClick);
+document.querySelector(".topbar-right").addEventListener("click", _handleTabClick);
 
 // Track last-visited swarm and agent for tab re-activation
 export let _lastSwarmId = "";

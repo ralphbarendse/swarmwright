@@ -1037,6 +1037,21 @@ function _buildPalette(pal, swarmId) {
       <span class="pal-tip" title="Receives output from the swarm for visibility — no response expected.">?</span>
     </div>`;
 
+  // Tooltip for ? badges — JS-based so it escapes overflow:hidden clipping
+  let _tt = null;
+  pal.querySelectorAll(".pal-tip").forEach(el => {
+    el.addEventListener("mouseenter", () => {
+      _tt = document.createElement("div");
+      _tt.className = "pal-tooltip";
+      _tt.textContent = el.getAttribute("title");
+      document.body.appendChild(_tt);
+      const r = el.getBoundingClientRect();
+      _tt.style.top = (r.top + r.height / 2 - _tt.offsetHeight / 2) + "px";
+      _tt.style.left = (r.right + 8) + "px";
+    });
+    el.addEventListener("mouseleave", () => { _tt?.remove(); _tt = null; });
+  });
+
   const reload = () => {
     const container = document.querySelector(".view");
     if (container) _loadCanvas(container, swarmId);
