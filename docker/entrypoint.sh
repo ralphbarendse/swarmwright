@@ -6,7 +6,7 @@ alembic upgrade head
 
 echo "Starting gunicorn..."
 exec gunicorn \
-    --bind 0.0.0.0:5000 \
+    --bind 0.0.0.0:5001 \
     --workers 1 \
     --threads 4 \
     --timeout 120 \

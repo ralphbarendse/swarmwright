@@ -19,7 +19,7 @@ RUN pip install --no-cache-dir ".[dev]"
 # Data volume — survives container rebuilds
 VOLUME ["/data"]
 
-EXPOSE 5000
+EXPOSE 5001
 
 COPY docker/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
