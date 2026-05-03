@@ -2,6 +2,11 @@
   <img src="banner.png" alt="SwarmWright" width="100%">
 </p>
 
+<p align="center">
+  <a href="https://www.swarmwright.com">www.swarmwright.com</a> &nbsp;·&nbsp;
+  <a href="https://www.swarmwright.com/docs.html">Documentation</a>
+</p>
+
 # SwarmWright
 
 A self-hosted multi-agent orchestration platform. Build teams of AI agents that handle administrative and interpretive work — governed by a strict topology where every connection is declared, every action is auditable.
