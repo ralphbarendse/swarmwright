@@ -33,3 +33,4 @@ migrations/versions/__pycache__/
 *.swo
 docs/
 tests/
+landingpage_swarmwright/
