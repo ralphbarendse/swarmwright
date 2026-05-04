@@ -57,6 +57,8 @@ export const getKnowledge    = (id)          => get(`/knowledge/${id}`);
 export const createKnowledge = (body)        => post("/knowledge", body);
 export const updateKnowledge = (id, body)    => put(`/knowledge/${id}`, body);
 export const deleteKnowledge = (id)          => del(`/knowledge/${id}`);
+export const draftKnowledge  = (id, prompt)  => post(`/knowledge/${id}/draft`, { prompt });
+export const draftSkill      = (name, prompt) => post("/skills/_meta/draft", { name, prompt });
 
 // ── Skills ───────────────────────────────────────────────────────────────────
 export const listSkills = (params = {}) => get("/skills?" + new URLSearchParams(params));

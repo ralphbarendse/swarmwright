@@ -230,7 +230,16 @@ function _showEditKnowledgeModal(doc, onDone) {
       <input class="form-input" id="m-kn-title" value="${_esc(doc.title || "")}">
     </div>
     <div class="form-group" style="flex:1">
-      <label class="form-label">Content (Markdown)</label>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px">
+        <label class="form-label" style="margin:0">Content (Markdown)</label>
+        <button class="btn btn-ghost btn-sm" id="btn-kn-ai" style="font-size:11px">Draft with AI</button>
+      </div>
+      <div id="kn-ai-row" style="display:none;margin-bottom:8px;display:none">
+        <div style="display:flex;gap:6px">
+          <input class="form-input" id="kn-ai-prompt" placeholder="Describe what this document should contain…" style="font-size:12px;flex:1">
+          <button class="btn btn-primary btn-sm" id="btn-kn-ai-go" style="white-space:nowrap">Generate</button>
+        </div>
+      </div>
       <textarea class="form-input" id="m-kn-body" style="min-height:300px;font-family:var(--font-mono);font-size:12px;resize:vertical">${_esc(doc.content || "")}</textarea>
     </div>`,
     async () => {
@@ -251,6 +260,39 @@ function _showEditKnowledgeModal(doc, onDone) {
       if (ta) ta.value = full.content || "";
     }).catch(() => {});
   }
+
+  // Draft with AI toggle + generate
+  const aiBtn = document.getElementById("btn-kn-ai");
+  const aiRow = document.getElementById("kn-ai-row");
+  const aiPrompt = document.getElementById("kn-ai-prompt");
+  const aiGo = document.getElementById("btn-kn-ai-go");
+
+  aiBtn?.addEventListener("click", () => {
+    const visible = aiRow.style.display !== "none";
+    aiRow.style.display = visible ? "none" : "flex";
+    aiRow.style.flexDirection = "column";
+    if (!visible) aiPrompt?.focus();
+  });
+
+  const runDraft = async () => {
+    const prompt = aiPrompt?.value.trim() || "";
+    aiGo.disabled = true;
+    aiGo.textContent = "Generating…";
+    try {
+      const result = await api.draftKnowledge(doc.id, prompt);
+      const ta = document.getElementById("m-kn-body");
+      if (ta) ta.value = result.content || "";
+      aiRow.style.display = "none";
+    } catch (err) {
+      toastError(err);
+    } finally {
+      aiGo.disabled = false;
+      aiGo.textContent = "Generate";
+    }
+  };
+
+  aiGo?.addEventListener("click", runDraft);
+  aiPrompt?.addEventListener("keydown", e => { if (e.key === "Enter") runDraft(); });
 }
 
 // ── Skills ─────────────────────────────────────────────────────────────────
@@ -269,6 +311,7 @@ const _scopeLabel = (s) =>
 
 async function _renderSkills(container, scopeSel) {
   const content = container.querySelector("#lib-content");
+  content.innerHTML = "";
 
   const headerRow = document.createElement("div");
   headerRow.style.cssText = "display:flex;align-items:center;justify-content:space-between;margin-bottom:16px";
@@ -390,7 +433,15 @@ async function _openSkillEditor({ scopeSel, skillName, isNew, onDone }) {
         <span class="badge badge-perceptionist">${_scopeLabel(scopeSel)}</span>
       </div>
       <div style="display:flex;gap:8px">
+        <button class="btn btn-ghost btn-sm" id="btn-ai-draft">Draft with AI</button>
         <button class="btn btn-primary btn-sm" id="btn-save">Save  ⌘S</button>
+      </div>
+    </div>
+
+    <div id="sk-ai-row" style="display:none;margin-bottom:12px">
+      <div style="display:flex;gap:8px;align-items:center">
+        <input class="form-input" id="sk-ai-prompt" placeholder="Describe what this skill should do…" style="font-size:12px;flex:1">
+        <button class="btn btn-primary btn-sm" id="btn-sk-ai-go" style="white-space:nowrap">Generate</button>
       </div>
     </div>
 
@@ -460,6 +511,46 @@ async function _openSkillEditor({ scopeSel, skillName, isNew, onDone }) {
   }
 
   document.getElementById("btn-back").addEventListener("click", () => onDone && onDone());
+
+  // Draft with AI
+  const aiDraftBtn = document.getElementById("btn-ai-draft");
+  const aiRow      = document.getElementById("sk-ai-row");
+  const aiPrompt   = document.getElementById("sk-ai-prompt");
+  const aiGo       = document.getElementById("btn-sk-ai-go");
+
+  aiDraftBtn?.addEventListener("click", () => {
+    const visible = aiRow.style.display !== "none";
+    aiRow.style.display = visible ? "none" : "flex";
+    aiRow.style.flexDirection = "column";
+    if (!visible) aiPrompt?.focus();
+  });
+
+  const runSkillDraft = async () => {
+    const name   = (document.getElementById("sk-name")?.value || "").trim() || startName || "skill";
+    const prompt = aiPrompt?.value.trim() || "";
+    aiGo.disabled = true;
+    aiGo.textContent = "Generating…";
+    try {
+      const result = await api.draftSkill(name, prompt);
+      if (result.py_content) {
+        if (pyEditor) pyEditor.setValue(result.py_content);
+        else { const ta = document.getElementById("sk-py-textarea"); if (ta) ta.value = result.py_content; }
+      }
+      if (result.yaml_content) {
+        if (yamlEditor) yamlEditor.setValue(result.yaml_content);
+        else { const ta = document.getElementById("sk-yaml-textarea"); if (ta) ta.value = result.yaml_content; }
+      }
+      aiRow.style.display = "none";
+    } catch (err) {
+      toastError(err);
+    } finally {
+      aiGo.disabled = false;
+      aiGo.textContent = "Generate";
+    }
+  };
+
+  aiGo?.addEventListener("click", runSkillDraft);
+  aiPrompt?.addEventListener("keydown", e => { if (e.key === "Enter") runSkillDraft(); });
 
   // Populate the runtime-info panel once the editor is mounted.
   api.getSkillsRuntime().then(info => {

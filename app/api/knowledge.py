@@ -185,6 +185,44 @@ def delete_knowledge(doc_id: str):
     return "", 204
 
 
+class KnowledgeDraftRequest(BaseModel):
+    prompt: str = ""
+
+
+@bp.post("/knowledge/<doc_id>/draft")
+def draft_knowledge(doc_id: str):
+    try:
+        body = KnowledgeDraftRequest.model_validate(request.get_json(force=True) or {})
+    except Exception as exc:
+        return jsonify({"error": {"code": "validation_error", "message": str(exc)}}), 400
+
+    with get_session() as session:
+        doc = session.get(KnowledgeDocument, doc_id)
+        if not doc:
+            return jsonify({"error": {"code": "not_found", "message": "Document not found"}}), 404
+        doc_name = doc.name
+        doc_title = doc.title
+
+    try:
+        from app.core.secrets import get_llm_credentials  # noqa: PLC0415
+        llm = get_llm_credentials()
+        system = (
+            "You are a technical writer helping draft knowledge documents for an AI agent swarm platform. "
+            "Output only well-structured Markdown. Start with a # heading. Be concise and specific."
+        )
+        user_msg = f"Document name: {doc_name}\nDocument title: {doc_title or doc_name}\n"
+        if body.prompt:
+            user_msg += f"\nInstructions: {body.prompt}"
+        else:
+            user_msg += "\nDraft the content of this knowledge document based on its name and title."
+        content = llm.complete(system, [{"role": "user", "content": user_msg}], max_tokens=2048)
+    except Exception as exc:
+        logger.error("LLM draft failed: %s", exc)
+        return jsonify({"error": {"code": "llm_error", "message": str(exc)}}), 502
+
+    return jsonify({"content": content})
+
+
 def _extract_title(content: str) -> str | None:
     for line in content.splitlines():
         line = line.strip()
