@@ -54,21 +54,22 @@ class LLMClient:
         return openai.OpenAI(api_key=api_key)
 
     def complete(self, system: str, messages: list[dict], **kwargs) -> str:
-        """Send a completion request and return the assistant's text response.
+        """Send a completion request and return the assistant's text response."""
+        text, _ = self.complete_with_usage(system, messages, **kwargs)
+        return text
 
-        Args:
-            system:   System prompt string.
-            messages: List of {"role": "user"|"assistant", "content": str} dicts.
-            **kwargs: Provider-specific overrides (max_tokens, temperature, etc.)
+    def complete_with_usage(
+        self, system: str, messages: list[dict], **kwargs
+    ) -> tuple[str, dict]:
+        """Send a completion request and return (text, usage).
 
-        Returns:
-            The assistant's response as a plain string.
+        usage dict has keys: input_tokens, output_tokens (both int).
         """
         if self.provider == "anthropic":
             return self._complete_anthropic(system, messages, **kwargs)
         return self._complete_openai(system, messages, **kwargs)
 
-    def _complete_anthropic(self, system: str, messages: list[dict], **kwargs) -> str:
+    def _complete_anthropic(self, system: str, messages: list[dict], **kwargs) -> tuple[str, dict]:
         max_tokens = kwargs.pop("max_tokens", 4096)
         response = self._client.messages.create(
             model=self.model,
@@ -77,13 +78,22 @@ class LLMClient:
             max_tokens=max_tokens,
             **kwargs,
         )
-        return response.content[0].text
+        usage = {
+            "input_tokens": getattr(response.usage, "input_tokens", 0) or 0,
+            "output_tokens": getattr(response.usage, "output_tokens", 0) or 0,
+        }
+        return response.content[0].text, usage
 
-    def _complete_openai(self, system: str, messages: list[dict], **kwargs) -> str:
+    def _complete_openai(self, system: str, messages: list[dict], **kwargs) -> tuple[str, dict]:
         full_messages = [{"role": "system", "content": system}] + messages
         response = self._client.chat.completions.create(
             model=self.model,
             messages=full_messages,
             **kwargs,
         )
-        return response.choices[0].message.content
+        u = response.usage
+        usage = {
+            "input_tokens": getattr(u, "prompt_tokens", 0) or 0,
+            "output_tokens": getattr(u, "completion_tokens", 0) or 0,
+        }
+        return response.choices[0].message.content, usage

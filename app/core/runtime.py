@@ -369,7 +369,7 @@ def resume_run(human_action_id: str) -> Run | None:
             initial_messages=messages,
             ctx=ctx,
             depth=depth,
-        )
+        )  # token_totals discarded on resume — step already exists
         _finish_run(run_id, STATUS_COMPLETED)
         _notify("run.completed", {"run_id": run_id, "swarm_id": swarm_id, "status": "completed"})
     except RunSuspended as exc:
@@ -442,14 +442,19 @@ def _execute_agent_call(
         step_id = step.id
 
     try:
-        output = _run_agent_loop(
+        output, token_totals = _run_agent_loop(
             agent_name=agent_name,
             md_path=md_path,
             initial_messages=messages,
             ctx=ctx,
             depth=depth,
         )
-        _update_step(step_id, output_json=json.dumps(output))
+        _update_step(
+            step_id,
+            output_json=json.dumps(output),
+            tokens_input=token_totals.get("input_tokens"),
+            tokens_output=token_totals.get("output_tokens"),
+        )
         _notify("run.step", {
             "run_id": ctx.run_id, "swarm_id": ctx.swarm_id,
             "step_name": agent_name, "step_type": step_type, "sequence": seq,
@@ -468,10 +473,10 @@ def _run_agent_loop(
     initial_messages: list[dict],
     ctx: RunContext,
     depth: int,
-) -> dict:
+) -> tuple[dict, dict]:
     """Multi-turn loop: call LLM, dispatch actions, continue until complete.
 
-    Returns the agent's final output when it returns 'complete'.
+    Returns (output, token_totals) where token_totals = {input_tokens, output_tokens}.
     Raises for topology violations, max turns, or human escalations.
     """
     if md_path is None or not os.path.isfile(md_path):
@@ -493,21 +498,25 @@ def _run_agent_loop(
         ctx=ctx,
     )
 
-    # Resolve provider + API key through secrets. This picks up the
-    # GUI-stored encrypted key in preference to the legacy ANTHROPIC_API_KEY /
-    # OPENAI_API_KEY env vars so operators can rotate creds without redeploying.
     llm = get_llm_credentials(model=model)
     messages = list(initial_messages)
+    total_input_tokens = 0
+    total_output_tokens = 0
 
     for turn in range(MAX_AGENT_TURNS):
-        raw = llm.complete(system=system_prompt, messages=messages)
+        raw, usage = llm.complete_with_usage(system=system_prompt, messages=messages)
+        total_input_tokens += usage.get("input_tokens", 0)
+        total_output_tokens += usage.get("output_tokens", 0)
         messages.append({"role": "assistant", "content": raw})
 
         action_dict = _parse_action(raw, agent_name)
         action = action_dict.get("action", "")
 
         if action == "complete":
-            return action_dict.get("input") or {}
+            return action_dict.get("input") or {}, {
+                "input_tokens": total_input_tokens,
+                "output_tokens": total_output_tokens,
+            }
 
         if action == "escalate_to_human":
             reasoning = action_dict.get("reasoning", "(no reasoning given)")
@@ -524,6 +533,8 @@ def _run_agent_loop(
                     sequence=seq,
                     started_at=now,
                     ended_at=now,
+                    tokens_input=total_input_tokens,
+                    tokens_output=total_output_tokens,
                 )
                 session.add(step)
                 session.commit()
@@ -531,9 +542,6 @@ def _run_agent_loop(
                 f"Agent '{agent_name}' escalated to human: {reasoning}"
             )
 
-        # Dispatchable action — run it and feed the result back. `messages`
-        # is passed so the dispatcher can snapshot it when suspending on a
-        # `call` edge (the only branch that does this).
         result = _dispatch_sub_action(action_dict, agent_name, ctx, depth, messages=messages)
         messages.append({
             "role": "user",
@@ -1151,11 +1159,17 @@ def _update_step(
     *,
     output_json: str | None = None,
     error: str | None = None,
+    tokens_input: int | None = None,
+    tokens_output: int | None = None,
 ) -> None:
     with get_session() as session:
         step = session.get(RunStep, step_id)
         if step:
             step.ended_at = datetime.now(timezone.utc)
+            if tokens_input is not None:
+                step.tokens_input = tokens_input
+            if tokens_output is not None:
+                step.tokens_output = tokens_output
             if output_json is not None:
                 step.output_json = output_json
             if error is not None:

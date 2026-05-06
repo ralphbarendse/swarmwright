@@ -797,14 +797,17 @@ async function _renderRunDetail(container, runId, addCleanup) {
       <span class="crumb-sep">›</span>
       <span class="crumb-here" id="crumb-run-id">…</span>
     </div>
-    <div style="padding:0 24px;max-width:860px">
+    <div style="padding:0 24px;max-width:900px">
       <div id="run-header" style="margin-bottom:20px"></div>
+      <div id="run-summary-bar" style="margin-bottom:16px"></div>
       <div id="violations-box" style="display:none;margin-bottom:16px"></div>
       <div class="sec-header" style="margin-bottom:12px">Step trace</div>
       <div id="steps-list"></div>
     </div>`;
 
   container.querySelector("#crumb-runs").addEventListener("click", () => window.swNav("runs"));
+
+  let pollInterval = null;
 
   const _onRunEvent = data => {
     if (data?.run_id === runId) _reload();
@@ -816,6 +819,7 @@ async function _renderRunDetail(container, runId, addCleanup) {
     offEvent("run.step",      _onRunEvent);
     offEvent("run.completed", _onRunEvent);
     offEvent("run.failed",    _onRunEvent);
+    if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
   });
 
   const _reload = async () => {
@@ -823,9 +827,19 @@ async function _renderRunDetail(container, runId, addCleanup) {
       const run = await api.getRun(runId);
       container.querySelector("#crumb-run-id").textContent = run.id.slice(0, 8);
       _renderRunHeader(container, run);
+      _renderSummaryBar(container, run);
       if (run.status === "awaiting_human") _loadEscalation(container, run.id);
       _renderViolations(container, run.steps || []);
       _renderSteps(container, run.steps || []);
+
+      // Auto-poll while run is live
+      const live = run.status === "running" || run.status === "pending";
+      if (live && !pollInterval) {
+        pollInterval = setInterval(_reload, 3000);
+      } else if (!live && pollInterval) {
+        clearInterval(pollInterval);
+        pollInterval = null;
+      }
     } catch (err) { toastError(err); }
   };
 
@@ -864,6 +878,39 @@ function _renderRunHeader(container, run) {
       toastSuccess("Replay fired");
     } catch (err) { toastError(err); }
   });
+}
+
+// ── Run summary bar ───────────────────────────────────────────────────────
+
+function _renderSummaryBar(container, run) {
+  const bar = container.querySelector("#run-summary-bar");
+  if (!bar) return;
+  const steps = run.steps || [];
+  if (!steps.length) { bar.innerHTML = ""; return; }
+
+  const agentSteps  = steps.filter(s => s.step_type === "agent_call" || s.step_type === "perceptionist_call");
+  const skillSteps  = steps.filter(s => s.step_type === "skill_call");
+  const errorSteps  = steps.filter(s => s.error && s.step_type !== "topology_violation");
+  const totalIn     = steps.reduce((n, s) => n + (s.tokens_input  || 0), 0);
+  const totalOut    = steps.reduce((n, s) => n + (s.tokens_output || 0), 0);
+  const duration    = _duration(run.started_at, run.ended_at);
+
+  const pill = (label, val, color) =>
+    val > 0 ? `<span style="display:inline-flex;align-items:center;gap:4px;background:${color}18;color:${color};font-family:var(--font-mono);font-size:11px;border-radius:6px;padding:3px 9px;border:1px solid ${color}33">${label} <b>${val}</b></span>` : "";
+
+  const tokenPill = (totalIn || totalOut) ? `
+    <span style="display:inline-flex;align-items:center;gap:4px;background:var(--color-surface);color:var(--color-ink-soft);font-family:var(--font-mono);font-size:11px;border-radius:6px;padding:3px 9px;border:1px solid var(--color-border-soft)" title="input tokens / output tokens">
+      ↑${totalIn.toLocaleString()} ↓${totalOut.toLocaleString()} tok
+    </span>` : "";
+
+  bar.innerHTML = `
+    <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:10px 14px;background:var(--color-surface);border:1px solid var(--color-border-soft);border-radius:6px">
+      ${pill("agents",  agentSteps.length, "var(--color-policy)")}
+      ${pill("skills",  skillSteps.length, "var(--color-executioner)")}
+      ${pill("errors",  errorSteps.length, "var(--color-danger)")}
+      ${tokenPill}
+      ${duration ? `<span style="margin-left:auto;font-family:var(--font-mono);font-size:11px;color:var(--color-ink-faint)">${steps.length} steps · ${duration}</span>` : `<span style="margin-left:auto;font-family:var(--font-mono);font-size:11px;color:var(--color-ink-faint)">${steps.length} steps</span>`}
+    </div>`;
 }
 
 // ── Inline escalation card ────────────────────────────────────────────────
@@ -950,12 +997,21 @@ function _renderSteps(container, steps) {
     list.innerHTML = `<div style="color:var(--color-ink-soft);font-size:13px;padding:20px 0;font-family:var(--font-mono)">No steps recorded yet.</div>`;
     return;
   }
+
   list.innerHTML = steps.map((step, i) => {
     const isViolation = step.step_type === "topology_violation";
     const borderColor = isViolation ? "var(--color-amber)" : (step.error ? "var(--color-danger)" : "var(--color-border-soft)");
     const typeLabel   = _stepTypeLabel(step.step_type);
+    const typeColor   = _stepTypeColor(step.step_type);
     const duration    = _duration(step.started_at, step.ended_at);
+    const inputStr    = step.input  ? JSON.stringify(step.input,  null, 2) : null;
     const outputStr   = step.output ? JSON.stringify(step.output, null, 2) : null;
+    const hasIO       = inputStr || outputStr;
+    const stepId      = `step-${step.id}`;
+    const tokenStr    = (step.tokens_input || step.tokens_output)
+      ? `↑${(step.tokens_input  || 0).toLocaleString()} ↓${(step.tokens_output || 0).toLocaleString()} tok`
+      : null;
+
     return `
       <div style="display:flex;gap:12px;margin-bottom:12px">
         <div style="display:flex;flex-direction:column;align-items:center;flex-shrink:0">
@@ -963,17 +1019,51 @@ function _renderSteps(container, steps) {
           ${i < steps.length - 1 ? `<div style="width:2px;flex:1;background:var(--color-border-soft);margin-top:4px"></div>` : ""}
         </div>
         <div style="flex:1;border:1px solid ${borderColor};border-radius:6px;padding:12px 14px;margin-bottom:4px;background:${isViolation ? "var(--color-amber)0a" : "var(--color-surface)"}">
-          <div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;margin-bottom:6px">
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:${step.error || hasIO ? 8 : 0}px">
             <span style="font-weight:600;font-size:13px;font-family:var(--font-display)">${_esc(step.step_name)}</span>
-            <span style="font-size:10px;font-family:var(--font-mono);background:var(--color-surface);color:var(--color-ink-soft);padding:1px 6px;border-radius:4px">${typeLabel}</span>
-            ${step.edge_purpose ? `<span style="font-size:12px;font-style:italic;color:var(--color-policy);background:var(--color-policy)18;padding:1px 7px;border-radius:10px;font-family:var(--font-sans)">"${_esc(step.edge_purpose)}"</span>` : ""}
-            ${duration ? `<span style="font-size:11px;color:var(--color-ink-faint);margin-left:auto;font-family:var(--font-mono)">${duration}</span>` : ""}
+            <span style="font-size:10px;font-family:var(--font-mono);background:${typeColor}18;color:${typeColor};padding:1px 6px;border-radius:4px;border:1px solid ${typeColor}33">${typeLabel}</span>
+            ${step.edge_purpose ? `<span style="font-size:11px;font-style:italic;color:var(--color-policy);background:var(--color-policy)18;padding:1px 7px;border-radius:10px;font-family:var(--font-sans)">"${_esc(step.edge_purpose)}"</span>` : ""}
+            <div style="margin-left:auto;display:flex;align-items:center;gap:8px">
+              ${tokenStr ? `<span style="font-size:10px;font-family:var(--font-mono);color:var(--color-ink-faint)" title="LLM tokens used">${tokenStr}</span>` : ""}
+              ${duration ? `<span style="font-size:11px;color:var(--color-ink-faint);font-family:var(--font-mono)">${duration}</span>` : ""}
+            </div>
           </div>
-          ${step.error ? `<div style="font-size:12px;color:var(--color-danger);margin-bottom:6px">${_esc(step.error)}</div>` : ""}
-          ${outputStr ? `<details style="margin-top:4px"><summary style="font-size:11px;color:var(--color-ink-soft);cursor:pointer;font-family:var(--font-mono)">Output</summary><pre style="margin-top:6px;font-size:11px;background:var(--color-bg);border:1px solid var(--color-border-soft);border-radius:4px;padding:8px;overflow-x:auto;max-height:200px">${_esc(outputStr)}</pre></details>` : ""}
+          ${step.error ? `<div style="font-size:12px;color:var(--color-danger);background:var(--color-danger)0f;border:1px solid var(--color-danger)33;border-radius:4px;padding:8px 10px;margin-bottom:8px;font-family:var(--font-mono)">${_esc(step.error)}</div>` : ""}
+          ${hasIO ? `
+            <div class="step-io" id="${stepId}">
+              <div style="display:flex;gap:0;border-bottom:1px solid var(--color-border-soft);margin-bottom:8px">
+                <button class="io-tab active" data-step="${stepId}" data-pane="input"
+                  style="font-size:11px;font-family:var(--font-mono);background:none;border:none;border-bottom:2px solid var(--color-policy);padding:4px 10px;cursor:pointer;color:var(--color-policy)">Input</button>
+                <button class="io-tab" data-step="${stepId}" data-pane="output"
+                  style="font-size:11px;font-family:var(--font-mono);background:none;border:none;border-bottom:2px solid transparent;padding:4px 10px;cursor:pointer;color:var(--color-ink-soft)">Output</button>
+              </div>
+              <div class="io-pane" data-step="${stepId}" data-pane="input">
+                ${inputStr ? `<pre style="font-size:11px;background:var(--color-bg);border:1px solid var(--color-border-soft);border-radius:4px;padding:8px;overflow-x:auto;max-height:220px;margin:0">${_esc(inputStr)}</pre>` : `<span style="font-size:11px;color:var(--color-ink-faint);font-family:var(--font-mono)">No input recorded</span>`}
+              </div>
+              <div class="io-pane" data-step="${stepId}" data-pane="output" style="display:none">
+                ${outputStr ? `<pre style="font-size:11px;background:var(--color-bg);border:1px solid var(--color-border-soft);border-radius:4px;padding:8px;overflow-x:auto;max-height:220px;margin:0">${_esc(outputStr)}</pre>` : `<span style="font-size:11px;color:var(--color-ink-faint);font-family:var(--font-mono)">No output yet</span>`}
+              </div>
+            </div>` : ""}
         </div>
       </div>`;
   }).join("");
+
+  // Wire tab switching
+  list.querySelectorAll(".io-tab").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const stepId = btn.dataset.step;
+      const pane   = btn.dataset.pane;
+      list.querySelectorAll(`.io-tab[data-step="${stepId}"]`).forEach(t => {
+        const active = t.dataset.pane === pane;
+        t.style.borderBottomColor = active ? "var(--color-policy)" : "transparent";
+        t.style.color = active ? "var(--color-policy)" : "var(--color-ink-soft)";
+        t.classList.toggle("active", active);
+      });
+      list.querySelectorAll(`.io-pane[data-step="${stepId}"]`).forEach(p => {
+        p.style.display = p.dataset.pane === pane ? "" : "none";
+      });
+    });
+  });
 }
 
 // ── Utilities ─────────────────────────────────────────────────────────────
@@ -996,6 +1086,18 @@ function _statusColor(status) {
     pending:        "var(--color-ink-faint)",
     awaiting_human: "var(--color-orchestrator)",
   }[status] || "var(--color-ink-faint)";
+}
+
+function _stepTypeColor(type) {
+  return {
+    agent_call:          "var(--color-policy)",
+    skill_call:          "var(--color-executioner)",
+    perceptionist_call:  "var(--color-perceptionist)",
+    human_escalation:    "var(--color-orchestrator)",
+    caller_call:         "var(--color-orchestrator)",
+    informer_notify:     "var(--color-ink-soft)",
+    topology_violation:  "var(--color-amber)",
+  }[type] || "var(--color-ink-faint)";
 }
 
 function _stepTypeLabel(type) {

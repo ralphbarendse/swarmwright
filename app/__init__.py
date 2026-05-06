@@ -141,12 +141,36 @@ def create_app(config: Config | None = None) -> Flask:
 def _make_run_handler(app: Flask):
     """Return an event_bus subscriber that starts a Run for each published event."""
 
+    def _fail_run(event, error: str, get_session, Run, STATUS_FAILED) -> None:
+        """Persist an immediately-failed run so Control Room shows the error."""
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        try:
+            with get_session() as session:
+                run = Run(
+                    event_id=event.id,
+                    swarm_id=event.swarm_id,
+                    status=STATUS_FAILED,
+                    started_at=now,
+                    ended_at=now,
+                    error=error,
+                )
+                session.add(run)
+                session.commit()
+                session.refresh(run)
+                run_id = run.id
+            if hasattr(app, "sse_bus"):
+                app.sse_bus.broadcast("run.failed", {"run_id": run_id, "swarm_id": event.swarm_id})
+        except Exception:
+            logger.exception("Could not persist failed run for event %s", event.id)
+
     def handle(event) -> None:
         with app.app_context():
             from app.core import runtime
             from app.db import get_session
             from app.models.swarm import Swarm
             from app.models.workspace import Workspace
+            from app.models.run import Run, STATUS_FAILED
 
             data_dir: str = app.config.get("DATA_DIR", "/data")
 
@@ -159,20 +183,25 @@ def _make_run_handler(app: Flask):
                         event.swarm_id,
                     )
                     return
+                if swarm.validation_error:
+                    error_msg = f"Swarm failed validation: {swarm.validation_error}"
+                    logger.warning("Event %s: %s", event.id, error_msg)
+                    _fail_run(event, error_msg, get_session, Run, STATUS_FAILED)
+                    return
                 if not swarm.enabled:
-                    logger.info(
-                        "Event %s: swarm %s is disabled — skipping run",
-                        event.id,
-                        swarm.name,
-                    )
+                    error_msg = "Swarm is disabled"
+                    logger.info("Event %s: swarm %s is disabled — skipping run", event.id, swarm.name)
+                    _fail_run(event, error_msg, get_session, Run, STATUS_FAILED)
                     return
                 workspace = session.get(Workspace, swarm.workspace_id)
                 if not workspace:
+                    error_msg = "Workspace not found for swarm"
                     logger.warning(
                         "Event %s: workspace not found for swarm %s — skipping run",
                         event.id,
                         swarm.name,
                     )
+                    _fail_run(event, error_msg, get_session, Run, STATUS_FAILED)
                     return
                 swarm_name = swarm.name
                 workspace_name = workspace.name

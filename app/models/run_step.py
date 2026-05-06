@@ -37,6 +37,8 @@ class RunStep(Base):
     ended_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     error: Mapped[str | None] = mapped_column(String, nullable=True)
     sequence: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    tokens_input: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    tokens_output: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     def to_dict(self) -> dict:
         return {
@@ -49,10 +51,13 @@ class RunStep(Base):
             "caller_id": self.caller_id,
             "informer_id": self.informer_id,
             "sequence": self.sequence,
+            "input": _parse_json_field(self.input_json),
             "output": _parse_json_field(self.output_json),
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "ended_at": self.ended_at.isoformat() if self.ended_at else None,
             "error": self.error,
+            "tokens_input": self.tokens_input,
+            "tokens_output": self.tokens_output,
         }
 
 
