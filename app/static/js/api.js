@@ -44,12 +44,13 @@ export const getHierarchy = (id)        => get(`/swarms/${id}/hierarchy`);
 export const patchTopology = (id, op, params) => patch(`/swarms/${id}/topology`, { op, params });
 
 // ── Agents ───────────────────────────────────────────────────────────────────
-export const listAgents        = (sid)         => get(`/swarms/${sid}/agents`);
-export const getAgent          = (id)          => get(`/agents/${id}`);
-export const createAgent       = (sid, body)   => post(`/swarms/${sid}/agents`, body);
+export const listAgents         = (sid)         => get(`/swarms/${sid}/agents`);
+export const getAgent           = (id)          => get(`/agents/${id}`);
+export const createAgent        = (sid, body)   => post(`/swarms/${sid}/agents`, body);
 export const updateConstitution = (id, constitution) => put(`/agents/${id}/constitution`, { constitution });
-export const deleteAgent       = (id)          => del(`/agents/${id}`);
-export const getAgentHistory   = (id)          => get(`/agents/${id}/history`);
+export const deleteAgent        = (id)          => del(`/agents/${id}`);
+export const getAgentHistory    = (id)          => get(`/agents/${id}/history`);
+export const draftConstitution  = (id, prompt)  => post(`/agents/${id}/draft`, { prompt });
 
 // ── Knowledge ────────────────────────────────────────────────────────────────
 export const listKnowledge   = (params = {}) => get("/knowledge?" + new URLSearchParams(params));
@@ -69,12 +70,14 @@ export const deleteSkill = (name, params = {}) => del(`/skills/${name}?` + new U
 export const getSkillsRuntime = () => get("/skills/_meta/runtime");
 
 // ── Runs ─────────────────────────────────────────────────────────────────────
-export const listRuns  = (params = {}) => get("/runs?" + new URLSearchParams(params));
-export const getRun    = (id)          => get(`/runs/${id}`);
-export const replayRun = (id)          => post(`/runs/${id}/replay`, {});
+export const listRuns    = (params = {}) => get("/runs?" + new URLSearchParams(params));
+export const getRun      = (id)          => get(`/runs/${id}`);
+export const replayRun   = (id)          => post(`/runs/${id}/replay`, {});
+export const getRunStats = ()            => get("/runs/stats");
 
 // ── Events ───────────────────────────────────────────────────────────────────
-export const fireEvent = (sid, body) => post(`/swarms/${sid}/events`, body);
+export const fireEvent   = (sid, body)    => post(`/swarms/${sid}/events`, body);
+export const listEvents  = (params = {})  => get("/events?" + new URLSearchParams(params));
 
 // ── Triggers ─────────────────────────────────────────────────────────────────
 export const listTriggers   = (sid)        => get(`/swarms/${sid}/triggers`);

@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, date
 
 from flask import Blueprint, current_app, jsonify, request
-from sqlalchemy import select
+from sqlalchemy import select, func
 
 from app.db import get_session
 from app.models.event import Event
-from app.models.run import Run
+from app.models.run import Run, STATUS_RUNNING, STATUS_COMPLETED, STATUS_FAILED, STATUS_AWAITING_HUMAN
 from app.models.run_step import RunStep
 from app.models.swarm import Swarm
 
@@ -16,13 +17,45 @@ logger = logging.getLogger(__name__)
 bp = Blueprint("runs", __name__, url_prefix="/api/v1")
 
 
+@bp.get("/runs/stats")
+def run_stats():
+    today_start = datetime.combine(date.today(), datetime.min.time())
+    with get_session() as session:
+        running = session.execute(
+            select(func.count()).select_from(Run).where(Run.status == STATUS_RUNNING)
+        ).scalar() or 0
+        awaiting = session.execute(
+            select(func.count()).select_from(Run).where(Run.status == STATUS_AWAITING_HUMAN)
+        ).scalar() or 0
+        completed_today = session.execute(
+            select(func.count()).select_from(Run).where(
+                Run.status == STATUS_COMPLETED,
+                Run.ended_at >= today_start,
+            )
+        ).scalar() or 0
+        failed_today = session.execute(
+            select(func.count()).select_from(Run).where(
+                Run.status == STATUS_FAILED,
+                Run.ended_at >= today_start,
+            )
+        ).scalar() or 0
+    return jsonify({
+        "running": running,
+        "awaiting_human": awaiting,
+        "completed_today": completed_today,
+        "failed_today": failed_today,
+    })
+
+
 @bp.get("/runs")
 def list_runs():
-    swarm_id     = request.args.get("swarm_id")
-    workspace_id = request.args.get("workspace_id")
-    status       = request.args.get("status")
-    limit        = min(int(request.args.get("limit", 50)), 200)
-    offset       = int(request.args.get("offset", 0))
+    swarm_id       = request.args.get("swarm_id")
+    workspace_id   = request.args.get("workspace_id")
+    status         = request.args.get("status")
+    started_after  = request.args.get("started_after")
+    started_before = request.args.get("started_before")
+    limit          = min(int(request.args.get("limit", 50)), 200)
+    offset         = int(request.args.get("offset", 0))
 
     with get_session() as session:
         q = select(Run).order_by(Run.started_at.desc())
@@ -33,10 +66,19 @@ def list_runs():
             q = q.where(Run.swarm_id.in_(subq))
         if status:
             q = q.where(Run.status == status)
+        if started_after:
+            try:
+                q = q.where(Run.started_at >= datetime.fromisoformat(started_after))
+            except ValueError:
+                pass
+        if started_before:
+            try:
+                q = q.where(Run.started_at <= datetime.fromisoformat(started_before))
+            except ValueError:
+                pass
         q = q.limit(limit).offset(offset)
         runs = session.execute(q).scalars().all()
 
-        # Enrich with swarm display_name and event source
         results = []
         for run in runs:
             data = run.to_dict()
@@ -94,7 +136,6 @@ def replay_run(run_id: str):
         if not original_event:
             return jsonify({"error": {"code": "not_found", "message": "Original event not found"}}), 404
 
-        # Create a new replay event with the same payload
         new_event = Event(
             swarm_id=original_event.swarm_id,
             trigger_id=None,
@@ -106,7 +147,6 @@ def replay_run(run_id: str):
         session.refresh(new_event)
         event_data = new_event
 
-    # Publish to event bus so a new run is started
     if hasattr(current_app, "event_bus"):
         current_app.event_bus.publish(event_data)
 

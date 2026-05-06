@@ -20,10 +20,16 @@ class Event(Base):
     received_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
 
     def to_dict(self) -> dict:
+        import json
+        try:
+            payload = json.loads(self.payload_json or "{}")
+        except Exception:
+            payload = {}
         return {
             "id": self.id,
             "swarm_id": self.swarm_id,
             "trigger_id": self.trigger_id,
             "source": self.source,
+            "payload": payload,
             "received_at": self.received_at.isoformat() if self.received_at else None,
         }

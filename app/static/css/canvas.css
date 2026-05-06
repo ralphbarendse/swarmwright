@@ -2,7 +2,7 @@
 .canvas-shell {
   display: grid;
   grid-template-columns: var(--palette-w) 1fr var(--inspector-w);
-  grid-template-rows: 1fr var(--stream-h);
+  grid-template-rows: 1fr;
   height: 100%;
   overflow: hidden;
   background: var(--color-parchment);
@@ -100,6 +100,498 @@
 #cy-container .cy-label-trigger       .cy-label-name { color: var(--color-perceptionist); }
 /* Caller nodes (Phase 6) — sage-green name + raised-hand glyph in label data */
 #cy-container .cy-label-caller        .cy-label-name { color: #3f5f3f; font-weight: 600; }
+
+/* ── Agent node cards (landing-page card style) ──────────────────────────── */
+/* Override base .cy-label defaults for agent cards — cards are left-aligned
+   and not width-constrained like the single-line labels. */
+#cy-container .cy-label-agent {
+  text-align: left;
+  max-width: none;
+  color: var(--color-ink);
+}
+
+#cy-container .cy-card {
+  background: var(--color-card);
+  border: 2px solid var(--color-ink);
+  box-shadow: 3px 3px 0 var(--color-ink);
+  border-radius: 3px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  width: 13.75em; /* 220px at zoom-1 base font 16px — matches Cytoscape node width */
+}
+
+#cy-container .cy-label-agent.is-selected .cy-card {
+  border-color: var(--color-perceptionist);
+  box-shadow: 3px 3px 0 var(--color-perceptionist);
+}
+
+#cy-container .cy-card-accent {
+  height: 0.28em;
+  width: 100%;
+  flex-shrink: 0;
+}
+#cy-container .cy-card-layer-policy        .cy-card-accent { background: var(--color-policy); }
+#cy-container .cy-card-layer-orchestrator  .cy-card-accent { background: var(--color-orchestrator); }
+#cy-container .cy-card-layer-executioner   .cy-card-accent { background: var(--color-executioner); }
+#cy-container .cy-card-layer-perceptionist .cy-card-accent { background: var(--color-perceptionist); }
+
+#cy-container .cy-card-inner {
+  padding: 0.45em 0.6em 0.5em;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25em;
+}
+
+#cy-container .cy-card-header {
+  display: flex;
+  align-items: center;
+  gap: 0.45em;
+}
+
+#cy-container .cy-card-dot {
+  width: 0.6em;
+  height: 0.6em;
+  border-radius: 50%;
+  border: 1.5px solid var(--color-ink);
+  flex-shrink: 0;
+}
+#cy-container .cy-card-layer-policy        .cy-card-dot { background: var(--color-policy); }
+#cy-container .cy-card-layer-orchestrator  .cy-card-dot { background: var(--color-orchestrator); }
+#cy-container .cy-card-layer-executioner   .cy-card-dot { background: var(--color-executioner); }
+#cy-container .cy-card-layer-perceptionist .cy-card-dot { background: var(--color-perceptionist); }
+
+#cy-container .cy-card-name {
+  font-family: var(--font-display);
+  font-size: 0.88em;
+  font-weight: 400;
+  letter-spacing: -0.3px;
+  color: var(--color-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+  line-height: 1.2;
+}
+
+#cy-container .cy-card-entry-star {
+  font-size: 0.72em;
+  color: var(--color-amber);
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+#cy-container .cy-card-tagline {
+  font-family: var(--font-mono);
+  font-size: 0.58em;
+  color: var(--color-ink-soft);
+  font-style: italic;
+  line-height: 1.35;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+#cy-container .cy-card-sep {
+  border: none;
+  border-top: 1px dashed var(--color-cream-line);
+  margin: 0.1em 0 0;
+}
+
+#cy-container .cy-card-preview {
+  font-family: var(--font-mono);
+  font-size: 0.52em;
+  color: var(--color-ink-faint);
+  line-height: 1.45;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+#cy-container .cy-card-footer {
+  display: flex;
+  align-items: center;
+  border-top: 1px dashed var(--color-cream-line);
+  padding-top: 0.3em;
+  margin-top: 0.15em;
+}
+
+#cy-container .cy-card-model-pill {
+  font-family: var(--font-mono);
+  font-size: 0.5em;
+  background: var(--color-panel);
+  border: 1.5px solid var(--color-ink);
+  box-shadow: 1.5px 1.5px 0 var(--color-ink);
+  padding: 0.1em 0.5em;
+  color: var(--color-ink);
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  border-radius: 0;
+}
+/* ── Skill node cards ────────────────────────────────────────────────────── */
+#cy-container .cy-label-skill {
+  text-align: left;
+  max-width: none;
+  color: var(--color-ink);
+}
+
+#cy-container .cy-skill-card {
+  background: var(--color-card);
+  border: 2px dashed var(--color-ink);
+  box-shadow: 3px 3px 0 var(--color-ink-faint);
+  border-radius: 3px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  width: 13.75em;
+}
+
+#cy-container .cy-label-skill.is-selected .cy-skill-card {
+  border-color: var(--color-perceptionist);
+  box-shadow: 3px 3px 0 var(--color-perceptionist);
+}
+
+#cy-container .cy-skill-accent {
+  height: 0.25em;
+  width: 100%;
+  background: var(--color-ink-faint);
+  flex-shrink: 0;
+}
+
+#cy-container .cy-skill-inner {
+  padding: 0.38em 0.6em 0.42em;
+  display: flex;
+  flex-direction: column;
+  gap: 0.18em;
+}
+
+#cy-container .cy-skill-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+}
+
+#cy-container .cy-skill-glyph {
+  font-size: 0.7em;
+  color: var(--color-ink-soft);
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+#cy-container .cy-skill-name {
+  font-family: var(--font-mono);
+  font-size: 0.78em;
+  font-weight: 600;
+  color: var(--color-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+  letter-spacing: -0.2px;
+  line-height: 1.2;
+}
+
+#cy-container .cy-skill-sep {
+  border: none;
+  border-top: 1px dashed var(--color-cream-line);
+  margin: 0.1em 0 0.05em;
+}
+
+#cy-container .cy-skill-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35em;
+}
+
+#cy-container .cy-skill-label {
+  font-family: var(--font-mono);
+  font-size: 0.48em;
+  color: var(--color-ink-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  flex-shrink: 0;
+  width: 2.2em;
+  line-height: 1.6;
+}
+
+#cy-container .cy-skill-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25em;
+  flex: 1;
+  min-width: 0;
+  align-items: flex-start;
+  align-content: flex-start;
+}
+
+/* Pills — base */
+#cy-container .cy-skill-pill {
+  font-family: var(--font-mono);
+  font-size: 0.48em;
+  line-height: 1;
+  padding: 0.2em 0.45em;
+  border-radius: 2px;
+  white-space: nowrap;
+  border: 1px solid transparent;
+  color: var(--color-ink-soft);
+}
+#cy-container .cy-skill-pill em {
+  font-style: normal;
+  color: var(--color-ink-faint);
+}
+/* Optional fields get a dashed border — same tint, just sketched */
+#cy-container .cy-skill-pill-opt {
+  border-style: dashed;
+}
+/* IN pills — soft navy tint */
+#cy-container .cy-skill-pill-in {
+  background: rgba(30, 58, 95, 0.07);
+  border-color: rgba(30, 58, 95, 0.18);
+}
+/* OUT pills — soft teal tint */
+#cy-container .cy-skill-pill-out {
+  background: rgba(42, 107, 107, 0.07);
+  border-color: rgba(42, 107, 107, 0.18);
+}
+
+#cy-container .cy-skill-none {
+  font-family: var(--font-mono);
+  font-size: 0.48em;
+  color: var(--color-ink-faint);
+  font-style: italic;
+  line-height: 1.6;
+}
+
+/* ── Trigger node cards ───────────────────────────────────────────────────── */
+#cy-container .cy-label-trigger { text-align: left; max-width: none; }
+
+#cy-container .cy-trigger-card {
+  background: var(--color-card);
+  border: 2px solid var(--color-ink);
+  box-shadow: 3px 3px 0 var(--color-ink);
+  border-radius: 3px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  width: 13.75em;
+}
+#cy-container .cy-label-trigger.is-selected .cy-trigger-card {
+  border-color: var(--color-perceptionist);
+  box-shadow: 3px 3px 0 var(--color-perceptionist);
+}
+#cy-container .cy-trigger-accent {
+  height: 0.28em;
+  width: 100%;
+  background: var(--color-amber);
+  flex-shrink: 0;
+}
+#cy-container .cy-trigger-inner {
+  padding: 0.42em 0.6em 0.48em;
+  display: flex;
+  flex-direction: column;
+  gap: 0.18em;
+}
+#cy-container .cy-trigger-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+}
+#cy-container .cy-trigger-glyph {
+  font-size: 0.72em;
+  flex-shrink: 0;
+  line-height: 1;
+}
+#cy-container .cy-trigger-name {
+  font-family: var(--font-display);
+  font-size: 0.85em;
+  font-weight: 400;
+  color: var(--color-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+  line-height: 1.2;
+}
+#cy-container .cy-trigger-status {
+  font-size: 0.55em;
+  flex-shrink: 0;
+  line-height: 1;
+}
+#cy-container .cy-trigger-status.is-enabled  { color: var(--color-success); }
+#cy-container .cy-trigger-status.is-disabled { color: var(--color-ink-faint); }
+#cy-container .cy-trigger-kind-label {
+  font-family: var(--font-mono);
+  font-size: 0.5em;
+  color: var(--color-ink-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  line-height: 1.4;
+}
+#cy-container .cy-trigger-sep {
+  border: none;
+  border-top: 1px dashed var(--color-cream-line);
+  margin: 0.1em 0 0.05em;
+}
+#cy-container .cy-trigger-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25em;
+}
+#cy-container .cy-trigger-pill {
+  font-family: var(--font-mono);
+  font-size: 0.5em;
+  line-height: 1;
+  padding: 0.2em 0.5em;
+  border-radius: 2px;
+  background: rgba(201, 124, 42, 0.08);
+  border: 1px solid rgba(201, 124, 42, 0.25);
+  color: var(--color-ink-soft);
+  white-space: nowrap;
+}
+#cy-container .cy-trigger-none {
+  font-family: var(--font-mono);
+  font-size: 0.48em;
+  color: var(--color-ink-faint);
+  font-style: italic;
+  line-height: 1.6;
+}
+
+/* ── Caller node cards ────────────────────────────────────────────────────── */
+#cy-container .cy-label-caller { text-align: left; max-width: none; }
+
+#cy-container .cy-caller-card {
+  background: var(--color-card);
+  border: 2px solid var(--color-ink);
+  box-shadow: 3px 3px 0 var(--color-ink);
+  border-radius: 3px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  width: 13.75em;
+}
+#cy-container .cy-label-caller.is-selected .cy-caller-card {
+  border-color: #6b8e6b;
+  box-shadow: 3px 3px 0 #6b8e6b;
+}
+#cy-container .cy-caller-accent {
+  height: 0.28em;
+  width: 100%;
+  background: #6b8e6b;
+  flex-shrink: 0;
+}
+#cy-container .cy-caller-inner {
+  padding: 0.42em 0.6em 0.48em;
+  display: flex;
+  flex-direction: column;
+  gap: 0.18em;
+}
+#cy-container .cy-caller-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+}
+#cy-container .cy-caller-glyph {
+  font-size: 0.72em;
+  flex-shrink: 0;
+  line-height: 1;
+}
+#cy-container .cy-caller-name {
+  font-family: var(--font-display);
+  font-size: 0.85em;
+  font-weight: 400;
+  color: var(--color-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+  line-height: 1.2;
+}
+#cy-container .cy-caller-sep {
+  border: none;
+  border-top: 1px dashed var(--color-cream-line);
+  margin: 0.1em 0 0.05em;
+}
+#cy-container .cy-caller-role {
+  font-family: var(--font-mono);
+  font-size: 0.5em;
+  color: #6b8e6b;
+  line-height: 1.5;
+  font-style: italic;
+}
+
+/* ── Informer node cards ──────────────────────────────────────────────────── */
+#cy-container .cy-label-informer { text-align: left; max-width: none; }
+
+#cy-container .cy-informer-card {
+  background: var(--color-card);
+  border: 2px dashed var(--color-ink);      /* dashed = non-blocking */
+  box-shadow: 3px 3px 0 var(--color-ink-faint);
+  border-radius: 3px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  width: 13.75em;
+}
+#cy-container .cy-label-informer.is-selected .cy-informer-card {
+  border-color: #5b7fa6;
+  box-shadow: 3px 3px 0 #5b7fa6;
+}
+#cy-container .cy-informer-accent {
+  height: 0.28em;
+  width: 100%;
+  background: #5b7fa6;
+  flex-shrink: 0;
+}
+#cy-container .cy-informer-inner {
+  padding: 0.42em 0.6em 0.48em;
+  display: flex;
+  flex-direction: column;
+  gap: 0.18em;
+}
+#cy-container .cy-informer-header {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
+}
+#cy-container .cy-informer-glyph {
+  font-size: 0.72em;
+  flex-shrink: 0;
+  line-height: 1;
+}
+#cy-container .cy-informer-name {
+  font-family: var(--font-display);
+  font-size: 0.85em;
+  font-weight: 400;
+  color: var(--color-ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+  line-height: 1.2;
+}
+#cy-container .cy-informer-sep {
+  border: none;
+  border-top: 1px dashed var(--color-cream-line);
+  margin: 0.1em 0 0.05em;
+}
+#cy-container .cy-informer-role {
+  font-family: var(--font-mono);
+  font-size: 0.5em;
+  color: #5b7fa6;
+  line-height: 1.5;
+  font-style: italic;
+}
+
 .canvas-inspector {
   grid-row: 1 / 2;
   border-left: 1px dashed var(--color-cream-line);
@@ -107,34 +599,6 @@
   overflow-y: auto;
   display: flex; flex-direction: column;
 }
-.stream-bar {
-  grid-column: 1 / -1;
-  border-top: 1px dashed var(--color-cream-line);
-  background: var(--color-panel);
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 0 var(--sp-4);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: var(--color-ink-soft);
-  cursor: pointer; user-select: none;
-  letter-spacing: .04em;
-}
-.stream-bar:hover { background: var(--color-cream-deep); }
-.stream-bar-expanded {
-  grid-column: 1 / -1;
-  grid-row: 1 / 2;
-  border-top: 1px dashed var(--color-cream-line);
-  background: #2b2418;
-  height: 200px;
-  overflow-y: auto;
-  padding: var(--sp-3) var(--sp-4);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  color: rgba(245,240,232,.85);
-}
-.stream-entry { margin-bottom: 3px; line-height: 1.55; }
-.stream-entry .ts { color: rgba(245,240,232,.4); margin-right: 8px; }
-
 /* ── Palette items ────────────────────────────────────────────────────────── */
 .pal-item {
   display: flex; align-items: center; gap: var(--sp-2);

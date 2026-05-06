@@ -61,19 +61,48 @@ async function _renderControlRoom(container, addCleanup) {
         <div id="org-tree" style="flex:1;overflow-y:auto;padding:6px 0 16px"></div>
       </div>
 
-      <!-- ── Right: Runs ── -->
+      <!-- ── Right: Main content ── -->
       <div style="display:flex;flex-direction:column;overflow:hidden;background:var(--color-bg)">
 
-        <!-- Filter bar -->
+        <!-- Stats bar + tab toggle -->
         <div style="
-          padding:10px 20px;
+          display:flex;align-items:center;
+          padding:0 14px 0 20px;
           border-bottom:1px dashed var(--color-cream-line);
           background:var(--color-parchment);
-          display:flex;align-items:center;gap:10px;
+          flex-shrink:0;min-height:38px;gap:16px;
+        ">
+          <div style="flex:1;display:flex;align-items:center;gap:16px;font-family:var(--font-mono);font-size:11px;overflow:hidden">
+            <span id="stat-running" style="color:var(--color-amber);white-space:nowrap;opacity:.4">● 0 running</span>
+            <span id="stat-awaiting" style="color:var(--color-orchestrator);white-space:nowrap;opacity:.4">● 0 awaiting</span>
+            <span id="stat-completed" style="color:var(--color-success);white-space:nowrap;opacity:.4">✓ 0 done today</span>
+            <span id="stat-failed" style="color:var(--color-danger);white-space:nowrap;opacity:.4">✗ 0 failed today</span>
+          </div>
+          <div style="display:flex;gap:3px;flex-shrink:0">
+            <button id="tab-log" style="
+              font-family:var(--font-mono);font-size:10px;letter-spacing:.05em;text-transform:uppercase;
+              background:var(--color-surface);border:1px dashed var(--color-cream-line);
+              border-radius:3px;padding:3px 10px;cursor:pointer;
+              color:var(--color-ink-soft);
+            ">Log</button>
+            <button id="tab-stream" style="
+              font-family:var(--font-mono);font-size:10px;letter-spacing:.05em;text-transform:uppercase;
+              background:none;border:1px dashed transparent;
+              border-radius:3px;padding:3px 10px;cursor:pointer;
+              color:var(--color-ink-faint);
+            ">Events</button>
+          </div>
+        </div>
+
+        <!-- Filter bar (log only) -->
+        <div id="cr-filter-bar" style="
+          padding:8px 20px;
+          border-bottom:1px dashed var(--color-cream-line);
+          background:var(--color-parchment);
+          display:flex;align-items:center;gap:8px;flex-wrap:wrap;
           flex-shrink:0;
         ">
-          <span style="font-family:var(--font-mono);font-size:10px;color:var(--color-ink-faint);letter-spacing:.06em;text-transform:uppercase;white-space:nowrap">Run log</span>
-          <select class="form-select" id="fl-status" style="width:148px;font-size:12px;margin-left:8px">
+          <select class="form-select" id="fl-status" style="width:130px;font-size:12px">
             <option value="">All statuses</option>
             <option value="running">Running</option>
             <option value="completed">Completed</option>
@@ -81,9 +110,14 @@ async function _renderControlRoom(container, addCleanup) {
             <option value="pending">Pending</option>
             <option value="awaiting_human">Awaiting human</option>
           </select>
-          <select class="form-select" id="fl-workspace" style="width:160px;font-size:12px">
+          <select class="form-select" id="fl-workspace" style="width:150px;font-size:12px">
             <option value="">All workspaces</option>
           </select>
+          <input type="date" id="fl-date-from" class="form-input" title="From date"
+            style="width:130px;font-size:12px;padding:4px 8px;cursor:pointer">
+          <span style="font-family:var(--font-mono);font-size:10px;color:var(--color-ink-faint)">→</span>
+          <input type="date" id="fl-date-to" class="form-input" title="To date"
+            style="width:130px;font-size:12px;padding:4px 8px;cursor:pointer">
           <button class="btn btn-ghost btn-sm" id="btn-refresh" style="margin-left:auto;font-size:11px;letter-spacing:.02em">↺ Refresh</button>
         </div>
 
@@ -106,21 +140,40 @@ async function _renderControlRoom(container, addCleanup) {
           ">✕ show all</button>
         </div>
 
-        <!-- Runs list -->
-        <div id="runs-list" style="flex:1;overflow-y:auto;padding:12px 20px 24px"></div>
-
-        <!-- Load more -->
-        <div style="padding:0 20px 12px;display:flex;justify-content:center;flex-shrink:0">
-          <button class="btn btn-ghost btn-sm" id="btn-load-more" style="display:none;font-size:11px">Load more</button>
+        <!-- Log content -->
+        <div id="cr-log-content" style="flex:1;overflow:hidden;display:flex;flex-direction:column">
+          <div id="runs-list" style="flex:1;overflow-y:auto;padding:12px 20px 24px"></div>
+          <div style="padding:0 20px 12px;display:flex;justify-content:center;flex-shrink:0">
+            <button class="btn btn-ghost btn-sm" id="btn-load-more" style="display:none;font-size:11px">Load more</button>
+          </div>
         </div>
+
+        <!-- Events content (hidden by default) -->
+        <div id="cr-stream-content" style="flex:1;overflow:hidden;display:none;flex-direction:column">
+          <div style="
+            padding:8px 20px;border-bottom:1px dashed var(--color-cream-line);
+            background:var(--color-parchment);flex-shrink:0;
+            display:flex;align-items:center;gap:10px;
+          ">
+            <span style="font-family:var(--font-mono);font-size:10px;color:var(--color-ink-faint);letter-spacing:.06em;text-transform:uppercase">Events table</span>
+            <span id="cr-events-updated" style="font-family:var(--font-mono);font-size:10px;color:var(--color-ink-faint)"></span>
+            <button class="btn btn-ghost btn-sm" id="btn-events-pause" style="margin-left:auto;font-size:10px">⏸ Pause</button>
+          </div>
+          <div id="cr-stream-list" style="flex:1;overflow-y:auto;padding:0"></div>
+        </div>
+
       </div>
     </div>`;
 
   // ── Shared state ──────────────────────────────────────────────────────────
   const state = {
-    sel: null,          // null | { type:"ws"|"swarm", id, name }
-    wsCollapsed: {},    // wsId → bool
-    swarmMap: {},       // swarmId → swarm object (for in-place activate update)
+    sel: null,
+    wsCollapsed: {},
+    swarmMap: {},
+    runningCounts: {},
+    tab: "log",
+    eventsPollInterval: null,
+    eventsPaused: false,
   };
 
   let _workspaces = [];
@@ -136,6 +189,23 @@ async function _renderControlRoom(container, addCleanup) {
       if (el) el.textContent = "Company";
     });
 
+  // ── Stats bar ─────────────────────────────────────────────────────────────
+  const loadStats = async () => {
+    try {
+      const s = await api.getRunStats();
+      const els = {
+        running:   container.querySelector("#stat-running"),
+        awaiting:  container.querySelector("#stat-awaiting"),
+        completed: container.querySelector("#stat-completed"),
+        failed:    container.querySelector("#stat-failed"),
+      };
+      if (els.running)   { els.running.textContent   = `● ${s.running} running`;      els.running.style.opacity   = s.running > 0 ? "1" : ".35"; }
+      if (els.awaiting)  { els.awaiting.textContent  = `● ${s.awaiting_human} awaiting`; els.awaiting.style.opacity  = s.awaiting_human > 0 ? "1" : ".35"; }
+      if (els.completed) { els.completed.textContent = `✓ ${s.completed_today} done today`; els.completed.style.opacity = s.completed_today > 0 ? "1" : ".35"; }
+      if (els.failed)    { els.failed.textContent    = `✗ ${s.failed_today} failed today`; els.failed.style.opacity    = s.failed_today > 0 ? "1" : ".35"; }
+    } catch { /* silently ignore */ }
+  };
+
   // ── Organogram loader ─────────────────────────────────────────────────────
   const loadOrg = async () => {
     try {
@@ -143,20 +213,35 @@ async function _renderControlRoom(container, addCleanup) {
       const details = await Promise.all(wsList.map(ws => api.getWorkspace(ws.id)));
       _workspaces = details;
 
-      // Cache swarms for quick lookup
       _workspaces.forEach(ws => {
         (ws.swarms || []).forEach(s => { state.swarmMap[s.id] = s; });
       });
 
-      // Populate workspace filter dropdown
       const wsFl = container.querySelector("#fl-workspace");
       if (wsFl) {
         wsFl.innerHTML = `<option value="">All workspaces</option>` +
           _workspaces.map(ws => `<option value="${ws.id}">${_esc(ws.display_name)}</option>`).join("");
       }
 
+      // Running counts fetched alongside org data so renderOrg only fires once
+      try {
+        const running = await api.listRuns({ status: "running", limit: 200 });
+        state.runningCounts = {};
+        running.forEach(r => { state.runningCounts[r.swarm_id] = (state.runningCounts[r.swarm_id] || 0) + 1; });
+      } catch { /* ignore */ }
+
       renderOrg();
     } catch (err) { toastError(err); }
+  };
+
+  // Refresh running counts independently (called on SSE run events)
+  const loadRunningCounts = async () => {
+    try {
+      const running = await api.listRuns({ status: "running", limit: 200 });
+      state.runningCounts = {};
+      running.forEach(r => { state.runningCounts[r.swarm_id] = (state.runningCounts[r.swarm_id] || 0) + 1; });
+      renderOrg();
+    } catch { /* ignore */ }
   };
 
   // ── Organogram renderer ───────────────────────────────────────────────────
@@ -217,6 +302,7 @@ async function _renderControlRoom(container, addCleanup) {
           ">
             ${swarms.map(s => {
               const isSwarmSel = state.sel?.type === "swarm" && state.sel.id === s.id;
+              const runCount   = state.runningCounts[s.id] || 0;
               return `
                 <div class="org-swarm-row" data-swarm-id="${s.id}" style="
                   display:flex;align-items:center;gap:6px;
@@ -236,6 +322,11 @@ async function _renderControlRoom(container, addCleanup) {
                     flex:1;min-width:0;
                     white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
                   ">${_esc(s.display_name)}</span>
+                  ${runCount > 0 ? `<span style="
+                    background:var(--color-amber);color:var(--color-bg);
+                    font-family:var(--font-mono);font-size:8px;font-weight:700;
+                    border-radius:8px;padding:1px 5px;flex-shrink:0;line-height:1.4;
+                  ">${runCount}</span>` : ""}
                   <button
                     class="org-act-btn"
                     data-swarm-id="${s.id}"
@@ -277,7 +368,6 @@ async function _renderControlRoom(container, addCleanup) {
 
     // ── Wire up organogram interactions ───────────────────────────────────
 
-    // Workspace row click: select workspace as filter OR deselect
     tree.querySelectorAll(".org-ws-row").forEach(row => {
       row.addEventListener("click", e => {
         if (e.target.closest("button")) return;
@@ -296,15 +386,13 @@ async function _renderControlRoom(container, addCleanup) {
         load();
       });
 
-      // Separate chevron click for collapse-only (no filter change)
-      row.addEventListener("dblclick", e => {
+      row.addEventListener("dblclick", () => {
         const wsId = row.dataset.wsId;
         state.wsCollapsed[wsId] = !state.wsCollapsed[wsId];
         renderOrg();
       });
     });
 
-    // Swarm row click: select swarm as filter OR deselect
     tree.querySelectorAll(".org-swarm-row").forEach(row => {
       row.addEventListener("click", e => {
         if (e.target.closest("button")) return;
@@ -323,7 +411,6 @@ async function _renderControlRoom(container, addCleanup) {
       });
     });
 
-    // Activate toggle
     tree.querySelectorAll(".org-act-btn").forEach(btn => {
       btn.addEventListener("click", async e => {
         e.stopPropagation();
@@ -343,7 +430,6 @@ async function _renderControlRoom(container, addCleanup) {
       });
     });
 
-    // Fire button
     tree.querySelectorAll(".org-fire-btn").forEach(btn => {
       btn.addEventListener("click", e => {
         e.stopPropagation();
@@ -352,18 +438,53 @@ async function _renderControlRoom(container, addCleanup) {
     });
   };
 
+  // ── Tab toggle ────────────────────────────────────────────────────────────
+  const _switchTab = (tab) => {
+    state.tab = tab;
+    const filterBar     = container.querySelector("#cr-filter-bar");
+    const logContent    = container.querySelector("#cr-log-content");
+    const streamContent = container.querySelector("#cr-stream-content");
+    const tabLog        = container.querySelector("#tab-log");
+    const tabStream     = container.querySelector("#tab-stream");
+
+    if (tab === "stream") {
+      filterBar.style.display     = "none";
+      logContent.style.display    = "none";
+      streamContent.style.display = "flex";
+      tabLog.style.background    = "none";
+      tabLog.style.color         = "var(--color-ink-faint)";
+      tabLog.style.borderColor   = "transparent";
+      tabStream.style.background = "var(--color-surface)";
+      tabStream.style.color      = "var(--color-ink-soft)";
+      tabStream.style.borderColor = "var(--color-cream-line)";
+      // Start polling when tab first opened
+      if (!state.eventsPollInterval) _startEventsPolling();
+    } else {
+      filterBar.style.display     = "flex";
+      logContent.style.display    = "flex";
+      streamContent.style.display = "none";
+      tabLog.style.background    = "var(--color-surface)";
+      tabLog.style.color         = "var(--color-ink-soft)";
+      tabLog.style.borderColor   = "var(--color-cream-line)";
+      tabStream.style.background = "none";
+      tabStream.style.color      = "var(--color-ink-faint)";
+      tabStream.style.borderColor = "transparent";
+    }
+    _updateContextBar();
+  };
+
   // ── Context bar ───────────────────────────────────────────────────────────
   const _updateContextBar = () => {
     const bar   = container.querySelector("#cr-context-bar");
     const label = container.querySelector("#cr-context-label");
     if (!bar || !label) return;
-    if (state.sel) {
-      bar.style.display = "flex";
-      const prefix = state.sel.type === "ws" ? "workspace" : "swarm";
-      label.textContent = `${prefix}: ${state.sel.name}`;
-    } else {
+    if (state.tab === "stream" || !state.sel) {
       bar.style.display = "none";
+      return;
     }
+    bar.style.display = "flex";
+    const prefix = state.sel.type === "ws" ? "workspace" : "swarm";
+    label.textContent = `${prefix}: ${state.sel.name}`;
   };
 
   const _syncWsDropdown = wsId => {
@@ -383,10 +504,14 @@ async function _renderControlRoom(container, addCleanup) {
         <div style="padding:20px 0;font-family:var(--font-mono);font-size:11px;color:var(--color-ink-faint)">Loading…</div>`;
     }
     try {
-      const status  = container.querySelector("#fl-status")?.value || "";
-      const wsFl    = container.querySelector("#fl-workspace")?.value || "";
-      const params  = { limit: LIMIT, offset: _offset };
-      if (status) params.status = status;
+      const status   = container.querySelector("#fl-status")?.value || "";
+      const wsFl     = container.querySelector("#fl-workspace")?.value || "";
+      const dateFrom = container.querySelector("#fl-date-from")?.value || "";
+      const dateTo   = container.querySelector("#fl-date-to")?.value || "";
+      const params   = { limit: LIMIT, offset: _offset };
+      if (status)   params.status = status;
+      if (dateFrom) params.started_after  = dateFrom + "T00:00:00";
+      if (dateTo)   params.started_before = dateTo   + "T23:59:59";
 
       if (state.sel?.type === "swarm") {
         params.swarm_id = state.sel.id;
@@ -402,6 +527,26 @@ async function _renderControlRoom(container, addCleanup) {
       const loadBtn = container.querySelector("#btn-load-more");
       if (loadBtn) loadBtn.style.display = runs.length === LIMIT ? "" : "none";
     } catch (err) { toastError(err); }
+  };
+
+  // ── Stream event renderer ─────────────────────────────────────────────────
+  const _renderStreamEvent = (msg) => {
+    const list = container.querySelector("#cr-stream-list");
+    if (!list) return;
+    const MAX = 500;
+    while (list.children.length >= MAX) list.removeChild(list.lastChild);
+
+    const type = msg.type || "unknown";
+    const { badge, text } = _formatStreamEvent(msg);
+    const time = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+
+    const item = document.createElement("div");
+    item.style.cssText = "display:flex;align-items:baseline;gap:10px;padding:5px 0;border-bottom:1px solid var(--color-cream-line)22";
+    item.innerHTML = `
+      <span style="font-family:var(--font-mono);font-size:10px;color:var(--color-ink-faint);flex-shrink:0;white-space:nowrap">${time}</span>
+      <span style="font-family:var(--font-mono);font-size:9px;letter-spacing:.05em;text-transform:uppercase;${badge.style};padding:1px 6px;border-radius:3px;flex-shrink:0;white-space:nowrap">${badge.label}</span>
+      <span style="font-family:var(--font-mono);font-size:11px;color:var(--color-ink-soft);flex:1;word-break:break-all">${text}</span>`;
+    list.insertBefore(item, list.firstChild);
   };
 
   // ── Filter bar events ─────────────────────────────────────────────────────
@@ -422,8 +567,11 @@ async function _renderControlRoom(container, addCleanup) {
       load();
     });
 
+  container.querySelector("#fl-date-from").addEventListener("change", () => load());
+  container.querySelector("#fl-date-to").addEventListener("change", () => load());
+
   container.querySelector("#btn-refresh")
-    .addEventListener("click", () => { loadOrg(); load(); });
+    .addEventListener("click", () => { loadOrg(); loadStats(); load(); });
 
   container.querySelector("#btn-load-more")
     .addEventListener("click", () => load(false));
@@ -437,8 +585,45 @@ async function _renderControlRoom(container, addCleanup) {
       load();
     });
 
-  // ── SSE live updates ──────────────────────────────────────────────────────
-  const _onRunEvent = () => load();
+  container.querySelector("#tab-log").addEventListener("click", () => _switchTab("log"));
+  container.querySelector("#tab-stream").addEventListener("click", () => _switchTab("stream"));
+
+  container.querySelector("#btn-events-pause").addEventListener("click", () => {
+    const btn = container.querySelector("#btn-events-pause");
+    state.eventsPaused = !state.eventsPaused;
+    btn.textContent = state.eventsPaused ? "▶ Resume" : "⏸ Pause";
+    if (!state.eventsPaused) _pollEvents();
+  });
+
+  // ── Events polling ────────────────────────────────────────────────────────
+  const POLL_MS = 5000;
+
+  const _pollEvents = async () => {
+    if (state.eventsPaused || state.tab !== "stream") return;
+    try {
+      const events = await api.listEvents({ limit: 50 });
+      _renderEventsTable(container, events, state.swarmMap);
+      const el = container.querySelector("#cr-events-updated");
+      if (el) el.textContent = `· updated ${new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`;
+    } catch { /* ignore poll errors */ }
+  };
+
+  const _startEventsPolling = () => {
+    _pollEvents();
+    state.eventsPollInterval = setInterval(_pollEvents, POLL_MS);
+    addCleanup(() => {
+      clearInterval(state.eventsPollInterval);
+      state.eventsPollInterval = null;
+    });
+  };
+
+  // ── SSE live updates (run log + stats only) ───────────────────────────────
+  const _onRunEvent = () => {
+    if (state.tab === "log") load();
+    loadStats();
+    loadRunningCounts();
+  };
+
   onEvent("run.started",   _onRunEvent);
   onEvent("run.completed", _onRunEvent);
   onEvent("run.failed",    _onRunEvent);
@@ -455,7 +640,7 @@ async function _renderControlRoom(container, addCleanup) {
       `<div class="form-group">
         <label class="form-label">Event payload (JSON)</label>
         <textarea class="form-input" id="m-payload" rows="5"
-          style="font-family:var(--font-mono);font-size:12px;resize:vertical;line-height:1.5">{}</textarea>
+          style="font-family:var(--font-mono);font-size:12px;resize:vertical;line-height:1.5">{\n  "type": "manual"\n}</textarea>
       </div>`,
       async () => {
         const raw = document.getElementById("m-payload")?.value.trim() || "{}";
@@ -475,8 +660,73 @@ async function _renderControlRoom(container, addCleanup) {
   };
 
   // ── Bootstrap ─────────────────────────────────────────────────────────────
+  loadStats();
   await loadOrg();
   await load();
+}
+
+// ── Events table renderer ─────────────────────────────────────────────────
+
+function _renderEventsTable(container, events, swarmMap) {
+  const list = container.querySelector("#cr-stream-list");
+  if (!list) return;
+
+  if (!events.length) {
+    list.innerHTML = `
+      <div class="empty-state" style="padding-top:40px">
+        <div class="empty-state-icon" style="font-size:28px">📭</div>
+        <div class="empty-state-title">No events yet</div>
+        <div class="empty-state-sub">Fire an event from a swarm to see it here.</div>
+      </div>`;
+    return;
+  }
+
+  const SOURCE_COLORS = {
+    api:        "var(--color-amber)",
+    heartbeat:  "var(--color-ink-faint)",
+    listener:   "var(--color-orchestrator)",
+    invocation: "var(--color-policy)",
+  };
+
+  list.innerHTML = `
+    <table style="width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed">
+      <colgroup>
+        <col style="width:80px">
+        <col style="width:90px">
+        <col style="width:130px">
+        <col>
+      </colgroup>
+      <thead>
+        <tr style="border-bottom:1px dashed var(--color-cream-line);background:var(--color-parchment)">
+          <th style="padding:6px 20px;font-family:var(--font-mono);font-size:9px;color:var(--color-ink-faint);font-weight:500;text-transform:uppercase;letter-spacing:.06em;text-align:left">Time</th>
+          <th style="padding:6px 8px;font-family:var(--font-mono);font-size:9px;color:var(--color-ink-faint);font-weight:500;text-transform:uppercase;letter-spacing:.06em;text-align:left">Source</th>
+          <th style="padding:6px 8px;font-family:var(--font-mono);font-size:9px;color:var(--color-ink-faint);font-weight:500;text-transform:uppercase;letter-spacing:.06em;text-align:left">Swarm</th>
+          <th style="padding:6px 8px;font-family:var(--font-mono);font-size:9px;color:var(--color-ink-faint);font-weight:500;text-transform:uppercase;letter-spacing:.06em;text-align:left">Payload</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${events.map(ev => {
+          const swarm = swarmMap[ev.swarm_id];
+          const swarmLabel = swarm?.display_name || ev.swarm_id?.slice(0, 12) || "—";
+          const srcColor = SOURCE_COLORS[ev.source] || "var(--color-ink-faint)";
+          const p = ev.payload || {};
+          const typeVal = p.type;
+          const rest = Object.entries(p).filter(([k]) => k !== "type")
+            .map(([k, v]) => `${_esc(k)}: ${_esc(String(v).slice(0, 40))}`).join("  ·  ");
+          const payloadSnippet = (typeVal ? `<b>${_esc(typeVal)}</b>  ` : "") +
+            `<span style="color:var(--color-ink-faint)">${_esc(rest)}</span>`;
+          return `
+            <tr style="border-bottom:1px dashed var(--color-cream-line)22;transition:background .1s" onmouseover="this.style.background='var(--color-panel)'" onmouseout="this.style.background=''">
+              <td style="padding:8px 20px;font-family:var(--font-mono);font-size:11px;color:var(--color-ink-faint);white-space:nowrap;overflow:hidden">${ev.received_at ? _reltime(ev.received_at) : "—"}</td>
+              <td style="padding:8px 8px;overflow:hidden">
+                <span style="font-family:var(--font-mono);font-size:9px;text-transform:uppercase;letter-spacing:.05em;color:${srcColor};border:1px solid ${srcColor}44;border-radius:3px;padding:1px 5px">${_esc(ev.source || "?")}</span>
+              </td>
+              <td style="padding:8px 8px;font-family:var(--font-mono);font-size:11px;color:var(--color-ink-soft);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(swarmLabel)}</td>
+              <td style="padding:8px 8px;font-family:var(--font-mono);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${payloadSnippet}</td>
+            </tr>`;
+        }).join("")}
+      </tbody>
+    </table>`;
 }
 
 // ── Run row renderer ──────────────────────────────────────────────────────
@@ -573,6 +823,7 @@ async function _renderRunDetail(container, runId, addCleanup) {
       const run = await api.getRun(runId);
       container.querySelector("#crumb-run-id").textContent = run.id.slice(0, 8);
       _renderRunHeader(container, run);
+      if (run.status === "awaiting_human") _loadEscalation(container, run.id);
       _renderViolations(container, run.steps || []);
       _renderSteps(container, run.steps || []);
     } catch (err) { toastError(err); }
@@ -613,6 +864,68 @@ function _renderRunHeader(container, run) {
       toastSuccess("Replay fired");
     } catch (err) { toastError(err); }
   });
+}
+
+// ── Inline escalation card ────────────────────────────────────────────────
+
+async function _loadEscalation(container, runId) {
+  try {
+    const items = await api.listInbox({ run_id: runId, status: "pending" });
+    if (!items.length) return;
+    const ha = items[0];
+
+    const header = container.querySelector("#run-header");
+    if (!header) return;
+
+    // Remove any existing card (can be called on reload)
+    header.querySelector("#run-escalation")?.remove();
+
+    const div = document.createElement("div");
+    div.id = "run-escalation";
+    div.innerHTML = `
+      <div style="
+        margin-top:14px;
+        background:var(--color-orchestrator)0f;
+        border:1px solid var(--color-orchestrator)55;
+        border-radius:6px;padding:14px 16px;
+      ">
+        <div style="font-family:var(--font-mono);font-size:10px;color:var(--color-orchestrator);letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px">
+          ● Awaiting Human Decision
+        </div>
+        <div style="font-size:14px;color:var(--color-ink);margin-bottom:10px;font-family:var(--font-display)">${_esc(ha.purpose)}</div>
+        ${ha.payload ? `
+          <details style="margin-bottom:12px">
+            <summary style="font-size:11px;color:var(--color-ink-soft);cursor:pointer;font-family:var(--font-mono)">Proposed action</summary>
+            <pre style="margin-top:6px;font-size:11px;background:var(--color-bg);border:1px solid var(--color-border-soft);border-radius:4px;padding:8px;overflow-x:auto;max-height:200px">${_esc(JSON.stringify(ha.payload, null, 2))}</pre>
+          </details>` : ""}
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-sm" id="btn-ha-approve" style="
+            background:var(--color-success);color:white;
+            border-color:var(--color-success);font-size:12px;
+          ">✓ Approve</button>
+          <button class="btn btn-ghost btn-sm" id="btn-ha-reject" style="
+            color:var(--color-danger);border-color:var(--color-danger);font-size:12px;
+          ">✕ Reject</button>
+        </div>
+      </div>`;
+    header.appendChild(div);
+
+    div.querySelector("#btn-ha-approve").addEventListener("click", async () => {
+      try {
+        await api.decideInboxItem(ha.id, { decision: "yes" });
+        toastSuccess("Approved — run will resume");
+        div.remove();
+      } catch (err) { toastError(err); }
+    });
+
+    div.querySelector("#btn-ha-reject").addEventListener("click", async () => {
+      try {
+        await api.decideInboxItem(ha.id, { decision: "no" });
+        toastSuccess("Rejected");
+        div.remove();
+      } catch (err) { toastError(err); }
+    });
+  } catch { /* run may not have a pending inbox item */ }
 }
 
 function _renderViolations(container, steps) {

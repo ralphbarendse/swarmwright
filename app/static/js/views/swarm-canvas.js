@@ -40,22 +40,13 @@ export function renderSwarmCanvas(container, swarmId) {
           <div class="text-muted" style="font-size:var(--text-xs)">Click a node or edge to inspect it.</div>
         </div>
       </aside>
-    </div>
-    <div class="stream-bar" id="stream-bar">
-      <span id="stream-label">Live event stream</span>
-      <span id="stream-chev">▴ expand</span>
     </div>`;
 
   _buildPalette(container.querySelector("#canvas-palette"), swarmId);
-  _initStreamBar(container.querySelector("#stream-bar"), container);
 
-  let streamLog = [];
   const sseHandler = (msg) => {
-    if (msg.run_id) {
-      streamLog.push(msg);
-      _updateStream(container, streamLog);
-    }
-    if (msg.type === "run.step" && msg.swarm_id === swarmId && _cy) {
+    if (msg.swarm_id && msg.swarm_id !== swarmId) return;
+    if (msg.type === "run.step" && _cy) {
       _pulseNode(msg.step_name);
     }
     if (msg.type === "run.completed" || msg.type === "run.failed") {
@@ -141,8 +132,24 @@ async function _loadCanvas(container, swarmId) {
 
     const positions = hierarchy._gui?.positions || {};
     const agentMap = {};
-    for (const a of agents) agentMap[a.name] = { id: a.id, layer: a.layer, model: a.model };
-    const elements = _buildElements(hierarchy, positions, agentMap);
+    for (const a of agents) agentMap[a.name] = {
+      id: a.id, layer: a.layer, model: a.model,
+      tagline: a.tagline || null,
+      constitution_preview: a.constitution_preview || null,
+    };
+
+    // Build skill metadata map (company → workspace → swarm, later scopes win)
+    const [swarmSkills, wsSkills, companySkills] = await Promise.all([
+      api.listSkills({ scope: "swarm", swarm_id: swarmId }).catch(() => []),
+      swarm.workspace_id
+        ? api.listSkills({ scope: "workspace", workspace_id: swarm.workspace_id }).catch(() => [])
+        : Promise.resolve([]),
+      api.listSkills({ scope: "company" }).catch(() => []),
+    ]);
+    const skillMap = {};
+    for (const s of [...companySkills, ...wsSkills, ...swarmSkills]) skillMap[s.name] = s;
+
+    const elements = _buildElements(hierarchy, positions, agentMap, skillMap);
 
     // Destroy previous instance
     if (_cy) { _cy.destroy(); _cy = null; }
@@ -260,7 +267,7 @@ const TRIGGER_GLYPH = {
 const CALLER_GLYPH   = "✋";   // Phase 6 — humans-in-the-loop (blocking)
 const INFORMER_GLYPH = "📢";  // Phase 6.1 — fire-and-forget notifications
 
-function _buildElements(h, positions, agentMap = {}) {
+function _buildElements(h, positions, agentMap = {}, skillMap = {}) {
   const els = [];
 
   // Agent nodes
@@ -277,6 +284,9 @@ function _buildElements(h, positions, agentMap = {}) {
         agent_id: meta.id,
         layer,
         model: meta.model || null,
+        tagline: meta.tagline || null,
+        constitution_preview: meta.constitution_preview || null,
+        is_entry_point: name === h.entry_point,
       },
       position: pos.x ? pos : undefined,
       classes: `agent layer-${layer}`,
@@ -332,7 +342,17 @@ function _buildElements(h, positions, agentMap = {}) {
   const skills = new Set((h.skills || []).map(s => s.skill));
   for (const skill of skills) {
     const sid = `skill__${skill}`;
-    els.push({ data: { id: sid, name: skill, label: skill.split("/").pop(), type: "skill" }, classes: "skill" });
+    const skillName = skill.split("/").pop();
+    const meta = skillMap[skillName] || {};
+    els.push({
+      data: {
+        id: sid, name: skill, label: skillName, type: "skill",
+        description: meta.description || null,
+        input_schema: meta.input_schema || null,
+        output_schema: meta.output_schema || null,
+      },
+      classes: "skill",
+    });
   }
 
   // Perceptionist nodes
@@ -482,36 +502,15 @@ function _cyStyles() {
       padding: "10px",
     }},
 
-    // ── Agents — softly tinted background, layer-coloured text + border ──
+    // ── Agents — fully transparent hit area; the DOM label overlay renders
+    //    the visible card (landing-page card style). All agent layers share
+    //    the same invisible Cytoscape shape so the card CSS controls the look.
     { selector: ".agent", style: {
-      "background-color": CREAM,
-      "border-color": CREAM_LINE,
-      color: INK,
-    }},
-    { selector: "[type='agent'][layer='policy']", style: {
-      "background-color": POLICY_SOFT,
-      "border-color": POLICY,
-      color: POLICY,
-    }},
-    { selector: "[type='agent'][layer='orchestrator']", style: {
-      "background-color": ORCHESTRATOR_SOFT,
-      "border-color": ORCHESTRATOR,
-      color: ORCHESTRATOR,
-    }},
-    { selector: "[type='agent'][layer='executioner']", style: {
-      "background-color": EXECUTIONER_SOFT,
-      "border-color": EXECUTIONER,
-      color: EXECUTIONER,
-    }},
-    { selector: "[type='agent'][layer='perceptionist']", style: {
-      "background-color": PERCEPTIONIST_SOFT,
-      "border-color": PERCEPTIONIST,
-      "border-style": "dashed",
-      color: PERCEPTIONIST,
-      // Perceptionists are read-only grounding agents — give them a visual
-      // cue (eye-shaped ellipse) that distinguishes them from actors.
-      shape: "ellipse",
-      width: 196, height: 90,
+      width: 220, height: 140,
+      shape: "rectangle",
+      "background-opacity": 0,
+      "border-width": 0,
+      "shadow-opacity": 0,
     }},
 
     // ── Perceptionist consultation targets (the eye-of-truth nodes that
@@ -525,54 +524,40 @@ function _cyStyles() {
       width: 168, height: 64,
     }},
 
-    // ── Skills — soft pill on parchment, dashed faint border ──
+    // ── Skills — transparent hit area; DOM overlay renders the skill card ──
     { selector: ".skill", style: {
-      "background-color": PARCHMENT,
-      color: INK,
-      "border-style": "dashed",
-      "border-color": INK_FAINT,
-      "border-width": 1.5,
-      shape: "barrel",
-      width: 152, height: 44,
-      "font-size": 14,
-      "shadow-blur": 12,
-      "shadow-opacity": .14,
-      "shadow-offset-y": 4,
+      width: 220, height: 100,
+      shape: "rectangle",
+      "background-opacity": 0,
+      "border-width": 0,
+      "shadow-opacity": 0,
     }},
 
-    // ── Triggers — round-tag shape in soft amber, parchment-friendly ──
+    // ── Triggers — transparent hit area; DOM overlay renders the trigger card ──
     { selector: ".trigger", style: {
-      "background-color": TRIGGER_SOFT,
-      color: PERCEPTIONIST,
-      "border-color": PERCEPTIONIST,
-      shape: "round-tag",
-      width: 168, height: 72,
-      "font-size": 14,
-      "font-weight": 400,
+      width: 220, height: 100,
+      shape: "rectangle",
+      "background-opacity": 0,
+      "border-width": 0,
+      "shadow-opacity": 0,
     }},
 
-    // ── Callers (Phase 6) — sage-green speech bubble for humans-in-loop ──
+    // ── Callers — transparent hit area; DOM overlay renders the caller card ──
     { selector: ".caller", style: {
-      "background-color": "#dfe8df",
-      color: "#3f5f3f",
-      "border-color": "#6b8e6b",
-      "border-width": 2.5,
-      shape: "round-tag",
-      width: 176, height: 78,
-      "font-size": 16,
-      "font-weight": 500,
+      width: 220, height: 85,
+      shape: "rectangle",
+      "background-opacity": 0,
+      "border-width": 0,
+      "shadow-opacity": 0,
     }},
 
-    // ── Informers (Phase 6.1) — slate-blue ellipse for fire-and-forget notify ──
+    // ── Informers — transparent hit area; DOM overlay renders the informer card ──
     { selector: ".informer", style: {
-      "background-color": "#dde6f0",
-      color: "#3a5570",
-      "border-color": "#5b7fa6",
-      "border-width": 2,
-      shape: "ellipse",
-      width: 176, height: 72,
-      "font-size": 15,
-      "font-weight": 500,
+      width: 220, height: 85,
+      shape: "rectangle",
+      "background-opacity": 0,
+      "border-width": 0,
+      "shadow-opacity": 0,
     }},
 
     // ── State ──
@@ -581,6 +566,11 @@ function _cyStyles() {
       "overlay-opacity": .10,
       "border-width": 2,
       "border-color": PERCEPTIONIST,
+    }},
+    // All card-style nodes handle selection via CSS class on the DOM overlay.
+    { selector: ".agent:selected, .skill:selected, .trigger:selected, .caller:selected, .informer:selected", style: {
+      "border-width": 0,
+      "overlay-opacity": 0,
     }},
     { selector: ".connect-source", style: {
       "border-width": 2.5,
@@ -727,31 +717,199 @@ function _mountLabelOverlay(container) {
   _cy.on("pan zoom", update);
   _cy.on("position", "node", update);
   _cy.on("layoutstop", update);
+
+  // Sync Cytoscape selected state to all card overlays.
+  const CARD_TYPES = "node[type='agent'], node[type='skill'], node[type='trigger'], node[type='caller'], node[type='informer']";
+  _cy.on("select",   CARD_TYPES, e => { labelMap.get(e.target.id())?.classList.add("is-selected"); });
+  _cy.on("unselect", CARD_TYPES, e => { labelMap.get(e.target.id())?.classList.remove("is-selected"); });
+
   // Initial pass — wait one tick so layout has settled into renderedPosition.
   setTimeout(update, 60);
 }
 
 /**
- * Build the inner HTML for a node's DOM label. Two-tier hierarchy:
- *   • name line: glyph + name, big, handwritten
- *   • meta line: role · model (agents) / kind (triggers), small, muted mono
+ * Build the inner HTML for a node's DOM label.
+ * Agents and skills render as landing-page-style cards; other node types use
+ * the existing two-line glyph+name / meta format.
  */
 function _buildLabelHtml(data) {
-  const name = `<div class="cy-label-name">${_esc(data.label || data.name || "")}</div>`;
+  if (data.type === "agent")    return _buildAgentCard(data);
+  if (data.type === "skill")    return _buildSkillCard(data);
+  if (data.type === "trigger")  return _buildTriggerCard(data);
+  if (data.type === "caller")   return _buildCallerCard(data);
+  if (data.type === "informer") return _buildInformerCard(data);
 
-  let metaParts = [];
-  if (data.type === "agent") {
-    if (data.layer) metaParts.push(data.layer);
-    if (data.model) metaParts.push(_shortModel(data.model));
-  } else if (data.type === "trigger" && data.trigger_kind) {
-    metaParts.push(data.trigger_kind);
-  }
+  // Fallback: plain two-line label for any unlisted node type
+  return `<div class="cy-label-name">${_esc(data.label || data.name || "")}</div>`;
+}
 
-  const meta = metaParts.length
-    ? `<div class="cy-label-meta">${metaParts.map(_esc).join(" · ")}</div>`
+/**
+ * Render an agent node as a mini landing-page-style card:
+ *   • coloured accent bar (layer colour)
+ *   • dot + name header, ★ if entry point
+ *   • tagline (first body paragraph of constitution)
+ *   • constitution snippet (second paragraph, 2-line clamp)
+ *   • model pill in footer
+ */
+function _buildAgentCard(data) {
+  const layer = data.layer || "executioner";
+
+  const starHtml = data.is_entry_point
+    ? `<span class="cy-card-entry-star" title="Swarm entry point">★</span>`
     : "";
 
-  return name + meta;
+  const taglineHtml = data.tagline
+    ? `<div class="cy-card-tagline">${_esc(data.tagline)}</div>`
+    : "";
+
+  const previewHtml = data.constitution_preview
+    ? `<hr class="cy-card-sep"><div class="cy-card-preview">${_esc(data.constitution_preview)}</div>`
+    : "";
+
+  const modelHtml = data.model
+    ? `<div class="cy-card-footer"><span class="cy-card-model-pill">${_esc(_shortModel(data.model))}</span></div>`
+    : "";
+
+  return `
+    <div class="cy-card cy-card-layer-${_esc(layer)}">
+      <div class="cy-card-accent"></div>
+      <div class="cy-card-inner">
+        <div class="cy-card-header">
+          <div class="cy-card-dot"></div>
+          <span class="cy-card-name">${_esc(data.name || "")}</span>
+          ${starHtml}
+        </div>
+        ${taglineHtml}
+        ${previewHtml}
+        ${modelHtml}
+      </div>
+    </div>`;
+}
+
+/**
+ * Render a skill node as a compact card showing input/output field schemas.
+ * Uses dashed border to stay visually distinct from agent cards.
+ */
+function _buildSkillCard(data) {
+  const name = data.label || data.name.split("/").pop();
+  const inFields  = _schemaFields(data.input_schema);
+  const outFields = _schemaFields(data.output_schema);
+  return `
+    <div class="cy-skill-card">
+      <div class="cy-skill-accent"></div>
+      <div class="cy-skill-inner">
+        <div class="cy-skill-header">
+          <span class="cy-skill-glyph">⚙</span>
+          <span class="cy-skill-name">${_esc(name)}</span>
+        </div>
+        <hr class="cy-skill-sep">
+        ${_renderSchemaRow("IN",  inFields)}
+        ${_renderSchemaRow("OUT", outFields)}
+      </div>
+    </div>`;
+}
+
+function _schemaFields(schema) {
+  if (!schema || typeof schema !== "object") return [];
+  const props    = schema.properties || {};
+  const required = new Set(schema.required || []);
+  return Object.entries(props).map(([k, v]) => ({
+    name: k,
+    type: _abbreviateType((Array.isArray(v.type) ? v.type[0] : v.type) || "any"),
+    optional: !required.has(k),
+  }));
+}
+
+function _abbreviateType(t) {
+  return { string: "str", number: "num", integer: "int", boolean: "bool", object: "obj", array: "arr" }[t] || t || "any";
+}
+
+function _renderSchemaRow(label, fields) {
+  const dir   = label === "IN" ? "in" : "out";
+  const items = fields.length
+    ? fields.map(f =>
+        `<span class="cy-skill-pill cy-skill-pill-${dir}${f.optional ? " cy-skill-pill-opt" : ""}">` +
+        `${_esc(f.name)}<em>:${f.type}</em></span>`
+      ).join("")
+    : `<span class="cy-skill-none">—</span>`;
+  return `<div class="cy-skill-row"><span class="cy-skill-label">${label}</span><span class="cy-skill-fields">${items}</span></div>`;
+}
+
+/**
+ * Trigger card — amber-accented, shows kind-specific config:
+ *   heartbeat  → cron schedule pill
+ *   listener   → /webhook/<endpoint> pill
+ *   invocation → default payload keys as pills, or "fire on demand"
+ */
+function _buildTriggerCard(data) {
+  const kind    = data.trigger_kind || "trigger";
+  const cfg     = data.trigger_config || {};
+  const enabled = data.trigger_enabled !== false;
+  const GLYPHS  = { heartbeat: "⏱", listener: "〰", invocation: "▶" };
+  const glyph   = GLYPHS[kind] || "✺";
+
+  let bodyHtml = "";
+  if (kind === "heartbeat") {
+    const schedule = cfg.schedule || cfg.cron || "not set";
+    bodyHtml = `<span class="cy-trigger-pill">${_esc(schedule)}</span>`;
+  } else if (kind === "listener") {
+    const ep = cfg.endpoint ? `/webhook/${cfg.endpoint}` : "no endpoint set";
+    bodyHtml = `<span class="cy-trigger-pill">${_esc(ep)}</span>`;
+  } else if (kind === "invocation") {
+    const payload = cfg.default_payload;
+    const keys = payload && typeof payload === "object" ? Object.keys(payload) : [];
+    bodyHtml = keys.length
+      ? keys.map(k => `<span class="cy-trigger-pill">${_esc(k)}</span>`).join("")
+      : `<span class="cy-trigger-none">fire on demand</span>`;
+  }
+
+  return `
+    <div class="cy-trigger-card cy-trigger-kind-${_esc(kind)}">
+      <div class="cy-trigger-accent"></div>
+      <div class="cy-trigger-inner">
+        <div class="cy-trigger-header">
+          <span class="cy-trigger-glyph">${glyph}</span>
+          <span class="cy-trigger-name">${_esc(data.name || "")}</span>
+          <span class="cy-trigger-status ${enabled ? "is-enabled" : "is-disabled"}" title="${enabled ? "enabled" : "disabled"}">●</span>
+        </div>
+        <span class="cy-trigger-kind-label">${kind}</span>
+        ${bodyHtml ? `<hr class="cy-trigger-sep"><div class="cy-trigger-body">${bodyHtml}</div>` : ""}
+      </div>
+    </div>`;
+}
+
+/** Caller card — sage-green accent, solid border (blocking — awaits response). */
+function _buildCallerCard(data) {
+  const name = (data.name || "").split("/").pop();
+  return `
+    <div class="cy-caller-card">
+      <div class="cy-caller-accent"></div>
+      <div class="cy-caller-inner">
+        <div class="cy-caller-header">
+          <span class="cy-caller-glyph">✋</span>
+          <span class="cy-caller-name">${_esc(name)}</span>
+        </div>
+        <hr class="cy-caller-sep">
+        <span class="cy-caller-role">blocking · awaits response</span>
+      </div>
+    </div>`;
+}
+
+/** Informer card — slate-blue accent, dashed border (fire-and-forget notify). */
+function _buildInformerCard(data) {
+  const name = (data.name || "").split("/").pop();
+  return `
+    <div class="cy-informer-card">
+      <div class="cy-informer-accent"></div>
+      <div class="cy-informer-inner">
+        <div class="cy-informer-header">
+          <span class="cy-informer-glyph">📢</span>
+          <span class="cy-informer-name">${_esc(name)}</span>
+        </div>
+        <hr class="cy-informer-sep">
+        <span class="cy-informer-role">fire-and-forget · notify only</span>
+      </div>
+    </div>`;
 }
 
 /**
@@ -1695,34 +1853,6 @@ function _pulseNode(name) {
   _cy.elements().removeClass("live");
   const n = _cy.getElementById(name);
   if (n.length) n.addClass("live");
-}
-
-function _updateStream(container, log) {
-  const streamEl = container.querySelector(".stream-bar-expanded");
-  if (!streamEl) return;
-  const last = log.slice(-50);
-  streamEl.innerHTML = last.map(msg => {
-    const ts = new Date().toTimeString().slice(0, 8);
-    return `<div class="stream-entry"><span class="ts">${ts}</span>${_esc(msg.type)} ${msg.step_name ? `→ ${_esc(msg.step_name)}` : ""}</div>`;
-  }).join("");
-  streamEl.scrollTop = streamEl.scrollHeight;
-}
-
-function _initStreamBar(bar, container) {
-  let expanded = false;
-  bar.addEventListener("click", () => {
-    expanded = !expanded;
-    if (expanded) {
-      const log = document.createElement("div");
-      log.className = "stream-bar-expanded";
-      log.style.cssText = "position:absolute;bottom:var(--stream-h);left:0;right:0;height:180px;z-index:10";
-      container.appendChild(log);
-      bar.querySelector("#stream-chev").textContent = "▾ collapse";
-    } else {
-      container.querySelectorAll(".stream-bar-expanded").forEach(e => e.remove());
-      bar.querySelector("#stream-chev").textContent = "▴ expand";
-    }
-  });
 }
 
 // ── Utils ──────────────────────────────────────────────────────────────────

@@ -35,5 +35,8 @@ docs/
 tests/
 landingpage_swarmwright/
 
+# Demo infrastructure (server-side only)
+demo-auth/
+
 # Claude Code
 .claude/

@@ -9,11 +9,14 @@ import shutil
 import yaml
 from flask import Blueprint, jsonify, request, current_app
 from pydantic import BaseModel, field_validator
-from sqlalchemy import select
+from sqlalchemy import select, func
 
 from app.db import get_session
 from app.models.workspace import Workspace
 from app.models.swarm import Swarm
+from app.models.agent import Agent, LAYER_PERCEPTIONIST
+from app.models.trigger import Trigger
+from app.models.run import Run, STATUS_RUNNING
 
 bp = Blueprint("workspaces", __name__, url_prefix="/api/v1")
 
@@ -75,8 +78,52 @@ def get_workspace(workspace_id: str):
         swarms = session.execute(
             select(Swarm).where(Swarm.workspace_id == workspace_id).order_by(Swarm.display_name)
         ).scalars().all()
+        swarm_ids = [s.id for s in swarms]
+
+        # Batch counts for agents and triggers
+        agent_counts = dict(session.execute(
+            select(Agent.swarm_id, func.count()).where(Agent.swarm_id.in_(swarm_ids))
+            .group_by(Agent.swarm_id)
+        ).all()) if swarm_ids else {}
+
+        trigger_counts = dict(session.execute(
+            select(Trigger.swarm_id, func.count()).where(Trigger.swarm_id.in_(swarm_ids))
+            .group_by(Trigger.swarm_id)
+        ).all()) if swarm_ids else {}
+
+        running_counts = dict(session.execute(
+            select(Run.swarm_id, func.count()).where(
+                Run.swarm_id.in_(swarm_ids), Run.status == STATUS_RUNNING
+            ).group_by(Run.swarm_id)
+        ).all()) if swarm_ids else {}
+
+        # Last run per swarm (most recent started_at)
+        last_runs = {}
+        if swarm_ids:
+            for row in session.execute(
+                select(Run.swarm_id, func.max(Run.started_at), Run.status)
+                .where(Run.swarm_id.in_(swarm_ids), Run.started_at.isnot(None))
+                .group_by(Run.swarm_id)
+            ).all():
+                last_runs[row[0]] = {"started_at": row[1].isoformat() if row[1] else None, "status": row[2]}
+
+        # Workspace-level perceptionist count
+        percep_count = session.execute(
+            select(func.count()).select_from(Agent)
+            .where(Agent.workspace_id == workspace_id, Agent.layer == LAYER_PERCEPTIONIST)
+        ).scalar() or 0
+
         result = workspace.to_dict()
-        result["swarms"] = [s.to_dict() for s in swarms]
+        result["perceptionist_count"] = percep_count
+        swarm_dicts = []
+        for s in swarms:
+            d = s.to_dict()
+            d["agent_count"] = agent_counts.get(s.id, 0)
+            d["trigger_count"] = trigger_counts.get(s.id, 0)
+            d["running_count"] = running_counts.get(s.id, 0)
+            d["last_run"] = last_runs.get(s.id)
+            swarm_dicts.append(d)
+        result["swarms"] = swarm_dicts
         return jsonify(result)
 
 

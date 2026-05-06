@@ -72,6 +72,8 @@ def _skill_from_folder(folder: str, scope: str, workspace_id: str | None, swarm_
                 skills[name]["description"] = cfg.get("description", "")
                 skills[name]["timeout_seconds"] = cfg.get("timeout_seconds", 30)
                 skills[name]["allowed_packages"] = cfg.get("allowed_packages", [])
+                skills[name]["input_schema"] = cfg.get("input_schema", {})
+                skills[name]["output_schema"] = cfg.get("output_schema", {})
             except Exception:
                 pass
     return list(skills.values())
@@ -297,6 +299,8 @@ _USEFUL_THIRD_PARTY = {
     "cryptography":  "Crypto primitives, JWT, Fernet, etc.",
     "python-dateutil": "Robust date parsing.",
     "python-frontmatter": "YAML frontmatter parsing.",
+    "pdfplumber":         "Extract text and tables from PDF files.",
+    "openpyxl":           "Read and write Excel (.xlsx) files.",
 }
 
 
@@ -324,7 +328,7 @@ def draft_skill():
         if pkg.lower() in installed:
             third_party_lines.append(f"  - {pkg} {installed[pkg.lower()]}: {hint}")
 
-    stdlib_list = "json, urllib.request, urllib.parse, datetime, re, math, os, sys, pathlib, hashlib, hmac, base64, csv, sqlite3, subprocess, tempfile, uuid, time, io, collections, itertools, functools, dataclasses, typing"
+    stdlib_list = "json, urllib.request, urllib.parse, datetime, re, math, os, sys, pathlib, hashlib, hmac, base64, csv, sqlite3, subprocess, tempfile, uuid, time, io, collections, itertools, functools, dataclasses, typing, smtplib, email, logging, secrets, statistics, difflib, shutil, imaplib, zoneinfo, html.parser"
     third_party_block = "\n".join(third_party_lines) if third_party_lines else "  (none installed)"
 
     system = f"""You are a Python developer writing sandboxed skills for an AI agent swarm platform (SwarmWright).

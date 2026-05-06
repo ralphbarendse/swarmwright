@@ -103,42 +103,89 @@ async function _renderWorkspaceDetail(container, wsId) {
     container.querySelector("#ws-title").textContent = ws.display_name;
     container.querySelector("#ws-desc").textContent = ws.description || "";
 
-    // Edit
+    // Edit workspace
     container.querySelector("#btn-edit-ws").addEventListener("click", () =>
       _showEditWorkspaceModal(ws, () => _renderWorkspaceDetail(container, wsId)));
 
-    // Delete
-    container.querySelector("#btn-del-ws").addEventListener("click", async () => {
-      if (!confirm(`Delete workspace "${ws.display_name}"? This cannot be undone.`)) return;
-      try {
-        await api.deleteWorkspace(wsId);
-        toastSuccess("Workspace deleted");
-        window.swNav("org");
-      } catch (err) { toastError(err); }
+    // Delete workspace — use modal, not confirm()
+    container.querySelector("#btn-del-ws").addEventListener("click", () => {
+      _showModal(
+        "Delete workspace",
+        `<p style="margin:0;color:var(--color-ink-soft)">Delete <b>${_esc(ws.display_name)}</b>? All swarms inside must be deleted first. This cannot be undone.</p>`,
+        async () => {
+          await api.deleteWorkspace(wsId);
+          toastSuccess("Workspace deleted");
+          window.swNav("org");
+        },
+        "Delete",
+        true
+      );
     });
 
     // Swarms grid
     const grid = container.querySelector("#swarm-grid");
     const swarms = ws.swarms || [];
+
+    const _refreshGrid = () => _renderWorkspaceDetail(container, wsId);
+
     grid.innerHTML = swarms.map(s => _swarmCard(s)).join("") +
       `<div class="card card-add" id="add-swarm-card">+ New swarm</div>`;
+
     grid.querySelector("#add-swarm-card").addEventListener("click", () =>
-      _showCreateSwarmModal(wsId, () => _renderWorkspaceDetail(container, wsId)));
+      _showCreateSwarmModal(wsId, _refreshGrid));
+
+    // Navigate into swarm on card click
     grid.querySelectorAll(".swarm-card").forEach(el => {
-      el.addEventListener("click", () => { window.swSwarm = el.dataset.id; window.swNav(`swarm/${el.dataset.id}`); });
+      el.addEventListener("click", (e) => {
+        if (e.target.closest("button")) return;
+        window.swSwarm = el.dataset.id;
+        window.swNav(`swarm/${el.dataset.id}`);
+      });
     });
+
+    // Delete swarm buttons
     grid.querySelectorAll(".swarm-del-btn").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const swId = btn.dataset.id;
+        const name = btn.dataset.name || swId;
+        _showModal(
+          "Delete swarm",
+          `<p style="margin:0;color:var(--color-ink-soft)">Delete <b>${_esc(name)}</b>? All agents, runs, and files will be permanently removed.</p>`,
+          async () => {
+            await api.deleteSwarm(swId);
+            toastSuccess("Swarm deleted");
+            _refreshGrid();
+          },
+          "Delete",
+          true
+        );
+      });
+    });
+
+    // Enable/disable toggles
+    grid.querySelectorAll(".swarm-toggle-btn").forEach(btn => {
       btn.addEventListener("click", async (e) => {
         e.stopPropagation();
         const swId = btn.dataset.id;
-        const card = btn.closest(".swarm-card");
-        const name = card?.querySelector(".card-title")?.textContent?.trim() || swId;
-        if (!confirm(`Delete swarm "${name}"? This cannot be undone.`)) return;
+        const enabled = btn.dataset.enabled === "true";
+        btn.disabled = true;
         try {
-          await api.deleteSwarm(swId);
-          toastSuccess("Swarm deleted");
-          _renderWorkspaceDetail(container, wsId);
-        } catch (err) { toastError(err); }
+          await api.updateSwarm(swId, { enabled: !enabled });
+          toastSuccess(enabled ? "Swarm disabled" : "Swarm enabled");
+          _refreshGrid();
+        } catch (err) {
+          toastError(err);
+          btn.disabled = false;
+        }
+      });
+    });
+
+    // Fire event buttons
+    grid.querySelectorAll(".swarm-fire-btn").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        _showFireModal(btn.dataset.id, btn.dataset.name);
       });
     });
 
@@ -154,15 +201,14 @@ async function _renderWorkspaceDetail(container, wsId) {
         <span class="collapsible-view" data-tab="skills">View all ›</span>
       </div>
       <div class="collapsible-row" style="margin-bottom:0">
-        <span>Perceptionists <span class="collapsible-count">—</span></span>
-        <span class="collapsible-view">View all ›</span>
+        <span>Perceptionists <span class="collapsible-count" id="pc-count">${ws.perceptionist_count ?? "…"}</span></span>
       </div>`;
 
     res.querySelectorAll("[data-tab]").forEach(el => {
       el.addEventListener("click", () => window.swNav(`library/${el.dataset.tab}/${wsId}`));
     });
 
-    // Load knowledge count
+    // Load knowledge + skills counts
     api.listKnowledge({ scope: "workspace", workspace_id: wsId })
       .then(docs => { const el = res.querySelector("#kn-count"); if (el) el.textContent = docs.length; })
       .catch(() => {});
@@ -174,20 +220,73 @@ async function _renderWorkspaceDetail(container, wsId) {
 }
 
 function _swarmCard(s) {
-  const updated = s.updated_at ? _reltime(s.updated_at) : "";
-  const statusDot = s.enabled
+  const enabled = s.enabled !== false;
+  const statusDot = enabled
     ? `<span style="color:var(--color-success);font-size:10px">●</span>`
     : `<span style="color:var(--color-danger);font-size:10px">●</span>`;
+
+  const runningBadge = s.running_count
+    ? `<span style="background:rgba(217,119,6,.15);color:#d97706;font-size:10px;font-family:var(--font-mono);border-radius:8px;padding:1px 7px;font-weight:600">${s.running_count} running</span>`
+    : "";
+
+  const lastRun = s.last_run
+    ? `last run ${_reltime(s.last_run.started_at)}`
+    : "never run";
+
+  const agentBadge = `<span title="agents" style="color:var(--color-ink-faint);font-size:11px">${s.agent_count ?? 0} agents</span>`;
+  const triggerBadge = `<span title="triggers" style="color:var(--color-ink-faint);font-size:11px">${s.trigger_count ?? 0} triggers</span>`;
+
+  const toggleLabel = enabled ? "Disable" : "Enable";
+  const toggleStyle = enabled
+    ? "color:var(--color-ink-faint)"
+    : "color:var(--color-success)";
+
   return `
-    <div class="card swarm-card" data-id="${s.id}" style="min-height:110px">
-      <div class="card-title flex-row">${statusDot} ${_esc(s.display_name)}</div>
-      <div class="card-desc">${_esc(s.description || "No description")}</div>
-      <div class="card-foot">
-        <span>${updated}</span>
-        <button class="btn btn-ghost btn-sm swarm-del-btn" data-id="${s.id}"
-          style="padding:2px 8px;font-size:11px;color:var(--color-danger)">Delete</button>
+    <div class="card swarm-card" data-id="${s.id}" style="min-height:130px;cursor:pointer">
+      <div class="flex-row" style="justify-content:space-between;align-items:flex-start">
+        <div class="card-title flex-row" style="gap:6px;margin-bottom:4px">${statusDot} ${_esc(s.display_name)}</div>
+        ${runningBadge}
+      </div>
+      <div class="card-desc" style="margin-bottom:8px">${_esc(s.description || "No description")}</div>
+      <div class="flex-row" style="gap:12px;margin-bottom:10px">${agentBadge} · ${triggerBadge}</div>
+      <div class="card-foot" style="align-items:center">
+        <span style="color:var(--color-ink-faint);font-size:11px">${lastRun}</span>
+        <div class="flex-row" style="gap:4px">
+          <button class="btn btn-ghost btn-sm swarm-fire-btn" data-id="${s.id}" data-name="${_esc(s.display_name)}"
+            style="padding:2px 8px;font-size:11px" title="Fire event">▶</button>
+          <button class="btn btn-ghost btn-sm swarm-toggle-btn" data-id="${s.id}" data-enabled="${enabled}"
+            style="padding:2px 8px;font-size:11px;${toggleStyle}">${toggleLabel}</button>
+          <button class="btn btn-ghost btn-sm swarm-del-btn" data-id="${s.id}" data-name="${_esc(s.display_name)}"
+            style="padding:2px 8px;font-size:11px;color:var(--color-danger)">Delete</button>
+        </div>
       </div>
     </div>`;
+}
+
+// ── Fire event modal ────────────────────────────────────────────────────────
+
+function _showFireModal(swarmId, swarmName) {
+  _showModal(
+    `Fire · ${_esc(swarmName)}`,
+    `<div class="form-group">
+      <label class="form-label">Event payload (JSON)</label>
+      <textarea class="form-input" id="m-payload" rows="5"
+        style="font-family:var(--font-mono);font-size:12px;resize:vertical;line-height:1.5">{\n  "type": "manual"\n}</textarea>
+    </div>`,
+    async () => {
+      const raw = document.getElementById("m-payload")?.value.trim() || "{}";
+      let payload;
+      try { payload = JSON.parse(raw); }
+      catch { throw { message: "Invalid JSON — check your payload syntax" }; }
+      await api.fireEvent(swarmId, payload);
+      toastSuccess("Event fired");
+    },
+    "▶ Fire"
+  );
+  setTimeout(() => {
+    const ta = document.getElementById("m-payload");
+    if (ta) { ta.focus(); ta.select(); }
+  }, 60);
 }
 
 // ── Modals ─────────────────────────────────────────────────────────────────
@@ -247,7 +346,7 @@ function _showCreateSwarmModal(wsId, onDone) {
     async () => {
       const name = document.getElementById("m-name")?.value.trim();
       if (!name) throw { message: "Name is required" };
-      const swarm = await api.createSwarm(wsId, { display_name: name, description: document.getElementById("m-desc")?.value.trim() || null });
+      await api.createSwarm(wsId, { display_name: name, description: document.getElementById("m-desc")?.value.trim() || null });
       toastSuccess("Swarm created");
       onDone();
     }
@@ -257,9 +356,10 @@ function _showCreateSwarmModal(wsId, onDone) {
 
 // ── Generic modal helper ───────────────────────────────────────────────────
 
-export function _showModal(title, bodyHtml, onConfirm, confirmLabel = "Save") {
+export function _showModal(title, bodyHtml, onConfirm, confirmLabel = "Save", danger = false) {
   const veil = document.createElement("div");
   veil.className = "modal-veil";
+  const btnClass = danger ? "btn btn-danger" : "btn btn-primary";
   veil.innerHTML = `
     <div class="modal" role="dialog">
       <div class="modal-header">
@@ -269,7 +369,7 @@ export function _showModal(title, bodyHtml, onConfirm, confirmLabel = "Save") {
       <div class="modal-body">${bodyHtml}</div>
       <div class="modal-footer">
         <button class="btn btn-ghost" id="modal-cancel">Cancel</button>
-        <button class="btn btn-primary" id="modal-confirm">${confirmLabel}</button>
+        <button class="${btnClass}" id="modal-confirm">${confirmLabel}</button>
       </div>
     </div>`;
   document.body.appendChild(veil);

@@ -74,6 +74,22 @@ def _notify(event_type: str, data: dict) -> None:
         except Exception:
             logger.warning("SSE notify raised an exception", exc_info=True)
 
+
+def _output_snippet(output: object, max_len: int = 140) -> str | None:
+    """Extract a short human-readable string from a step output dict."""
+    if not isinstance(output, dict):
+        return str(output)[:max_len] if output else None
+    for key in ("message", "reason", "text", "content", "result", "summary"):
+        val = output.get(key)
+        if val and isinstance(val, str):
+            return val[:max_len] + ("…" if len(val) > max_len else "")
+    # Fallback: compact JSON of the whole dict
+    try:
+        s = json.dumps(output, ensure_ascii=False)
+        return s[:max_len] + ("…" if len(s) > max_len else "")
+    except Exception:
+        return None
+
 _RESPONSE_FORMAT = """
 When you respond, output ONLY a JSON object — no prose before or after — with this structure:
 
@@ -437,6 +453,7 @@ def _execute_agent_call(
         _notify("run.step", {
             "run_id": ctx.run_id, "swarm_id": ctx.swarm_id,
             "step_name": agent_name, "step_type": step_type, "sequence": seq,
+            "snippet": _output_snippet(output),
         })
         return output
 
@@ -911,6 +928,11 @@ def _execute_skill_call(
         if output_schema:
             validate_skill_output(output, output_schema)
         _update_step(step_id, output_json=json.dumps(output))
+        _notify("run.step", {
+            "run_id": ctx.run_id, "swarm_id": ctx.swarm_id,
+            "step_name": skill_ref, "step_type": STEP_SKILL_CALL, "sequence": seq,
+            "snippet": _output_snippet(output),
+        })
         return output
 
     except SkillError as exc:

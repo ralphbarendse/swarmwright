@@ -515,6 +515,7 @@ def list_inbox():
     status = request.args.get("status")
     caller_name = request.args.get("caller_name")
     swarm_id = request.args.get("swarm_id")
+    run_id = request.args.get("run_id")
     try:
         limit = max(1, min(int(request.args.get("limit", "50")), 500))
         offset = max(0, int(request.args.get("offset", "0")))
@@ -537,6 +538,8 @@ def list_inbox():
             stmt = stmt.where(Caller.name == caller_name)
         if swarm_id:
             stmt = stmt.where(Run.swarm_id == swarm_id)
+        if run_id:
+            stmt = stmt.where(HumanAction.run_id == run_id)
 
         rows = session.execute(stmt).all()
         out = []

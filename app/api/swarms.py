@@ -46,6 +46,7 @@ class SwarmUpdate(BaseModel):
     display_name: str | None = None
     description: str | None = None
     icon: str | None = None
+    enabled: bool | None = None
 
 
 def _slugify(text: str) -> str:
@@ -198,14 +199,17 @@ def update_swarm(swarm_id: str):
             swarm.description = body.description
         if body.icon is not None:
             swarm.icon = body.icon
+        if body.enabled is not None:
+            swarm.enabled = body.enabled
 
-        folder = os.path.join(data_dir, "workspaces", workspace.name, "swarms", swarm.name)
-        meta = {"display_name": swarm.display_name}
-        if swarm.description:
-            meta["description"] = swarm.description
-        if swarm.icon:
-            meta["icon"] = swarm.icon
-        swarm.meta_hash = _write_meta(folder, meta)
+        if any(v is not None for v in [body.display_name, body.description, body.icon]):
+            folder = os.path.join(data_dir, "workspaces", workspace.name, "swarms", swarm.name)
+            meta = {"display_name": swarm.display_name}
+            if swarm.description:
+                meta["description"] = swarm.description
+            if swarm.icon:
+                meta["icon"] = swarm.icon
+            swarm.meta_hash = _write_meta(folder, meta)
 
         session.commit()
         session.refresh(swarm)
