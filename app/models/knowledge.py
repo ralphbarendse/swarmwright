@@ -28,6 +28,14 @@ class KnowledgeDocument(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
 
     def to_dict(self) -> dict:
+        preview = ""
+        try:
+            with open(self.md_path) as f:
+                raw = f.read(600)
+            lines = [ln.lstrip("#").strip() for ln in raw.splitlines() if ln.strip() and not ln.startswith("#")]
+            preview = " ".join(lines)[:220]
+        except OSError:
+            pass
         return {
             "id": self.id,
             "scope": self.scope,
@@ -37,6 +45,7 @@ class KnowledgeDocument(Base):
             "md_path": self.md_path,
             "size_bytes": self.size_bytes,
             "title": self.title,
+            "content_preview": preview,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }

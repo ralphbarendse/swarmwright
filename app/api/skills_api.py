@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+from datetime import datetime, timezone
 
 import yaml
 from flask import Blueprint, current_app, jsonify, request
@@ -76,6 +77,11 @@ def _skill_from_folder(folder: str, scope: str, workspace_id: str | None, swarm_
                 skills[name]["output_schema"] = cfg.get("output_schema", {})
             except Exception:
                 pass
+    for skill in skills.values():
+        paths = [p for p in [skill.get("py_path"), skill.get("yaml_path")] if p and os.path.isfile(p)]
+        if paths:
+            mtime = max(os.path.getmtime(p) for p in paths)
+            skill["updated_at"] = datetime.fromtimestamp(mtime, tz=timezone.utc).isoformat()
     return list(skills.values())
 
 
