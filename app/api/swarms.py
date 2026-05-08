@@ -216,6 +216,214 @@ def update_swarm(swarm_id: str):
         return jsonify(swarm.to_dict())
 
 
+def _extract_title_from_md(content: str) -> str | None:
+    for line in content.splitlines():
+        line = line.strip()
+        if line.startswith("# "):
+            return line[2:].strip()
+    return None
+
+
+@bp.post("/swarms/<swarm_id>/copy")
+def copy_swarm(swarm_id: str):
+    body = request.get_json(force=True) or {}
+    target_ws_id = body.get("target_workspace_id")
+    if not target_ws_id:
+        return jsonify({"error": {"code": "validation_error", "message": "target_workspace_id required"}}), 400
+
+    data_dir = current_app.config["DATA_DIR"]
+
+    with get_session() as session:
+        swarm = session.get(Swarm, swarm_id)
+        if not swarm:
+            return jsonify({"error": {"code": "not_found", "message": "Swarm not found"}}), 404
+        src_ws = session.get(Workspace, swarm.workspace_id)
+        if not src_ws:
+            return jsonify({"error": {"code": "invalid_state", "message": "Source workspace not found"}}), 500
+        dst_ws = session.get(Workspace, target_ws_id)
+        if not dst_ws:
+            return jsonify({"error": {"code": "not_found", "message": "Target workspace not found"}}), 404
+
+        src_dir = os.path.join(data_dir, "workspaces", src_ws.name, "swarms", swarm.name)
+        same_ws = target_ws_id == swarm.workspace_id
+
+        slug = swarm.name
+        counter = 1
+        while session.execute(
+            select(Swarm).where(Swarm.workspace_id == target_ws_id, Swarm.name == slug)
+        ).scalar_one_or_none():
+            slug = f"{swarm.name}-copy" if counter == 1 else f"{swarm.name}-copy-{counter}"
+            counter += 1
+
+        dst_dir = os.path.join(data_dir, "workspaces", dst_ws.name, "swarms", slug)
+        swarm_display = swarm.display_name
+        swarm_desc = swarm.description
+        swarm_icon = swarm.icon
+
+    if not os.path.isdir(src_dir):
+        return jsonify({"error": {"code": "invalid_state", "message": "Source swarm directory not found"}}), 500
+
+    shutil.copytree(src_dir, dst_dir)
+
+    hierarchy_path = os.path.join(dst_dir, "hierarchy.json")
+    hier_content = ""
+    if os.path.isfile(hierarchy_path):
+        with open(hierarchy_path) as f:
+            hierarchy = json.load(f)
+        hierarchy["swarm"] = slug
+        hier_content = json.dumps(hierarchy, indent=2)
+        with open(hierarchy_path, "w") as f:
+            f.write(hier_content)
+
+    meta_path = os.path.join(dst_dir, "meta.yaml")
+    meta_content = open(meta_path).read() if os.path.isfile(meta_path) else ""
+    meta_hash = hashlib.sha256(meta_content.encode()).hexdigest()
+    hier_hash = hashlib.sha256(hier_content.encode()).hexdigest()
+
+    import frontmatter as fm_lib
+    from app.models.knowledge import KnowledgeDocument
+
+    with get_session() as session:
+        display_name = swarm_display + (" (copy)" if same_ws else "")
+        new_swarm = Swarm(
+            workspace_id=target_ws_id,
+            name=slug,
+            display_name=display_name,
+            description=swarm_desc,
+            icon=swarm_icon,
+            meta_hash=meta_hash,
+            hierarchy_hash=hier_hash,
+        )
+        session.add(new_swarm)
+        session.flush()
+
+        agents_dir = os.path.join(dst_dir, "agents")
+        if os.path.isdir(agents_dir):
+            for fname in sorted(os.listdir(agents_dir)):
+                if not fname.endswith(".md"):
+                    continue
+                name = fname[:-3]
+                md_path = os.path.join(agents_dir, fname)
+                layer, model = "executioner", None
+                try:
+                    with open(md_path) as f:
+                        post = fm_lib.loads(f.read())
+                    layer = post.get("layer", "executioner") or "executioner"
+                    model = post.get("model")
+                except Exception:
+                    pass
+                raw = open(md_path, "rb").read()
+                session.add(Agent(
+                    swarm_id=new_swarm.id,
+                    workspace_id=None,
+                    scope="swarm",
+                    name=name,
+                    layer=layer,
+                    model=model,
+                    md_path=md_path,
+                    md_hash=hashlib.sha256(raw).hexdigest(),
+                ))
+
+        knowledge_dir = os.path.join(dst_dir, "knowledge")
+        if os.path.isdir(knowledge_dir):
+            for fname in sorted(os.listdir(knowledge_dir)):
+                if not fname.endswith(".md"):
+                    continue
+                name = fname[:-3]
+                md_path = os.path.join(knowledge_dir, fname)
+                try:
+                    with open(md_path) as f:
+                        content = f.read()
+                except OSError:
+                    content = ""
+                content_bytes = content.encode()
+                session.add(KnowledgeDocument(
+                    scope="swarm",
+                    workspace_id=None,
+                    swarm_id=new_swarm.id,
+                    name=name,
+                    md_path=md_path,
+                    md_hash=hashlib.sha256(content_bytes).hexdigest(),
+                    size_bytes=len(content_bytes),
+                    title=_extract_title_from_md(content) or name,
+                ))
+
+        session.commit()
+        session.refresh(new_swarm)
+        return jsonify(new_swarm.to_dict()), 201
+
+
+@bp.post("/swarms/<swarm_id>/move")
+def move_swarm(swarm_id: str):
+    body = request.get_json(force=True) or {}
+    target_ws_id = body.get("target_workspace_id")
+    if not target_ws_id:
+        return jsonify({"error": {"code": "validation_error", "message": "target_workspace_id required"}}), 400
+
+    data_dir = current_app.config["DATA_DIR"]
+
+    with get_session() as session:
+        swarm = session.get(Swarm, swarm_id)
+        if not swarm:
+            return jsonify({"error": {"code": "not_found", "message": "Swarm not found"}}), 404
+        if swarm.workspace_id == target_ws_id:
+            return jsonify({"error": {"code": "invalid_request", "message": "Swarm is already in this workspace"}}), 400
+        src_ws = session.get(Workspace, swarm.workspace_id)
+        if not src_ws:
+            return jsonify({"error": {"code": "invalid_state", "message": "Source workspace not found"}}), 500
+        dst_ws = session.get(Workspace, target_ws_id)
+        if not dst_ws:
+            return jsonify({"error": {"code": "not_found", "message": "Target workspace not found"}}), 404
+
+        src_dir = os.path.join(data_dir, "workspaces", src_ws.name, "swarms", swarm.name)
+        old_name = swarm.name
+
+        slug = swarm.name
+        counter = 1
+        while session.execute(
+            select(Swarm).where(Swarm.workspace_id == target_ws_id, Swarm.name == slug)
+        ).scalar_one_or_none():
+            slug = f"{old_name}-{counter}"
+            counter += 1
+
+        dst_dir = os.path.join(data_dir, "workspaces", dst_ws.name, "swarms", slug)
+
+    shutil.move(src_dir, dst_dir)
+
+    if slug != old_name:
+        hierarchy_path = os.path.join(dst_dir, "hierarchy.json")
+        if os.path.isfile(hierarchy_path):
+            with open(hierarchy_path) as f:
+                hierarchy = json.load(f)
+            hierarchy["swarm"] = slug
+            with open(hierarchy_path, "w") as f:
+                json.dump(hierarchy, f, indent=2)
+
+    from app.models.knowledge import KnowledgeDocument
+
+    with get_session() as session:
+        swarm = session.get(Swarm, swarm_id)
+        swarm.workspace_id = target_ws_id
+        swarm.name = slug
+
+        agents = session.execute(select(Agent).where(Agent.swarm_id == swarm_id)).scalars().all()
+        for agent in agents:
+            agent.md_path = agent.md_path.replace(src_dir, dst_dir, 1)
+
+        docs = session.execute(select(KnowledgeDocument).where(KnowledgeDocument.swarm_id == swarm_id)).scalars().all()
+        for doc in docs:
+            doc.md_path = doc.md_path.replace(src_dir, dst_dir, 1)
+
+        session.commit()
+        session.refresh(swarm)
+        result = swarm.to_dict()
+
+    from app.core import registry
+    registry._hierarchy_cache.pop(swarm_id, None)
+
+    return jsonify(result)
+
+
 @bp.delete("/swarms/<swarm_id>")
 def delete_swarm(swarm_id: str):
     with get_session() as session:

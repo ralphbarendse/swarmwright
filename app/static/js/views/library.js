@@ -184,12 +184,17 @@ function _renderKnowledgeGrid(grid, docs, reload, scopeParams) {
       </div>
       <div style="display:flex;gap:6px;flex-shrink:0;align-self:flex-start;margin-top:1px">
         <button class="btn btn-ghost btn-sm" data-action="edit">Edit</button>
+        <button class="btn btn-ghost btn-sm" data-action="transfer">Transfer</button>
         <button class="btn btn-danger btn-sm" data-action="delete">Delete</button>
       </div>`;
 
     const openEditor = () => _openKnowledgeEditor({ doc, isNew: false, scopeParams, onDone: reload });
     card.addEventListener("click", openEditor);
     card.querySelector("[data-action=edit]").addEventListener("click", e => { e.stopPropagation(); openEditor(); });
+    card.querySelector("[data-action=transfer]").addEventListener("click", e => {
+      e.stopPropagation();
+      _showKnowledgeTransferModal(doc, reload);
+    });
     card.querySelector("[data-action=delete]").addEventListener("click", async e => {
       e.stopPropagation();
       if (!confirm(`Delete "${doc.title || doc.name}"?`)) return;
@@ -489,11 +494,16 @@ async function _renderSkills(container, scopeSel) {
           ${(skill.allowed_packages || []).length ? `<div style="margin-top:6px;display:flex;gap:4px;flex-wrap:wrap">${skill.allowed_packages.map(p => `<span class="chip" style="font-size:10px">${_esc(p)}</span>`).join("")}</div>` : ""}
         </div>
         <button class="btn btn-secondary btn-sm" data-action="edit">Edit</button>
+        <button class="btn btn-ghost btn-sm" data-action="transfer">Transfer</button>
         <button class="btn btn-ghost btn-sm" data-action="delete">Delete</button>`;
 
       const openEditor = () => _openSkillEditor({ scopeSel, skillName: skill.name, isNew: false, onDone: reload });
       card.addEventListener("click", openEditor);
       card.querySelector("[data-action=edit]").addEventListener("click", e => { e.stopPropagation(); openEditor(); });
+      card.querySelector("[data-action=transfer]").addEventListener("click", e => {
+        e.stopPropagation();
+        _showSkillTransferModal(skill, scopeSel, reload);
+      });
       card.querySelector("[data-action=delete]").addEventListener("click", async e => {
         e.stopPropagation();
         if (!confirm(`Delete skill "${skill.name}"? This removes the .py and .yaml files.`)) return;
@@ -730,6 +740,162 @@ async function _openSkillEditor({ scopeSel, skillName, isNew, onDone }) {
   setTimeout(() => {
     if (!document.getElementById("btn-save")) document.removeEventListener("keydown", kbd);
   }, 1000);
+}
+
+// ── Transfer modal ─────────────────────────────────────────────────────────
+
+function _showModal(title, bodyHtml, onConfirm, confirmLabel = "Save", danger = false) {
+  const veil = document.createElement("div");
+  veil.className = "modal-veil";
+  const btnClass = danger ? "btn btn-danger" : "btn btn-primary";
+  veil.innerHTML = `
+    <div class="modal" role="dialog">
+      <div class="modal-header">
+        <span>${title}</span>
+        <button class="modal-close" id="modal-x">✕</button>
+      </div>
+      <div class="modal-body">${bodyHtml}</div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="modal-cancel">Cancel</button>
+        <button class="${btnClass}" id="modal-confirm">${confirmLabel}</button>
+      </div>
+    </div>`;
+  document.body.appendChild(veil);
+
+  const close = () => veil.remove();
+  veil.querySelector("#modal-x").addEventListener("click", close);
+  veil.querySelector("#modal-cancel").addEventListener("click", close);
+  veil.addEventListener("click", e => { if (e.target === veil) close(); });
+
+  const confirmBtn = veil.querySelector("#modal-confirm");
+  confirmBtn.addEventListener("click", async () => {
+    confirmBtn.disabled = true;
+    try {
+      await onConfirm();
+      close();
+    } catch (err) {
+      toastError(err);
+      confirmBtn.disabled = false;
+    }
+  });
+  return { close };
+}
+
+const _TRANSFER_DST_HTML = `
+  <div class="form-group">
+    <label class="form-label">Operation</label>
+    <div style="display:flex;gap:16px;margin-top:4px">
+      <label style="display:flex;gap:6px;align-items:center;cursor:pointer;font-size:13px">
+        <input type="radio" name="m-op" value="copy" checked> Copy
+      </label>
+      <label style="display:flex;gap:6px;align-items:center;cursor:pointer;font-size:13px">
+        <input type="radio" name="m-op" value="move"> Move
+      </label>
+    </div>
+  </div>
+  <div class="form-group">
+    <label class="form-label">Destination scope</label>
+    <select class="form-input" id="m-scope">
+      <option value="company">Company</option>
+      <option value="workspace">Workspace</option>
+      <option value="swarm">Swarm</option>
+    </select>
+  </div>
+  <div id="m-ws-row" class="form-group" style="display:none">
+    <label class="form-label">Workspace</label>
+    <select class="form-input" id="m-workspace"><option>Loading…</option></select>
+  </div>
+  <div id="m-sw-row" class="form-group" style="display:none">
+    <label class="form-label">Swarm</label>
+    <select class="form-input" id="m-swarm"><option>Loading…</option></select>
+  </div>`;
+
+async function _wireTransferDst() {
+  const scopeSel = document.getElementById("m-scope");
+  const wsRow    = document.getElementById("m-ws-row");
+  const wsSelect = document.getElementById("m-workspace");
+  const swRow    = document.getElementById("m-sw-row");
+  const swSelect = document.getElementById("m-swarm");
+
+  let workspaces = [];
+  try { workspaces = await api.listWorkspaces(); } catch (_) {}
+  wsSelect.innerHTML = workspaces.map(ws =>
+    `<option value="${_esc(ws.id)}">${_esc(ws.display_name)}</option>`).join("");
+
+  const populateSwarms = async () => {
+    const wsId = wsSelect.value;
+    if (!wsId) return;
+    swSelect.innerHTML = "<option>Loading…</option>";
+    try {
+      const swarms = await api.listSwarms(wsId);
+      swSelect.innerHTML = swarms.length
+        ? swarms.map(s => `<option value="${_esc(s.id)}">${_esc(s.display_name)}</option>`).join("")
+        : "<option disabled>No swarms in this workspace</option>";
+    } catch (_) { swSelect.innerHTML = "<option>Error loading</option>"; }
+  };
+
+  const updateRows = async () => {
+    const scope = scopeSel.value;
+    wsRow.style.display = scope !== "company" ? "" : "none";
+    swRow.style.display = scope === "swarm" ? "" : "none";
+    if (scope === "swarm") await populateSwarms();
+  };
+
+  scopeSel.addEventListener("change", updateRows);
+  wsSelect.addEventListener("change", () => { if (scopeSel.value === "swarm") populateSwarms(); });
+}
+
+function _readTransferDst() {
+  const op           = document.querySelector('[name="m-op"]:checked')?.value || "copy";
+  const scope        = document.getElementById("m-scope")?.value || "company";
+  const workspace_id = scope !== "company" ? (document.getElementById("m-workspace")?.value || null) : null;
+  const swarm_id     = scope === "swarm"   ? (document.getElementById("m-swarm")?.value    || null) : null;
+  if (scope === "workspace" && !workspace_id) throw { message: "Select a workspace" };
+  if (scope === "swarm"     && !swarm_id)     throw { message: "Select a swarm" };
+  return { op, scope, workspace_id, swarm_id };
+}
+
+function _showKnowledgeTransferModal(doc, reload) {
+  _showModal(
+    `Transfer · ${_esc(doc.title || doc.name)}`,
+    `<p style="margin:0 0 14px;font-size:12px;color:var(--color-ink-soft)">
+       Copy or move <b>${_esc(doc.title || doc.name)}</b> to another scope.
+     </p>${_TRANSFER_DST_HTML}`,
+    async () => {
+      const { op, scope, workspace_id, swarm_id } = _readTransferDst();
+      await api.transferKnowledge(doc.id, { op, scope, workspace_id, swarm_id });
+      toastSuccess(op === "copy" ? "Document copied" : "Document moved");
+      reload();
+    },
+    "Transfer"
+  );
+  _wireTransferDst();
+}
+
+function _showSkillTransferModal(skill, scopeSel, reload) {
+  _showModal(
+    `Transfer · ${_esc(skill.name)}`,
+    `<p style="margin:0 0 14px;font-size:12px;color:var(--color-ink-soft)">
+       Copy or move skill <b>${_esc(skill.name)}</b> to another scope.
+     </p>${_TRANSFER_DST_HTML}`,
+    async () => {
+      const { op, scope, workspace_id, swarm_id } = _readTransferDst();
+      const src = _scopeParams(scopeSel);
+      await api.transferSkill(skill.name, {
+        op,
+        src_scope: src.scope,
+        src_workspace_id: src.workspace_id || null,
+        src_swarm_id: src.swarm_id || null,
+        dst_scope: scope,
+        dst_workspace_id: workspace_id,
+        dst_swarm_id: swarm_id,
+      });
+      toastSuccess(op === "copy" ? "Skill copied" : "Skill moved");
+      reload();
+    },
+    "Transfer"
+  );
+  _wireTransferDst();
 }
 
 // ── Utils ──────────────────────────────────────────────────────────────────

@@ -40,6 +40,8 @@ export const getSwarm     = (id)        => get(`/swarms/${id}`);
 export const createSwarm  = (wid, body) => post(`/workspaces/${wid}/swarms`, body);
 export const updateSwarm  = (id, body)  => put(`/swarms/${id}`, body);
 export const deleteSwarm  = (id)        => del(`/swarms/${id}`);
+export const copySwarm    = (id, body)  => post(`/swarms/${id}/copy`, body);
+export const moveSwarm    = (id, body)  => post(`/swarms/${id}/move`, body);
 export const getHierarchy = (id)        => get(`/swarms/${id}/hierarchy`);
 export const patchTopology = (id, op, params) => patch(`/swarms/${id}/topology`, { op, params });
 
@@ -58,15 +60,17 @@ export const getKnowledge    = (id)          => get(`/knowledge/${id}`);
 export const createKnowledge = (body)        => post("/knowledge", body);
 export const updateKnowledge = (id, body)    => put(`/knowledge/${id}`, body);
 export const deleteKnowledge = (id)          => del(`/knowledge/${id}`);
-export const draftKnowledge  = (id, prompt)  => post(`/knowledge/${id}/draft`, { prompt });
-export const draftSkill      = (name, prompt) => post("/skills/_meta/draft", { name, prompt });
+export const draftKnowledge    = (id, prompt)  => post(`/knowledge/${id}/draft`, { prompt });
+export const transferKnowledge = (id, body)    => post(`/knowledge/${id}/transfer`, body);
+export const draftSkill        = (name, prompt) => post("/skills/_meta/draft", { name, prompt });
 
 // ── Skills ───────────────────────────────────────────────────────────────────
 export const listSkills = (params = {}) => get("/skills?" + new URLSearchParams(params));
 export const getSkill   = (name, params = {}) => get(`/skills/${name}?` + new URLSearchParams(params));
 export const createSkill = (body) => post("/skills", body);
 export const updateSkill = (name, body) => put(`/skills/${name}`, body);
-export const deleteSkill = (name, params = {}) => del(`/skills/${name}?` + new URLSearchParams(params));
+export const deleteSkill    = (name, params = {}) => del(`/skills/${name}?` + new URLSearchParams(params));
+export const transferSkill  = (name, body) => post(`/skills/${name}/transfer`, body);
 export const getSkillsRuntime = () => get("/skills/_meta/runtime");
 
 // ── Runs ─────────────────────────────────────────────────────────────────────

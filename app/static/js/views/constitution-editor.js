@@ -108,6 +108,20 @@ export function renderConstitutionEditor(container, agentId) {
           <div id="ed-skills-list"></div>
         </div>
 
+        <!-- Swarm agents reference panel (populated when swarm_id is known) -->
+        <div id="ed-swarm-agents" style="display:none;border-bottom:1px solid var(--color-border-soft);background:var(--color-bg);flex-shrink:0">
+          <div style="
+            display:flex;align-items:center;justify-content:space-between;
+            padding:6px 16px;cursor:pointer;user-select:none;
+          " id="ed-swarm-agents-hdr">
+            <div class="sec-header" style="margin:0">Swarm agents</div>
+            <span id="ed-swarm-agents-arrow" style="font-size:10px;color:var(--color-ink-faint)">▾</span>
+          </div>
+          <div id="ed-swarm-agents-body" style="padding:0 16px 8px;max-height:140px;overflow-y:auto">
+            <div id="ed-swarm-agents-list"></div>
+          </div>
+        </div>
+
         <!-- Section scaffold -->
         <div style="
           padding:5px 16px;border-bottom:1px solid var(--color-border-soft);
@@ -118,6 +132,38 @@ export function renderConstitutionEditor(container, agentId) {
           ${["Role","Responsibilities","Behavior","Output Format","Constraints"].map(s =>
             `<button class="btn btn-ghost btn-sm scaffold-btn" data-section="${s}" style="font-size:10px;padding:2px 8px;letter-spacing:0">${s}</button>`
           ).join("")}
+          <span style="display:inline-block;width:1px;height:14px;background:var(--color-cream-line);margin:0 4px;vertical-align:middle"></span>
+          <button class="btn btn-ghost btn-sm" id="btn-insert-action" style="font-size:10px;padding:2px 8px;letter-spacing:0">↗ Action</button>
+        </div>
+
+        <!-- Action insert popover -->
+        <div id="ed-action-popover" style="display:none;padding:10px 16px;border-bottom:1px solid var(--color-border-soft);background:var(--color-surface);flex-shrink:0">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
+            <div class="form-group" style="margin-bottom:0">
+              <label class="form-label">Action</label>
+              <select class="form-select" id="ap-action" style="font-size:11px;padding:5px 10px">
+                <option value="delegate">delegate</option>
+                <option value="report">report</option>
+                <option value="skill_call">skill_call</option>
+                <option value="escalate">escalate</option>
+                <option value="consult">consult</option>
+              </select>
+            </div>
+            <div class="form-group" style="margin-bottom:0">
+              <label class="form-label">Target</label>
+              <select class="form-select" id="ap-target" style="font-size:11px;padding:5px 10px">
+                <option value="">— select —</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group" style="margin-bottom:8px">
+            <label class="form-label">Purpose match</label>
+            <input class="form-input" id="ap-purpose" placeholder="e.g. To summarize the document" style="font-size:11px;padding:5px 10px">
+          </div>
+          <div style="display:flex;gap:6px;justify-content:flex-end">
+            <button class="btn btn-ghost btn-sm" id="ap-cancel" style="font-size:11px">Cancel</button>
+            <button class="btn btn-primary btn-sm" id="ap-insert" style="font-size:11px">Insert snippet</button>
+          </div>
         </div>
 
         <!-- CodeMirror -->
@@ -316,6 +362,8 @@ async function _load(container, agentId, setDirty, onContent) {
     if (agent.swarm_id) {
       _wireSkillsPanel(container, agent);
       _refreshSkillsPanel(container, agent);
+      _loadSwarmAgentsPanel(container, agent);
+      _wireActionInsert(container, agent);
     }
   } catch (err) { toastError(err); }
 }
@@ -430,6 +478,129 @@ async function _refreshSkillsPanel(container, agent) {
   }
 }
 
+// ── Swarm agents reference panel ──────────────────────────────────────────
+
+async function _loadSwarmAgentsPanel(container, agent) {
+  const wrap   = container.querySelector("#ed-swarm-agents");
+  const list   = container.querySelector("#ed-swarm-agents-list");
+  const hdr    = container.querySelector("#ed-swarm-agents-hdr");
+  const body   = container.querySelector("#ed-swarm-agents-body");
+  const arrow  = container.querySelector("#ed-swarm-agents-arrow");
+  if (!wrap || !list || !agent.swarm_id) return;
+
+  const LAYER_COLOR = {
+    policy:        "var(--color-policy)",
+    orchestrator:  "var(--color-orchestrator)",
+    executioner:   "var(--color-executioner)",
+    perceptionist: "var(--color-perceptionist)",
+  };
+
+  try {
+    const agents = await api.listAgents(agent.swarm_id);
+    const others = agents.filter(a => a.id !== agent.id);
+    if (!others.length) return;
+
+    list.innerHTML = others.map(a => `
+      <div style="display:flex;align-items:center;gap:6px;padding:4px 0;border-bottom:1px solid var(--color-cream-line)">
+        <span style="
+          font-family:var(--font-mono);font-size:9px;letter-spacing:.04em;
+          text-transform:uppercase;color:#fff;flex-shrink:0;white-space:nowrap;
+          background:${LAYER_COLOR[a.layer] || "var(--color-ink-faint)"};
+          border-radius:3px;padding:1px 5px;
+        ">${_esc(a.layer || "?")}</span>
+        <span style="
+          font-family:var(--font-mono);font-size:11px;color:var(--color-ink);
+          flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+        " title="${_esc(a.name)}">${_esc(a.name)}</span>
+        <button class="btn btn-ghost btn-sm" data-insert-agent="${_esc(a.name)}"
+          style="font-size:10px;padding:1px 7px;flex-shrink:0">Insert</button>
+      </div>`).join("");
+
+    wrap.style.display = "";
+
+    list.querySelectorAll("[data-insert-agent]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        if (!_editor) return;
+        _editor.replaceRange(btn.dataset.insertAgent, _editor.getCursor());
+        _editor.focus();
+      });
+    });
+
+    // Collapse toggle
+    let collapsed = false;
+    hdr.addEventListener("click", () => {
+      collapsed = !collapsed;
+      body.style.display = collapsed ? "none" : "";
+      arrow.textContent  = collapsed ? "▸" : "▾";
+    });
+  } catch { /* silently skip if swarm has no agents yet */ }
+}
+
+// ── Action snippet insert ──────────────────────────────────────────────────
+
+async function _wireActionInsert(container, agent) {
+  const btnToggle = container.querySelector("#btn-insert-action");
+  const popover   = container.querySelector("#ed-action-popover");
+  const apAction  = container.querySelector("#ap-action");
+  const apTarget  = container.querySelector("#ap-target");
+  const apPurpose = container.querySelector("#ap-purpose");
+  if (!btnToggle || !popover) return;
+
+  let agentNames = [];
+  let skillNames = [];
+  try {
+    const [agents, hier] = await Promise.all([
+      api.listAgents(agent.swarm_id),
+      api.getHierarchy(agent.swarm_id),
+    ]);
+    agentNames = agents.filter(a => a.id !== agent.id).map(a => a.name);
+    skillNames = (hier.skills || [])
+      .filter(s => s.agent === agent.name)
+      .map(s => s.skill);
+  } catch { }
+
+  function _rebuildTargets() {
+    const useSkills = apAction.value === "skill_call";
+    const targets   = useSkills ? skillNames : agentNames;
+    apTarget.innerHTML =
+      `<option value="">— select —</option>` +
+      targets.map(t => `<option value="${_esc(t)}">${_esc(t)}</option>`).join("");
+  }
+
+  apAction.addEventListener("change", _rebuildTargets);
+  _rebuildTargets();
+
+  btnToggle.addEventListener("click", () => {
+    const open = popover.style.display !== "none";
+    popover.style.display = open ? "none" : "";
+    if (!open) setTimeout(() => apPurpose.focus(), 30);
+  });
+
+  container.querySelector("#ap-cancel").addEventListener("click", () => {
+    popover.style.display = "none";
+  });
+
+  container.querySelector("#ap-insert").addEventListener("click", () => {
+    if (!_editor) return;
+    const action  = apAction.value  || "delegate";
+    const target  = apTarget.value  || "<target>";
+    const purpose = apPurpose.value.trim() || "<purpose>";
+    const pad     = (s, n) => s + " ".repeat(Math.max(1, n - s.length));
+    const snippet =
+      "\n```\n" +
+      `${pad("action:", 15)}${action}\n` +
+      `${pad("target:", 15)}${target}\n` +
+      `${pad("purpose_match:", 15)}${purpose}\n` +
+      `${pad("input:", 15)}{}\n` +
+      "```\n";
+    _editor.replaceRange(snippet, _editor.getCursor());
+    _editor.focus();
+    popover.style.display = "none";
+    apPurpose.value = "";
+    _rebuildTargets();
+  });
+}
+
 // ── Frontmatter form ───────────────────────────────────────────────────────
 
 function _buildFrontmatterForm(container, content, agent, setDirty, configuredModels = []) {
@@ -479,14 +650,22 @@ function _buildFrontmatterForm(container, content, agent, setDirty, configuredMo
         ${(fm.knowledge || []).map(k => `<span class="chip">${_esc(k)}<button class="chip-remove" onclick="this.parentElement.remove()">×</button></span>`).join("")}
         <input style="border:none;outline:none;font-size:11px;min-width:80px;flex:1" id="fm-kn-input" placeholder="+ add" autocomplete="off">
       </div>
+    </div>
+    <div class="form-group" style="margin-bottom:0;margin-top:10px;display:flex;align-items:center;gap:8px">
+      <label class="toggle-switch">
+        <input type="checkbox" id="fm-web-search" ${(fm.web_search === "true" || fm.web_search === true) ? "checked" : ""}>
+        <span class="toggle-slider"></span>
+      </label>
+      <span class="form-label" style="margin-bottom:0">Web Search</span>
     </div>`;
 
   // Cache models list on form element so _resetEditor can re-use it
   form._cachedModels = configuredModels;
 
-  // Layer / model changes mark dirty
+  // Layer / model / web-search changes mark dirty
   form.querySelector("#fm-layer")?.addEventListener("change", () => setDirty && setDirty(true));
   form.querySelector("#fm-model")?.addEventListener("change", () => setDirty && setDirty(true));
+  form.querySelector("#fm-web-search")?.addEventListener("change", () => setDirty && setDirty(true));
 
   // Knowledge autocomplete
   _setupKnowledgeAutocomplete(container, setDirty);
@@ -648,8 +827,9 @@ function _getFullContent(container) {
   const model   = form.querySelector("#fm-model")?.value || "claude-sonnet-4-6";
   const knChips = [...form.querySelectorAll(".chip")].map(c => c.textContent.trim().replace("×", "").trim());
   const name    = form.querySelector("input[readonly]")?.value || "";
+  const wsOn    = form.querySelector("#fm-web-search")?.checked;
   const knYaml  = knChips.length ? `knowledge:\n${knChips.map(k => `  - ${k}`).join("\n")}` : "knowledge: []";
-  const fm      = `---\nname: ${name}\nlayer: ${layer}\nmodel: ${model}\n${knYaml}\n---\n`;
+  const fm      = `---\nname: ${name}\nlayer: ${layer}\nmodel: ${model}\n${knYaml}${wsOn ? "\nweb_search: true" : ""}\n---\n`;
   const body    = _editor ? _editor.getValue() : "";
   return fm + body;
 }

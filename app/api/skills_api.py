@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import re
+import shutil
 from datetime import datetime, timezone
 
 import yaml
@@ -451,6 +452,67 @@ def skills_runtime_info():
         "python_version": sys.version.split()[0],
         "stdlib_highlights": stdlib_highlights,
         "third_party": third_party,
+    })
+
+
+class SkillTransfer(BaseModel):
+    op: str
+    src_scope: str
+    src_workspace_id: str | None = None
+    src_swarm_id: str | None = None
+    dst_scope: str
+    dst_workspace_id: str | None = None
+    dst_swarm_id: str | None = None
+
+
+@bp.post("/skills/<skill_name>/transfer")
+def transfer_skill(skill_name: str):
+    try:
+        body = SkillTransfer.model_validate(request.get_json(force=True) or {})
+    except Exception as exc:
+        return jsonify({"error": {"code": "validation_error", "message": str(exc)}}), 400
+
+    if body.op not in ("copy", "move"):
+        return jsonify({"error": {"code": "validation_error", "message": "op must be 'copy' or 'move'"}}), 400
+
+    data_dir = current_app.config["DATA_DIR"]
+    src_folder = _scope_folder(body.src_scope, body.src_workspace_id, body.src_swarm_id, data_dir)
+    dst_folder = _scope_folder(body.dst_scope, body.dst_workspace_id, body.dst_swarm_id, data_dir)
+
+    if not src_folder:
+        return jsonify({"error": {"code": "not_found", "message": "Source scope not found"}}), 404
+    if not dst_folder:
+        return jsonify({"error": {"code": "not_found", "message": "Destination scope not found"}}), 404
+    if src_folder == dst_folder:
+        return jsonify({"error": {"code": "conflict", "message": "Skill is already at this destination"}}), 409
+
+    src_py   = os.path.join(src_folder, f"{skill_name}.py")
+    src_yaml = os.path.join(src_folder, f"{skill_name}.yaml")
+
+    if not os.path.isfile(src_py) and not os.path.isfile(src_yaml):
+        return jsonify({"error": {"code": "not_found", "message": "Skill not found"}}), 404
+
+    os.makedirs(dst_folder, exist_ok=True)
+    dst_py   = os.path.join(dst_folder, f"{skill_name}.py")
+    dst_yaml = os.path.join(dst_folder, f"{skill_name}.yaml")
+
+    if os.path.isfile(dst_py) or os.path.isfile(dst_yaml):
+        return jsonify({"error": {"code": "conflict", "message": f"Skill {skill_name!r} already exists at destination"}}), 409
+
+    if body.op == "copy":
+        for src, dst in [(src_py, dst_py), (src_yaml, dst_yaml)]:
+            if os.path.isfile(src):
+                shutil.copy2(src, dst)
+    else:
+        for src, dst in [(src_py, dst_py), (src_yaml, dst_yaml)]:
+            if os.path.isfile(src):
+                shutil.move(src, dst)
+
+    return jsonify({
+        "name": skill_name,
+        "scope": body.dst_scope,
+        "workspace_id": body.dst_workspace_id,
+        "swarm_id": body.dst_swarm_id,
     })
 
 

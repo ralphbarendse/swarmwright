@@ -489,6 +489,7 @@ def _run_agent_loop(
     constitution_body: str = post.content
     knowledge_refs: list[str] = post.get("knowledge", []) or []
     model: str | None = post.get("model")
+    web_search: bool = bool(post.get("web_search", False))
 
     knowledge_text = _load_knowledge(knowledge_refs, ctx)
     system_prompt = _build_system_prompt(
@@ -503,8 +504,12 @@ def _run_agent_loop(
     total_input_tokens = 0
     total_output_tokens = 0
 
+    llm_kwargs: dict = {}
+    if web_search and llm.provider == "anthropic":
+        llm_kwargs["tools"] = [{"type": "web_search_20250305", "name": "web_search"}]
+
     for turn in range(MAX_AGENT_TURNS):
-        raw, usage = llm.complete_with_usage(system=system_prompt, messages=messages)
+        raw, usage = llm.complete_with_usage(system=system_prompt, messages=messages, **llm_kwargs)
         total_input_tokens += usage.get("input_tokens", 0)
         total_output_tokens += usage.get("output_tokens", 0)
         messages.append({"role": "assistant", "content": raw})

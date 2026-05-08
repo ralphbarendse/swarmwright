@@ -163,6 +163,17 @@ async function _renderWorkspaceDetail(container, wsId) {
       });
     });
 
+    // Edit swarm buttons
+    grid.querySelectorAll(".swarm-edit-btn").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        _showEditSwarmModal(
+          { id: btn.dataset.id, display_name: btn.dataset.name, description: btn.dataset.desc },
+          _refreshGrid
+        );
+      });
+    });
+
     // Enable/disable toggles
     grid.querySelectorAll(".swarm-toggle-btn").forEach(btn => {
       btn.addEventListener("click", async (e) => {
@@ -178,6 +189,17 @@ async function _renderWorkspaceDetail(container, wsId) {
           toastError(err);
           btn.disabled = false;
         }
+      });
+    });
+
+    // Transfer swarm buttons
+    grid.querySelectorAll(".swarm-transfer-btn").forEach(btn => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        _showSwarmTransferModal(
+          { id: btn.dataset.id, display_name: btn.dataset.name, workspace_id: btn.dataset.wsid },
+          _refreshGrid
+        );
       });
     });
 
@@ -256,6 +278,10 @@ function _swarmCard(s) {
             style="padding:2px 8px;font-size:11px" title="Fire event">▶</button>
           <button class="btn btn-ghost btn-sm swarm-toggle-btn" data-id="${s.id}" data-enabled="${enabled}"
             style="padding:2px 8px;font-size:11px;${toggleStyle}">${toggleLabel}</button>
+          <button class="btn btn-ghost btn-sm swarm-edit-btn" data-id="${s.id}" data-name="${_esc(s.display_name)}" data-desc="${_esc(s.description || '')}"
+            style="padding:2px 8px;font-size:11px">Edit</button>
+          <button class="btn btn-ghost btn-sm swarm-transfer-btn" data-id="${s.id}" data-name="${_esc(s.display_name)}" data-wsid="${_esc(s.workspace_id || '')}"
+            style="padding:2px 8px;font-size:11px">Transfer</button>
           <button class="btn btn-ghost btn-sm swarm-del-btn" data-id="${s.id}" data-name="${_esc(s.display_name)}"
             style="padding:2px 8px;font-size:11px;color:var(--color-danger)">Delete</button>
         </div>
@@ -333,6 +359,30 @@ function _showEditWorkspaceModal(ws, onDone) {
   );
 }
 
+function _showEditSwarmModal(swarm, onDone) {
+  _showModal("Edit swarm", `
+    <div class="form-group">
+      <label class="form-label">Name</label>
+      <input class="form-input" id="m-name" type="text" value="${_esc(swarm.display_name)}">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Description</label>
+      <input class="form-input" id="m-desc" type="text" value="${_esc(swarm.description || '')}">
+    </div>`,
+    async () => {
+      const display_name = document.getElementById("m-name")?.value.trim();
+      if (!display_name) throw { message: "Name is required" };
+      await api.updateSwarm(swarm.id, {
+        display_name,
+        description: document.getElementById("m-desc")?.value.trim() || null,
+      });
+      toastSuccess("Saved");
+      onDone();
+    }
+  );
+  setTimeout(() => document.getElementById("m-name")?.focus(), 50);
+}
+
 function _showCreateSwarmModal(wsId, onDone) {
   _showModal("New swarm", `
     <div class="form-group">
@@ -352,6 +402,69 @@ function _showCreateSwarmModal(wsId, onDone) {
     }
   );
   setTimeout(() => document.getElementById("m-name")?.focus(), 50);
+}
+
+// ── Swarm transfer modal ───────────────────────────────────────────────────
+
+function _showSwarmTransferModal(swarm, onDone) {
+  _showModal(
+    `Transfer swarm · ${_esc(swarm.display_name)}`,
+    `<p style="margin:0 0 14px;font-size:12px;color:var(--color-ink-soft)">
+       Copy or move <b>${_esc(swarm.display_name)}</b> to another workspace.
+       Copying duplicates agents, knowledge, and skills. Moving transfers ownership.
+     </p>
+     <div class="form-group">
+       <label class="form-label">Operation</label>
+       <div style="display:flex;gap:16px;margin-top:4px">
+         <label style="display:flex;gap:6px;align-items:center;cursor:pointer;font-size:13px">
+           <input type="radio" name="m-op" value="copy" checked> Copy
+         </label>
+         <label style="display:flex;gap:6px;align-items:center;cursor:pointer;font-size:13px">
+           <input type="radio" name="m-op" value="move"> Move
+         </label>
+       </div>
+     </div>
+     <div class="form-group">
+       <label class="form-label">Target workspace</label>
+       <select class="form-input" id="m-target-ws"><option>Loading…</option></select>
+     </div>`,
+    async () => {
+      const op = document.querySelector('[name="m-op"]:checked')?.value || "copy";
+      const target_workspace_id = document.getElementById("m-target-ws")?.value;
+      if (!target_workspace_id) throw { message: "Select a workspace" };
+      if (op === "copy") {
+        await api.copySwarm(swarm.id, { target_workspace_id });
+        toastSuccess("Swarm copied");
+      } else {
+        await api.moveSwarm(swarm.id, { target_workspace_id });
+        toastSuccess("Swarm moved");
+      }
+      onDone();
+    },
+    "Transfer"
+  );
+
+  const wsSelect = document.getElementById("m-target-ws");
+  api.listWorkspaces().then(workspaces => {
+    wsSelect.innerHTML = workspaces.map(ws =>
+      `<option value="${_esc(ws.id)}" data-current="${ws.id === swarm.workspace_id ? "1" : "0"}">${_esc(ws.display_name)}${ws.id === swarm.workspace_id ? " (current)" : ""}</option>`
+    ).join("");
+    const nonCurrent = workspaces.find(ws => ws.id !== swarm.workspace_id);
+    if (nonCurrent) wsSelect.value = nonCurrent.id;
+
+    const updateDisabled = () => {
+      const op = document.querySelector('[name="m-op"]:checked')?.value;
+      wsSelect.querySelectorAll("option").forEach(opt => {
+        opt.disabled = op === "move" && opt.dataset.current === "1";
+      });
+      if (op === "move" && wsSelect.selectedOptions[0]?.disabled) {
+        const valid = [...wsSelect.options].find(o => !o.disabled);
+        if (valid) wsSelect.value = valid.value;
+      }
+    };
+    document.querySelectorAll('[name="m-op"]').forEach(r => r.addEventListener("change", updateDisabled));
+    updateDisabled();
+  }).catch(() => { wsSelect.innerHTML = "<option>Error loading workspaces</option>"; });
 }
 
 // ── Generic modal helper ───────────────────────────────────────────────────

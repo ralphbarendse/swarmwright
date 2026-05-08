@@ -82,7 +82,8 @@ class LLMClient:
             "input_tokens": getattr(response.usage, "input_tokens", 0) or 0,
             "output_tokens": getattr(response.usage, "output_tokens", 0) or 0,
         }
-        return response.content[0].text, usage
+        text = next((b.text for b in response.content if hasattr(b, "text")), "")
+        return text, usage
 
     def _complete_openai(self, system: str, messages: list[dict], **kwargs) -> tuple[str, dict]:
         full_messages = [{"role": "system", "content": system}] + messages

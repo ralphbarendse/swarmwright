@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import shutil
 
 from flask import Blueprint, current_app, jsonify, request
 from pydantic import BaseModel
@@ -183,6 +184,87 @@ def delete_knowledge(doc_id: str):
             logger.warning("Could not delete knowledge file %s: %s", md_path, exc)
 
     return "", 204
+
+
+class KnowledgeTransfer(BaseModel):
+    op: str
+    scope: str
+    workspace_id: str | None = None
+    swarm_id: str | None = None
+
+
+@bp.post("/knowledge/<doc_id>/transfer")
+def transfer_knowledge(doc_id: str):
+    try:
+        body = KnowledgeTransfer.model_validate(request.get_json(force=True) or {})
+    except Exception as exc:
+        return jsonify({"error": {"code": "validation_error", "message": str(exc)}}), 400
+
+    if body.op not in ("copy", "move"):
+        return jsonify({"error": {"code": "validation_error", "message": "op must be 'copy' or 'move'"}}), 400
+    if body.scope not in VALID_SCOPES:
+        return jsonify({"error": {"code": "invalid_scope", "message": f"scope must be one of {VALID_SCOPES}"}}), 400
+
+    data_dir = current_app.config["DATA_DIR"]
+
+    with get_session() as session:
+        doc = session.get(KnowledgeDocument, doc_id)
+        if not doc:
+            return jsonify({"error": {"code": "not_found", "message": "Document not found"}}), 404
+        if doc.scope == body.scope and doc.workspace_id == body.workspace_id and doc.swarm_id == body.swarm_id:
+            return jsonify({"error": {"code": "conflict", "message": "Document is already at this destination"}}), 409
+        src_path = doc.md_path
+        name = doc.name
+        title = doc.title
+        content = ""
+        if os.path.isfile(src_path):
+            with open(src_path) as f:
+                content = f.read()
+
+    dst_folder = _scope_folder(body.scope, body.workspace_id, body.swarm_id, data_dir)
+    if dst_folder is None:
+        return jsonify({"error": {"code": "invalid_scope", "message": "Could not resolve destination scope"}}), 400
+
+    os.makedirs(dst_folder, exist_ok=True)
+    dst_path = os.path.join(dst_folder, f"{name}.md")
+
+    if os.path.isfile(dst_path):
+        return jsonify({"error": {"code": "conflict", "message": f"Document {name!r} already exists at destination"}}), 409
+
+    if body.op == "copy":
+        with open(dst_path, "w") as f:
+            f.write(content)
+        content_bytes = content.encode()
+        with get_session() as session:
+            new_doc = KnowledgeDocument(
+                scope=body.scope,
+                workspace_id=body.workspace_id,
+                swarm_id=body.swarm_id,
+                name=name,
+                md_path=dst_path,
+                md_hash=hashlib.sha256(content_bytes).hexdigest(),
+                size_bytes=len(content_bytes),
+                title=title,
+            )
+            session.add(new_doc)
+            session.commit()
+            session.refresh(new_doc)
+            return jsonify(new_doc.to_dict()), 201
+    else:
+        if os.path.isfile(src_path):
+            shutil.move(src_path, dst_path)
+        else:
+            with open(dst_path, "w") as f:
+                f.write(content)
+        with get_session() as session:
+            doc = session.get(KnowledgeDocument, doc_id)
+            doc.scope = body.scope
+            doc.workspace_id = body.workspace_id
+            doc.swarm_id = body.swarm_id
+            doc.md_path = dst_path
+            session.commit()
+            session.refresh(doc)
+            return jsonify(doc.to_dict())
 
 
 class KnowledgeDraftRequest(BaseModel):
