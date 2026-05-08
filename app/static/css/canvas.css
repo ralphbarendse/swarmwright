@@ -463,6 +463,13 @@
   font-style: italic;
   line-height: 1.6;
 }
+#cy-container .cy-trigger-human {
+  font-size: 0.48em;
+  color: var(--color-ink-faint);
+  font-style: italic;
+  line-height: 1.6;
+  align-self: center;
+}
 
 /* ── Caller node cards ────────────────────────────────────────────────────── */
 #cy-container .cy-label-caller { text-align: left; max-width: none; }

@@ -851,7 +851,8 @@ function _buildTriggerCard(data) {
   let bodyHtml = "";
   if (kind === "heartbeat") {
     const schedule = cfg.schedule || cfg.cron || "not set";
-    bodyHtml = `<span class="cy-trigger-pill">${_esc(schedule)}</span>`;
+    const human = _cronHuman(schedule);
+    bodyHtml = `<span class="cy-trigger-pill">${_esc(schedule)}</span>${human ? `<span class="cy-trigger-human">${_esc(human)}</span>` : ""}`;
   } else if (kind === "listener") {
     const ep = cfg.endpoint ? `/webhook/${cfg.endpoint}` : "no endpoint set";
     bodyHtml = `<span class="cy-trigger-pill">${_esc(ep)}</span>`;
@@ -1585,11 +1586,20 @@ async function _showEditTriggerModal(swarmId, d, onDone) {
         <div class="form-helper">Used when "Fire now" runs with the default. Empty / non-JSON clears the default.</div>
       </div>`;
   } else if (d.trigger_kind === "heartbeat") {
+    const initHuman = _cronHuman(cfg.schedule || "");
     extra = `
       <div class="form-group">
         <label class="form-label">Schedule (cron)</label>
         <input class="form-input" id="m-schedule" value="${_esc(cfg.schedule || "")}">
+        <div class="form-helper" id="m-schedule-hint">${_esc(initHuman)}</div>
       </div>`;
+    setTimeout(() => {
+      const inp  = document.getElementById("m-schedule");
+      const hint = document.getElementById("m-schedule-hint");
+      if (inp && hint) inp.addEventListener("input", () => {
+        hint.textContent = _cronHuman(inp.value) || "";
+      });
+    }, 0);
   } else if (d.trigger_kind === "listener") {
     extra = `
       <div class="form-group">
@@ -1862,4 +1872,52 @@ function _esc(str) {
 }
 function _truncate(str, n) {
   return str && str.length > n ? str.slice(0, n) + "…" : (str || "");
+}
+
+function _cronHuman(expr) {
+  if (!expr) return "";
+  const parts = expr.trim().split(/\s+/);
+  if (parts.length !== 5) return "";
+  const [min, hour, dom, month, dow] = parts;
+  const allStar = v => v === "*";
+  const isNum   = v => /^\d+$/.test(v);
+  const step    = v => { const m = v.match(/^\*\/(\d+)$/); return m ? parseInt(m[1]) : null; };
+
+  // Every minute
+  if (expr === "* * * * *") return "every minute";
+
+  // Every N minutes
+  const minStep = step(min);
+  if (minStep && allStar(hour) && allStar(dom) && allStar(month) && allStar(dow))
+    return minStep === 1 ? "every minute" : `every ${minStep} minutes`;
+
+  // Every hour / every N hours
+  if (min === "0") {
+    const hrStep = step(hour);
+    if (hrStep && allStar(dom) && allStar(month) && allStar(dow))
+      return hrStep === 1 ? "every hour" : `every ${hrStep} hours`;
+    if (allStar(hour) && allStar(dom) && allStar(month) && allStar(dow))
+      return "every hour";
+  }
+
+  // Daily at HH:MM
+  if (isNum(min) && isNum(hour) && allStar(dom) && allStar(month) && allStar(dow)) {
+    const h = parseInt(hour), m = parseInt(min);
+    const label = h === 0 && m === 0 ? "midnight" : h === 12 && m === 0 ? "noon"
+      : `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}`;
+    return `daily at ${label}`;
+  }
+
+  // Specific weekday at HH:MM
+  const DAYS = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+  if (isNum(min) && isNum(hour) && allStar(dom) && allStar(month) && isNum(dow)) {
+    const d = parseInt(dow);
+    if (d >= 0 && d <= 6) {
+      const h = parseInt(hour), m = parseInt(min);
+      const t = `${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}`;
+      return `every ${DAYS[d]} at ${t}`;
+    }
+  }
+
+  return "";
 }
