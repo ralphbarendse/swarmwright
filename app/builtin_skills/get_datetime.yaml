@@ -1,0 +1,38 @@
+name: get_datetime
+description: Return the current UTC date and time, including year, month, day, weekday, hour, and minute.
+timeout_seconds: 5
+allowed_packages: []
+input_schema:
+  type: object
+  properties: {}
+output_schema:
+  type: object
+  required: [utc_iso, unix_timestamp, date, time, weekday]
+  properties:
+    utc_iso:
+      type: string
+      description: ISO 8601 timestamp in UTC
+    unix_timestamp:
+      type: integer
+    date:
+      type: string
+      description: "YYYY-MM-DD"
+    time:
+      type: string
+      description: "HH:MM:SS"
+    weekday:
+      type: string
+      description: e.g. "Monday"
+    weekday_number:
+      type: integer
+      description: 0=Monday … 6=Sunday
+    year:
+      type: integer
+    month:
+      type: integer
+    day:
+      type: integer
+    hour:
+      type: integer
+    minute:
+      type: integer

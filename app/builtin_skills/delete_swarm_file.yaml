@@ -1,0 +1,20 @@
+name: delete_swarm_file
+description: Delete a file from the swarm's file store. Succeeds silently if the file does not exist.
+timeout_seconds: 15
+allowed_packages: []
+input_schema:
+  type: object
+  required: [path]
+  properties:
+    path:
+      type: string
+      description: Relative path within the swarm's files/ directory
+output_schema:
+  type: object
+  required: [deleted, path]
+  properties:
+    deleted:
+      type: boolean
+      description: True if a file was removed; false if it did not exist
+    path:
+      type: string

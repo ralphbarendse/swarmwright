@@ -111,6 +111,23 @@ export const getInformItem   = (id)              => get(`/informs/${encodeURICom
 export const readInformItem  = (id, body)        => post(`/informs/${encodeURIComponent(id)}/read`,    body || {});
 export const dismissInformItem = (id, body)      => post(`/informs/${encodeURIComponent(id)}/dismiss`, body || {});
 
+// ── Swarm Files (Phase 7) ────────────────────────────────────────────────────
+export const listSwarmFiles    = (sid, params = {}) => get(`/swarms/${sid}/files?` + new URLSearchParams(params));
+export const deleteSwarmFile   = (sid, path)        => del(`/swarms/${sid}/files?path=${encodeURIComponent(path)}`);
+export const downloadSwarmFileUrl = (sid, path)     => `/api/v1/swarms/${sid}/files/download?path=${encodeURIComponent(path)}`;
+
+export async function uploadSwarmFile(swarmId, file, path, overwrite = false) {
+  const form = new FormData();
+  form.append("file", file);
+  if (path) form.append("path", path);
+  const url = `/api/v1/swarms/${swarmId}/files` + (overwrite ? "?overwrite=true" : "");
+  const res = await fetch(url, { method: "POST", body: form });
+  if (res.status === 204) return null;
+  const json = await res.json();
+  if (!res.ok) throw json?.error || { code: "http_error", message: `HTTP ${res.status}` };
+  return json;
+}
+
 // ── Settings (Phase 5) ───────────────────────────────────────────────────────
 export const listSettings       = ()              => get("/settings");
 export const getSetting         = (key)           => get(`/settings/${encodeURIComponent(key)}`);

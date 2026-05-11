@@ -34,7 +34,12 @@ class SkillWrite(BaseModel):
     yaml_content: str
 
 
+_BUILTIN_SKILLS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "builtin_skills")
+
+
 def _scope_folder(scope: str, workspace_id: str | None, swarm_id: str | None, data_dir: str) -> str | None:
+    if scope == "builtin":
+        return _BUILTIN_SKILLS_DIR
     if scope == "company":
         return os.path.join(data_dir, "company", "skills")
     if scope == "workspace" and workspace_id:
@@ -62,6 +67,8 @@ def _skill_from_folder(folder: str, scope: str, workspace_id: str | None, swarm_
     for fname in os.listdir(folder):
         if fname.endswith(".py"):
             name = fname[:-3]
+            if name.startswith("__"):
+                continue
             skills.setdefault(name, {"name": name, "scope": scope, "workspace_id": workspace_id, "swarm_id": swarm_id})
             skills[name]["py_path"] = os.path.join(folder, fname)
         elif fname.endswith(".yaml"):

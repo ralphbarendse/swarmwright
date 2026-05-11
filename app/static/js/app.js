@@ -49,7 +49,6 @@ function render() {
     const active =
       (v === "org"           && (view === "org"))          ||
       (v === "swarm"         && view === "swarm")          ||
-      (v === "constitution"  && view === "constitution")   ||
       (v === "runs"          && view === "runs")           ||
       (v === "library"       && view === "library")        ||
       (v === "inbox"         && view === "inbox")          ||
@@ -100,7 +99,6 @@ function _handleTabClick(e) {
   const v = btn.dataset.view;
   if (v === "org")           navigate("org");
   else if (v === "swarm")    navigate("swarm/" + (_lastSwarmId || ""));
-  else if (v === "constitution") navigate("constitution/" + (_lastAgentId || ""));
   else if (v === "runs")     navigate("runs");
   else if (v === "library")  navigate("library");
   else if (v === "inbox")    navigate("inbox");

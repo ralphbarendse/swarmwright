@@ -1,0 +1,30 @@
+name: send_webhook
+description: Send a JSON payload via HTTP POST to a webhook URL (Slack, Discord, Teams, or any custom endpoint).
+timeout_seconds: 30
+allowed_packages: []
+input_schema:
+  type: object
+  required: [url, payload]
+  properties:
+    url:
+      type: string
+      description: The webhook endpoint URL
+    payload:
+      type: object
+      description: JSON payload to send
+    headers:
+      type: object
+      description: Optional additional request headers (e.g. Authorization)
+      additionalProperties:
+        type: string
+output_schema:
+  type: object
+  required: [status, ok]
+  properties:
+    status:
+      type: integer
+    body:
+      type: string
+    ok:
+      type: boolean
+      description: True if the server responded with a 2xx status

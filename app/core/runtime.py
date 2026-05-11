@@ -15,6 +15,7 @@ from app.core.hierarchy import ParsedHierarchy
 from app.core.secrets import get_llm_credentials
 from app.core.registry import get_hierarchy
 from app.core.resolver import resolve, ResolverError
+from app.core.file_store import upsert_file, remove_file, ORIGIN_AGENT
 from app.core.skill_runner import (
     run_skill,
     load_skill_config,
@@ -930,6 +931,7 @@ def _execute_skill_call(
             "run_id": ctx.run_id,
             "agent_name": agent_name,
             "swarm_id": ctx.swarm_id,
+            "files_root": os.path.join(ctx.swarm_path, "files"),
         }
         output = run_skill(
             skill_py_path=skill_py_path,
@@ -941,6 +943,10 @@ def _execute_skill_call(
         if output_schema:
             validate_skill_output(output, output_schema)
         _update_step(step_id, output_json=json.dumps(output))
+
+        # Keep swarm_files index in sync for builtin file skills
+        _sync_file_index(skill_ref, input_data, output, ctx, step_id)
+
         _notify("run.step", {
             "run_id": ctx.run_id, "swarm_id": ctx.swarm_id,
             "step_name": skill_ref, "step_type": STEP_SKILL_CALL, "sequence": seq,
@@ -1157,6 +1163,39 @@ def _finish_run(run_id: str, status: str, error: str | None = None) -> None:
             run.ended_at = datetime.now(timezone.utc)
             run.error = error
             session.commit()
+
+
+_FILE_WRITE_SKILLS = {"write_swarm_file"}
+_FILE_DELETE_SKILLS = {"delete_swarm_file"}
+
+
+def _sync_file_index(
+    skill_ref: str,
+    input_data: dict,
+    output: dict,
+    ctx: "RunContext",
+    step_id: str,
+) -> None:
+    """Update swarm_files index after a successful builtin file skill call."""
+    if skill_ref in _FILE_WRITE_SKILLS:
+        try:
+            upsert_file(
+                swarm_id=ctx.swarm_id,
+                path=output["path"],
+                size_bytes=output["size_bytes"],
+                checksum=output["checksum"],
+                origin=ORIGIN_AGENT,
+                run_id=ctx.run_id,
+                step_id=step_id,
+            )
+        except Exception:
+            logger.warning("Could not update swarm_files index after write_swarm_file", exc_info=True)
+    elif skill_ref in _FILE_DELETE_SKILLS:
+        if output.get("deleted"):
+            try:
+                remove_file(swarm_id=ctx.swarm_id, path=output["path"])
+            except Exception:
+                logger.warning("Could not remove swarm_files index entry after delete_swarm_file", exc_info=True)
 
 
 def _update_step(

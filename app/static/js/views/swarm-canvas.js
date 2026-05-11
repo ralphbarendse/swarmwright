@@ -35,14 +35,32 @@ export function renderSwarmCanvas(container, swarmId) {
       <aside class="canvas-palette" id="canvas-palette"></aside>
       <div id="cy-container"></div>
       <aside class="canvas-inspector" id="canvas-inspector">
-        <div class="insp-header"><div class="sec-header">Inspector</div></div>
-        <div class="insp-section" id="insp-content">
-          <div class="text-muted" style="font-size:var(--text-xs)">Click a node or edge to inspect it.</div>
+        <div class="insp-scroll-wrap">
+          <div class="insp-header"><div class="sec-header">Inspector</div></div>
+          <div class="insp-section" id="insp-content">
+            <div class="text-muted" style="font-size:var(--text-xs)">Click a node or edge to inspect it.</div>
+          </div>
+        </div>
+        <div class="canvas-files-panel" id="canvas-files-panel">
+          <div class="canvas-files-header">
+            <span style="font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-ink-soft);font-weight:600">Files</span>
+            <span id="canvas-files-count" style="font-family:var(--font-mono);font-size:10px;color:var(--color-ink-soft)"></span>
+            <div style="flex:1"></div>
+            <button id="canvas-files-mkdir" class="btn btn-ghost btn-sm" style="padding:2px 7px;font-size:11px" title="New folder">+ Folder</button>
+            <label style="cursor:pointer" title="Upload file">
+              <span class="btn btn-ghost btn-sm" style="padding:2px 7px;font-size:11px">↑ Upload</span>
+              <input id="canvas-files-input" type="file" multiple style="display:none">
+            </label>
+          </div>
+          <div class="canvas-files-list" id="canvas-files-list">
+            <div style="padding:10px 14px;font-family:var(--font-mono);font-size:11px;color:var(--color-ink-soft)">Loading…</div>
+          </div>
         </div>
       </aside>
     </div>`;
 
   _buildPalette(container.querySelector("#canvas-palette"), swarmId);
+  _initFilePanel(container, swarmId);
 
   const sseHandler = (msg) => {
     if (msg.swarm_id && msg.swarm_id !== swarmId) return;
@@ -123,12 +141,29 @@ async function _loadCanvas(container, swarmId) {
     ]);
     hierarchy.triggers = triggers || [];
 
-    // Update breadcrumbs
+    // Update breadcrumbs (workspace name loaded async so it appears after paint)
     const crumbs = container.querySelector("#canvas-crumbs");
-    if (crumbs) crumbs.innerHTML = `
-      <span class="crumb-link" onclick="swNav('org')">Workspaces</span>
-      <span class="crumb-sep">›</span>
-      <span class="crumb-link">${_esc(swarm.display_name)}</span>`;
+    if (crumbs) {
+      crumbs.innerHTML = `
+        <span class="crumb-link" onclick="swNav('org')">Workspaces</span>
+        <span class="crumb-sep">›</span>
+        <span id="canvas-crumb-ws" style="display:none">
+          <span class="crumb-link" id="canvas-crumb-ws-link"></span>
+          <span class="crumb-sep">›</span>
+        </span>
+        <span class="crumb-here">${_esc(swarm.display_name)}</span>`;
+      if (swarm.workspace_id) {
+        api.getWorkspace(swarm.workspace_id).then(ws => {
+          const wrap = crumbs.querySelector("#canvas-crumb-ws");
+          const link = crumbs.querySelector("#canvas-crumb-ws-link");
+          if (wrap && link) {
+            link.textContent = ws.name || "Workspace";
+            link.onclick = () => window.swNav("org/ws/" + swarm.workspace_id);
+            wrap.style.display = "";
+          }
+        }).catch(() => {});
+      }
+    }
 
     const positions = hierarchy._gui?.positions || {};
     const agentMap = {};
@@ -1160,9 +1195,10 @@ function _buildPalette(pal, swarmId) {
   ];
 
   const triggers = [
-    { kind: "heartbeat",  label: "Heartbeat",  cls: "pal-dot-trigger", tip: "Fires the swarm on a cron schedule." },
-    { kind: "listener",   label: "Listener",   cls: "pal-dot-trigger", tip: "Fires when an external webhook event arrives." },
-    { kind: "invocation", label: "Invocation", cls: "pal-dot-trigger", tip: "Fires when called directly via the API or manually from the Control Room." },
+    { kind: "heartbeat",    label: "Heartbeat",     cls: "pal-dot-trigger", tip: "Fires the swarm on a cron schedule." },
+    { kind: "listener",     label: "Listener",      cls: "pal-dot-trigger", tip: "Fires when an external webhook event arrives." },
+    { kind: "invocation",   label: "Invocation",    cls: "pal-dot-trigger", tip: "Fires when called directly via the API or manually from the Control Room." },
+    { kind: "file_watcher", label: "File Watcher",  cls: "pal-dot-trigger", tip: "Fires when a file matching a glob pattern is created or modified in the swarm's files/ directory." },
   ];
 
   pal.innerHTML = `
@@ -1498,6 +1534,21 @@ async function _showAddTriggerModal(swarmId, kind, onDone) {
 }</textarea>
         <div class="form-helper">Pre-filled with an example. Edit to fit. Used when "Fire now" runs with the default; each invocation can also send a one-off override.</div>
       </div>`;
+  } else if (kind === "file_watcher") {
+    configFields = `
+      <div class="form-group">
+        <label class="form-label">Glob pattern</label>
+        <input class="form-input" id="m-glob" type="text" placeholder="**/*.csv" value="**/*">
+        <div class="form-helper">Matched against paths inside the swarm's <code style="font-family:var(--font-mono)">files/</code> directory. Examples: <code style="font-family:var(--font-mono)">**/*.pdf</code>, <code style="font-family:var(--font-mono)">inbox/*</code>.</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Watch for</label>
+        <select class="form-input" id="m-fw-events">
+          <option value="created,modified">Created or modified</option>
+          <option value="created">Created only</option>
+          <option value="modified">Modified only</option>
+        </select>
+      </div>`;
   }
 
   // Pull the swarm's agents so the user can pick a target. Falls back
@@ -1550,6 +1601,11 @@ async function _showAddTriggerModal(swarmId, kind, onDone) {
             throw { message: "Default payload is not valid JSON: " + err.message };
           }
         }
+      } else if (kind === "file_watcher") {
+        const glob = (document.getElementById("m-glob")?.value || "").trim();
+        if (!glob) throw { message: "Glob pattern is required" };
+        config.glob = glob;
+        config.events = (document.getElementById("m-fw-events")?.value || "created,modified").split(",");
       }
 
       await api.createTrigger(swarmId, { name, kind, config, enabled: true });
@@ -1610,6 +1666,22 @@ async function _showEditTriggerModal(swarmId, d, onDone) {
         <label class="form-label">Shared secret</label>
         <input class="form-input" id="m-secret" value="${_esc(cfg.secret || "")}">
       </div>`;
+  } else if (d.trigger_kind === "file_watcher") {
+    const currentEvents = Array.isArray(cfg.events) ? cfg.events.join(",") : (cfg.events || "created,modified");
+    extra = `
+      <div class="form-group">
+        <label class="form-label">Glob pattern</label>
+        <input class="form-input" id="m-glob" value="${_esc(cfg.glob || "**/*")}">
+        <div class="form-helper">Matched against paths inside the swarm's <code style="font-family:var(--font-mono)">files/</code> directory.</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Watch for</label>
+        <select class="form-input" id="m-fw-events">
+          <option value="created,modified" ${currentEvents === "created,modified" ? "selected" : ""}>Created or modified</option>
+          <option value="created" ${currentEvents === "created" ? "selected" : ""}>Created only</option>
+          <option value="modified" ${currentEvents === "modified" ? "selected" : ""}>Modified only</option>
+        </select>
+      </div>`;
   }
 
   _showModal(`Edit ${_esc(d.name)}`, `
@@ -1645,6 +1717,11 @@ async function _showEditTriggerModal(swarmId, d, onDone) {
         const sec = (document.getElementById("m-secret")?.value || "").trim();
         if (sec) newCfg.secret = sec;
         else delete newCfg.secret;
+      } else if (d.trigger_kind === "file_watcher") {
+        const glob = (document.getElementById("m-glob")?.value || "").trim();
+        if (!glob) throw { message: "Glob pattern is required" };
+        newCfg.glob = glob;
+        newCfg.events = (document.getElementById("m-fw-events")?.value || "created,modified").split(",");
       }
 
       await api.updateTrigger(d.trigger_id, { config: newCfg });
@@ -1866,6 +1943,119 @@ function _pulseNode(name) {
 }
 
 // ── Utils ──────────────────────────────────────────────────────────────────
+
+// ── Inline file panel ─────────────────────────────────────────────────────
+
+function _initFilePanel(container, swarmId) {
+  const list   = container.querySelector("#canvas-files-list");
+  const count  = container.querySelector("#canvas-files-count");
+  const input  = container.querySelector("#canvas-files-input");
+  const mkdir  = container.querySelector("#canvas-files-mkdir");
+  if (!list) return;
+
+  async function reload() {
+    try {
+      const files = await api.listSwarmFiles(swarmId);
+      count.textContent = files.length ? `(${files.length})` : "";
+      if (!files.length) {
+        list.innerHTML = `<div style="padding:10px 14px;font-family:var(--font-mono);font-size:11px;color:var(--color-ink-soft)">No files yet.</div>`;
+        return;
+      }
+      list.innerHTML = files.map(f => {
+        const dot = f.origin === "agent"
+          ? `background:var(--color-accent)`
+          : f.origin === "human"
+            ? `background:var(--color-ink-soft)`
+            : `background:var(--color-cream-line)`;
+        const name = f.filename.length > 22 ? f.filename.slice(0, 20) + "…" : f.filename;
+        const subdir = f.path.includes("/") ? f.path.split("/").slice(0, -1).join("/") + "/" : "";
+        return `<div class="cf-row" data-path="${_esc(f.path)}" style="
+          display:flex;align-items:center;gap:6px;
+          padding:5px 10px 5px 14px;
+          border-bottom:1px dashed var(--color-cream-line);
+          transition:background .1s;
+        " onmouseover="this.style.background='var(--color-parchment)'" onmouseout="this.style.background=''">
+          <span style="width:7px;height:7px;border-radius:50%;flex-shrink:0;${dot}"></span>
+          <div style="flex:1;min-width:0">
+            <div style="font-family:var(--font-mono);font-size:11px;color:var(--color-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="${_esc(f.path)}">${_esc(name)}</div>
+            ${subdir ? `<div style="font-family:var(--font-mono);font-size:9px;color:var(--color-ink-soft)">${_esc(subdir)}</div>` : ""}
+          </div>
+          <button class="btn btn-ghost btn-sm cf-dl" data-path="${_esc(f.path)}" title="Download" style="padding:2px 5px;font-size:11px;flex-shrink:0">↓</button>
+          <button class="btn btn-ghost btn-sm cf-del" data-path="${_esc(f.path)}" title="Delete" style="padding:2px 5px;font-size:11px;flex-shrink:0;color:var(--color-danger,#c0392b)">✕</button>
+        </div>`;
+      }).join("");
+
+      list.querySelectorAll(".cf-dl").forEach(btn => {
+        btn.addEventListener("click", e => {
+          e.stopPropagation();
+          window.location.href = api.downloadSwarmFileUrl(swarmId, btn.dataset.path);
+        });
+      });
+      list.querySelectorAll(".cf-del").forEach(btn => {
+        btn.addEventListener("click", async e => {
+          e.stopPropagation();
+          if (!confirm(`Delete "${btn.dataset.path}"?`)) return;
+          try {
+            await api.deleteSwarmFile(swarmId, btn.dataset.path);
+            reload();
+          } catch (err) {
+            toastError(err.message || "Delete failed");
+          }
+        });
+      });
+    } catch (err) {
+      list.innerHTML = `<div style="padding:10px 14px;font-family:var(--font-mono);font-size:11px;color:var(--color-ink-soft)">Could not load files.</div>`;
+    }
+  }
+
+  async function upload(files) {
+    for (const file of files) {
+      try {
+        await api.uploadSwarmFile(swarmId, file, file.name);
+      } catch (err) {
+        if (err.code === "conflict") {
+          if (!confirm(`"${file.name}" already exists. Overwrite?`)) continue;
+          try { await api.uploadSwarmFile(swarmId, file, file.name, true); } catch (e2) { toastError(e2.message || "Upload failed"); continue; }
+        } else {
+          toastError(err.message || "Upload failed");
+          continue;
+        }
+      }
+    }
+    reload();
+  }
+
+  input.addEventListener("change", () => {
+    if (input.files.length) upload(input.files);
+    input.value = "";
+  });
+
+  mkdir.addEventListener("click", async () => {
+    const name = prompt("Folder name (e.g. reports or reports/2024):");
+    if (!name || !name.trim()) return;
+    const folderPath = name.trim().replace(/\\/g, "/").replace(/\/+$/, "");
+    const keepPath = folderPath + "/.keep";
+    const keepFile = new File([""], ".keep", { type: "text/plain" });
+    try {
+      await api.uploadSwarmFile(swarmId, keepFile, keepPath);
+      reload();
+    } catch (err) {
+      toastError(err.message || "Could not create folder");
+    }
+  });
+
+  // Drop files directly onto the file panel
+  const panel = container.querySelector("#canvas-files-panel");
+  panel.addEventListener("dragover", e => { e.preventDefault(); panel.style.background = "var(--color-parchment)"; });
+  panel.addEventListener("dragleave", () => { panel.style.background = ""; });
+  panel.addEventListener("drop", e => {
+    e.preventDefault();
+    panel.style.background = "";
+    if (e.dataTransfer.files.length) upload(e.dataTransfer.files);
+  });
+
+  reload();
+}
 
 function _esc(str) {
   return String(str ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");

@@ -15,6 +15,7 @@ from watchdog.observers import Observer
 
 from app.core.hierarchy import load_and_validate, HierarchyValidationError
 from app.core.resolver import resolve, ResolverError
+from app.core.file_store import ensure_files_dir, reconcile
 from app.db import get_session
 from app.models.agent import Agent, SCOPE_COMPANY, SCOPE_WORKSPACE, SCOPE_SWARM
 from app.models.caller import Caller, VALID_TIMEOUT_ACTIONS
@@ -203,6 +204,13 @@ def _scan_swarm(
         workspace_path=ws_path,
         data_dir=data_dir,
     )
+
+    # Ensure files/ directory exists and reconcile index
+    ensure_files_dir(swarm_path)
+    try:
+        reconcile(swarm_id, os.path.join(swarm_path, "files"))
+    except Exception:
+        logger.exception("Reconciliation failed for swarm %s", swarm_id)
 
     # Sync resources
     _sync_agents(
@@ -664,6 +672,9 @@ class _RegistryEventHandler(FileSystemEventHandler):
         # Ignore SQLite database files — their writes would cause infinite rescan loops
         src = getattr(event, "src_path", "") or ""
         if any(src.endswith(suffix) for suffix in (".db", ".db-wal", ".db-shm", ".db-journal")):
+            return
+        # Ignore swarm files/ directories — they contain runtime artifacts, not config
+        if "/files/" in src or src.endswith("/files"):
             return
         # Debounce: wait 2 seconds after the last event before re-scanning
         with self._lock:

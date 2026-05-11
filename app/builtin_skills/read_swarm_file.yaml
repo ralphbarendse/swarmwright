@@ -1,0 +1,26 @@
+name: read_swarm_file
+description: Read a file from the swarm's file store.
+timeout_seconds: 30
+allowed_packages: []
+input_schema:
+  type: object
+  required: [path]
+  properties:
+    path:
+      type: string
+      description: Relative path within the swarm's files/ directory
+    encoding:
+      type: string
+      enum: [utf-8, base64]
+      default: utf-8
+      description: "utf-8 for text files; base64 for binary files"
+output_schema:
+  type: object
+  required: [content, encoding, size_bytes]
+  properties:
+    content:
+      type: string
+    encoding:
+      type: string
+    size_bytes:
+      type: integer

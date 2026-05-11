@@ -4,7 +4,10 @@ import os
 from typing import Literal
 
 ResourceType = Literal["knowledge", "skill", "perceptionist", "caller", "informer"]
-Scope = Literal["swarm", "workspace", "company"]
+Scope = Literal["swarm", "workspace", "company", "builtin"]
+
+# Built-in skills ship with the app in app/builtin_skills/
+_BUILTIN_SKILLS_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "builtin_skills")
 
 # Folder names within each scope for each resource type
 _RESOURCE_FOLDERS: dict[ResourceType, str] = {
@@ -105,12 +108,20 @@ def resolve(
     if path:
         return "company", path
 
+    # Built-in skills are the final fallback — only applicable to skills
+    if resource_type == "skill":
+        path = _find_file(_BUILTIN_SKILLS_DIR, name, extensions)
+        if path:
+            return "builtin", path
+
     searched = []
     if swarm_path:
         searched.append(f"swarm ({os.path.join(swarm_path, folder)})")
     if workspace_path:
         searched.append(f"workspace ({os.path.join(workspace_path, folder)})")
     searched.append(f"company ({os.path.join(data_dir, 'company', folder)})")
+    if resource_type == "skill":
+        searched.append(f"builtin ({_BUILTIN_SKILLS_DIR})")
 
     raise ResolverError(
         f"Cannot resolve {resource_type!r} reference {reference!r}. "

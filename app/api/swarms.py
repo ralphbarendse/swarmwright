@@ -152,7 +152,7 @@ def create_swarm(workspace_id: str):
             counter += 1
 
         folder = os.path.join(data_dir, "workspaces", workspace.name, "swarms", slug)
-        for sub in ["agents", "knowledge", "skills", "triggers"]:
+        for sub in ["agents", "knowledge", "skills", "triggers", "files"]:
             os.makedirs(os.path.join(folder, sub), exist_ok=True)
 
         meta = {"display_name": body.display_name}

@@ -1,0 +1,24 @@
+name: kv_get
+description: Retrieve a value from the swarm's persistent key-value store. Values survive across runs.
+timeout_seconds: 10
+allowed_packages: []
+input_schema:
+  type: object
+  required: [key]
+  properties:
+    key:
+      type: string
+      description: The key to look up
+    default:
+      description: Value to return when the key does not exist (defaults to null)
+output_schema:
+  type: object
+  required: [key, found]
+  properties:
+    key:
+      type: string
+    value:
+      description: The stored value, or the default if not found
+    found:
+      type: boolean
+      description: True if the key existed in the store

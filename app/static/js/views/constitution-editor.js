@@ -56,6 +56,10 @@ export function renderConstitutionEditor(container, agentId) {
     <div class="crumbs" id="ed-crumbs">
       <span class="crumb-link" onclick="swNav('org')">Workspaces</span>
       <span class="crumb-sep">›</span>
+      <span id="ed-crumb-swarm" style="display:none">
+        <span class="crumb-link" id="ed-crumb-swarm-link"></span>
+        <span class="crumb-sep">›</span>
+      </span>
       <span class="crumb-here" id="ed-crumb-name">…</span>
     </div>
 
@@ -353,6 +357,18 @@ async function _load(container, agentId, setDirty, onContent) {
     ]);
     container.querySelector("#ed-crumb-name").textContent = agent.name;
     container.querySelector("#ed-filename").textContent = `${agent.name}.md`;
+
+    if (agent.swarm_id) {
+      api.getSwarm(agent.swarm_id).then(swarm => {
+        const crumbWrap = container.querySelector("#ed-crumb-swarm");
+        const crumbLink = container.querySelector("#ed-crumb-swarm-link");
+        if (crumbWrap && crumbLink) {
+          crumbLink.textContent = swarm.name || "Swarm";
+          crumbLink.onclick = () => window.swNav("swarm/" + agent.swarm_id);
+          crumbWrap.style.display = "";
+        }
+      }).catch(() => {});
+    }
 
     const configuredModels = modelsSetting?.value || [];
     const content = agent.constitution || _defaultConstitution(agent);

@@ -1,0 +1,35 @@
+name: http_post
+description: Perform an HTTP POST request with a JSON body and return the response status, headers, and body.
+timeout_seconds: 30
+allowed_packages: []
+input_schema:
+  type: object
+  required: [url]
+  properties:
+    url:
+      type: string
+      description: The URL to POST to
+    body:
+      type: object
+      description: JSON body to send (serialized automatically)
+    headers:
+      type: object
+      description: Optional additional request headers
+      additionalProperties:
+        type: string
+    as_json:
+      type: boolean
+      description: If true, parse the response body as JSON and include it under the "json" key
+      default: false
+output_schema:
+  type: object
+  required: [status, body]
+  properties:
+    status:
+      type: integer
+    headers:
+      type: object
+    body:
+      type: string
+    json:
+      description: Parsed JSON body (only present when as_json=true and parsing succeeded)

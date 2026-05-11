@@ -1,0 +1,28 @@
+name: list_swarm_files
+description: List files in the swarm's file store, optionally filtered by path prefix.
+timeout_seconds: 15
+allowed_packages: []
+input_schema:
+  type: object
+  properties:
+    prefix:
+      type: string
+      description: Optional path prefix filter (e.g. "processed/")
+output_schema:
+  type: object
+  required: [files]
+  properties:
+    files:
+      type: array
+      items:
+        type: object
+        required: [path, filename, size_bytes]
+        properties:
+          path:
+            type: string
+          filename:
+            type: string
+          size_bytes:
+            type: integer
+          modified_at:
+            type: number

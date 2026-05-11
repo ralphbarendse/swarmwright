@@ -86,6 +86,7 @@ def create_app(config: Config | None = None) -> Flask:
     from app.api.skills_api import bp as skills_bp
     from app.api.settings import bp as settings_bp
     from app.api.callers import bp as callers_bp
+    from app.api.files import bp as files_bp
 
     app.register_blueprint(health_bp)
     app.register_blueprint(workspaces_bp)
@@ -100,6 +101,7 @@ def create_app(config: Config | None = None) -> Flask:
     app.register_blueprint(skills_bp)
     app.register_blueprint(settings_bp)
     app.register_blueprint(callers_bp)
+    app.register_blueprint(files_bp)
 
     # ── SSE bus ───────────────────────────────────────────────────────────────
     from app.core.sse_bus import SseBus
@@ -129,6 +131,9 @@ def create_app(config: Config | None = None) -> Flask:
         boot_scan(data_dir)
         register_all_heartbeats(app, app.event_bus, data_dir)
         app._file_observer = start_file_watcher(data_dir)
+
+        from app.core.file_watcher_triggers import register_all_file_watcher_triggers
+        register_all_file_watcher_triggers(app, app.event_bus, data_dir)
 
     # ── Frontend ──────────────────────────────────────────────────────────────
     @app.route("/")

@@ -9,6 +9,7 @@ import { toastError, toastSuccess } from "../components/toast.js";
  *   library/knowledge             → knowledge, company scope
  *   library/knowledge/<wsId>      → knowledge, workspace scope
  *   library/skills                → skills, company scope
+ *   library/skills/builtin        → skills, builtin scope (read-only)
  *   library/skills/ws/<wsId>      → skills, workspace scope
  *   library/skills/sw/<swarmId>   → skills, swarm scope
  */
@@ -22,7 +23,8 @@ export function renderLibraryView(container, segments = []) {
   if (tab === "knowledge") {
     if (segments[1]) { scope = "workspace"; workspaceId = segments[1]; }
   } else if (tab === "skills") {
-    if (segments[1] === "ws" && segments[2])      { scope = "workspace"; workspaceId = segments[2]; }
+    if (segments[1] === "builtin")               { scope = "builtin"; }
+    else if (segments[1] === "ws" && segments[2])      { scope = "workspace"; workspaceId = segments[2]; }
     else if (segments[1] === "sw" && segments[2]) { scope = "swarm";     swarmId     = segments[2]; }
   }
 
@@ -81,6 +83,11 @@ async function _buildScopeNav(container, tab, active) {
     nav.appendChild(el);
     return el;
   };
+
+  if (tab === "skills") {
+    mkItem("Built-in", active.scope === "builtin",
+      () => window.swNav("library/skills/builtin"));
+  }
 
   mkItem("Company", active.scope === "company",
     () => window.swNav(`library/${tab}`));
@@ -434,7 +441,8 @@ const _scopeParams = (s) => {
 };
 
 const _scopeLabel = (s) =>
-  s.scope === "company" ? "Company"
+  s.scope === "builtin"    ? "Built-in"
+  : s.scope === "company"  ? "Company"
   : s.scope === "workspace" ? "Workspace"
   : "Swarm";
 
@@ -444,16 +452,18 @@ async function _renderSkills(container, scopeSel) {
 
   const reload = () => _renderSkills(container, scopeSel);
 
+  const isBuiltin = scopeSel.scope === "builtin";
+
   const headerRow = document.createElement("div");
   headerRow.style.cssText = "display:flex;align-items:center;justify-content:space-between;margin-bottom:12px";
   headerRow.innerHTML = `
     <div>
       <div class="sec-header" style="margin:0">Skills · ${_scopeLabel(scopeSel)}</div>
       <div style="font-size:11px;color:var(--color-ink-faint);font-family:var(--font-mono);margin-top:4px">
-        Sandboxed Python scripts. Resolved most-local-first: swarm → workspace → company.
+        ${isBuiltin ? "Platform built-in skills. Read-only — override by creating a skill with the same name at any scope." : "Sandboxed Python scripts. Resolved most-local-first: swarm → workspace → company."}
       </div>
     </div>
-    <button class="btn btn-primary btn-sm" id="btn-new-skill">+ New skill</button>`;
+    ${isBuiltin ? "" : `<button class="btn btn-primary btn-sm" id="btn-new-skill">+ New skill</button>`}`;
   content.appendChild(headerRow);
 
   const filterRow = document.createElement("div");
@@ -465,8 +475,10 @@ async function _renderSkills(container, scopeSel) {
   grid.id = "sk-grid";
   content.appendChild(grid);
 
-  content.querySelector("#btn-new-skill").addEventListener("click", () =>
-    _openSkillEditor({ scopeSel, skillName: undefined, isNew: true, onDone: reload }));
+  if (!isBuiltin) {
+    content.querySelector("#btn-new-skill").addEventListener("click", () =>
+      _openSkillEditor({ scopeSel, skillName: undefined, isNew: true, onDone: reload }));
+  }
 
   content.querySelector("#sk-filter").addEventListener("input", e =>
     _filterCards(grid, e.target.value, "[data-sk-card]", "sk-no-match"));
@@ -493,26 +505,30 @@ async function _renderSkills(container, scopeSel) {
           <div style="font-size:11px;color:var(--color-ink-soft);margin-top:2px">${_esc(skill.description || "No description")} · timeout ${skill.timeout_seconds ?? 30}s${age}</div>
           ${(skill.allowed_packages || []).length ? `<div style="margin-top:6px;display:flex;gap:4px;flex-wrap:wrap">${skill.allowed_packages.map(p => `<span class="chip" style="font-size:10px">${_esc(p)}</span>`).join("")}</div>` : ""}
         </div>
-        <button class="btn btn-secondary btn-sm" data-action="edit">Edit</button>
-        <button class="btn btn-ghost btn-sm" data-action="transfer">Transfer</button>
-        <button class="btn btn-ghost btn-sm" data-action="delete">Delete</button>`;
+        ${isBuiltin
+          ? `<span class="chip" style="font-size:10px;opacity:.7">built-in</span>`
+          : `<button class="btn btn-secondary btn-sm" data-action="edit">Edit</button>
+             <button class="btn btn-ghost btn-sm" data-action="transfer">Transfer</button>
+             <button class="btn btn-ghost btn-sm" data-action="delete">Delete</button>`}`;
 
       const openEditor = () => _openSkillEditor({ scopeSel, skillName: skill.name, isNew: false, onDone: reload });
       card.addEventListener("click", openEditor);
-      card.querySelector("[data-action=edit]").addEventListener("click", e => { e.stopPropagation(); openEditor(); });
-      card.querySelector("[data-action=transfer]").addEventListener("click", e => {
-        e.stopPropagation();
-        _showSkillTransferModal(skill, scopeSel, reload);
-      });
-      card.querySelector("[data-action=delete]").addEventListener("click", async e => {
-        e.stopPropagation();
-        if (!confirm(`Delete skill "${skill.name}"? This removes the .py and .yaml files.`)) return;
-        try {
-          await api.deleteSkill(skill.name, _scopeParams(scopeSel));
-          toastSuccess("Skill deleted");
-          reload();
-        } catch (err) { toastError(err); }
-      });
+      if (!isBuiltin) {
+        card.querySelector("[data-action=edit]").addEventListener("click", e => { e.stopPropagation(); openEditor(); });
+        card.querySelector("[data-action=transfer]").addEventListener("click", e => {
+          e.stopPropagation();
+          _showSkillTransferModal(skill, scopeSel, reload);
+        });
+        card.querySelector("[data-action=delete]").addEventListener("click", async e => {
+          e.stopPropagation();
+          if (!confirm(`Delete skill "${skill.name}"? This removes the .py and .yaml files.`)) return;
+          try {
+            await api.deleteSkill(skill.name, _scopeParams(scopeSel));
+            toastSuccess("Skill deleted");
+            reload();
+          } catch (err) { toastError(err); }
+        });
+      }
 
       grid.appendChild(card);
     });

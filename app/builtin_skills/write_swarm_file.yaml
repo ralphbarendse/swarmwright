@@ -1,0 +1,30 @@
+name: write_swarm_file
+description: Write a file to the swarm's file store. Creates parent directories automatically.
+timeout_seconds: 30
+allowed_packages: []
+input_schema:
+  type: object
+  required: [path, content]
+  properties:
+    path:
+      type: string
+      description: Relative path within the swarm's files/ directory (e.g. "processed/report.json")
+    content:
+      type: string
+      description: File content as a string (UTF-8 by default) or base64-encoded bytes
+    encoding:
+      type: string
+      enum: [utf-8, base64]
+      default: utf-8
+      description: "utf-8 for text files; base64 for binary files"
+output_schema:
+  type: object
+  required: [path, size_bytes, checksum]
+  properties:
+    path:
+      type: string
+    size_bytes:
+      type: integer
+    checksum:
+      type: string
+      description: SHA-256 hex digest of the written content

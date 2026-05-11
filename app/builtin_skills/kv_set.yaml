@@ -1,0 +1,21 @@
+name: kv_set
+description: Store a value in the swarm's persistent key-value store. Values survive across runs.
+timeout_seconds: 10
+allowed_packages: []
+input_schema:
+  type: object
+  required: [key, value]
+  properties:
+    key:
+      type: string
+      description: The key to store the value under
+    value:
+      description: The value to store (any JSON-serializable type — string, number, object, array, boolean, or null)
+output_schema:
+  type: object
+  required: [key, value]
+  properties:
+    key:
+      type: string
+    value:
+      description: The value that was stored
