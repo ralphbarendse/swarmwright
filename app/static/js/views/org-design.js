@@ -51,7 +51,7 @@ async function _renderWorkspaceList(container) {
 }
 
 function _wsCard(ws) {
-  const swarmCount = ws.swarms?.length ?? "—";
+  const swarmCount = ws.swarm_count ?? 0;
   const updated = ws.updated_at ? _reltime(ws.updated_at) : "";
   return `
     <div class="card ws-card" data-id="${ws.id}" style="min-height:140px">

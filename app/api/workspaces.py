@@ -66,7 +66,18 @@ def _write_meta(folder: str, data: dict) -> str:
 def list_workspaces():
     with get_session() as session:
         rows = session.execute(select(Workspace).order_by(Workspace.display_name)).scalars().all()
-        return jsonify([w.to_dict() for w in rows])
+        counts = dict(
+            session.execute(
+                select(Swarm.workspace_id, func.count(Swarm.id))
+                .group_by(Swarm.workspace_id)
+            ).all()
+        )
+        result = []
+        for w in rows:
+            d = w.to_dict()
+            d["swarm_count"] = counts.get(w.id, 0)
+            result.append(d)
+        return jsonify(result)
 
 
 @bp.get("/workspaces/<workspace_id>")
