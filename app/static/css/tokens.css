@@ -15,12 +15,12 @@
   --color-accent:        #C97B1E; /* highlights, live state */
   --color-teal:          #1AAF87; /* secondary accent */
 
-  /* Brand layer colours */
-  --color-policy:        #1e3a5f; /* navy */
-  --color-orchestrator:  #2a6b6b; /* teal */
-  --color-executioner:   #3d4f7c; /* slate blue */
-  --color-perceptionist: var(--color-accent);
-  --color-amber:         var(--color-accent);
+  /* Brand layer colours — matches brand system */
+  --color-policy:        var(--color-primary); /* amber — cascades from brand primary */
+  --color-orchestrator:  #1AAF87; /* teal  — coordinates work */
+  --color-executioner:   #4678BC; /* blue  — gets things done */
+  --color-perceptionist: #9B5ECC; /* purple — reads & interprets */
+  --color-amber:         var(--color-accent); /* cascades from brand accent for branding changes */
   --color-amber-soft:    #D9903A;
   --color-mustard:       var(--color-primary);
 
@@ -57,7 +57,7 @@
 
   /* ── Edge colours ─────────────────────────────────────────────────── */
   --edge-escalate: var(--color-amber);
-  --edge-delegate: var(--color-policy);
+  --edge-delegate: var(--color-orchestrator); /* teal — distinct from escalate */
   --edge-report:   var(--color-ink-faint);
   --edge-consult:  var(--color-perceptionist);
   --edge-skill:    var(--color-ink-faint);

@@ -7,7 +7,7 @@
   <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500;600&family=Caveat:wght@400;500;600;700&family=DM+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:ital,wght@0,200;0,300;0,400;0,700;0,900;1,400&family=Caveat:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/css/tokens.css">
   <link rel="stylesheet" href="/static/css/main.css">
   <link rel="stylesheet" href="/static/css/canvas.css">
@@ -61,6 +61,14 @@
       <feTurbulence type="fractalNoise" baseFrequency="0.018" numOctaves="3" seed="7" result="noise"/>
       <feDisplacementMap in="SourceGraphic" in2="noise" scale="5" xChannelSelector="R" yChannelSelector="G"/>
     </filter>
+    <filter id="roughen-lg" x="-6%" y="-6%" width="112%" height="112%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.014" numOctaves="3" seed="12" result="noise"/>
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale="7" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+    <filter id="stamp" x="-8%" y="-8%" width="116%" height="116%">
+      <feTurbulence type="turbulence" baseFrequency="0.04" numOctaves="2" seed="5"/>
+      <feDisplacementMap in="SourceGraphic" scale="3" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
   </defs>
 </svg>
 
@@ -81,7 +89,8 @@
       </svg>
       <img id="brand-logo-custom" alt="" hidden style="height:36px;width:auto;max-width:200px">
       <div class="topbar-wordmark">
-        <span id="brand-name-host" class="topbar-wordmark-name">SWARM<span class="logo-wright">WRIGHT</span></span>
+        <span class="topbar-wordmark-swarm" id="brand-swarm-label">SWARM</span>
+        <span class="topbar-wordmark-name" id="brand-name-host">WRIGHT</span>
         <span id="brand-tagline-host" class="topbar-wordmark-tagline" hidden></span>
       </div>
     </div>

@@ -756,12 +756,15 @@ export function applyBranding(branding) {
   if (branding.color_accent)  root.style.setProperty("--color-accent",  branding.color_accent);
 
   // App name — preserve the SwarmWright default if no custom name is set.
-  const nameHost = document.getElementById("brand-name-host");
+  const nameHost  = document.getElementById("brand-name-host");
+  const swarmLabel = document.getElementById("brand-swarm-label");
   if (nameHost) {
     if (branding.app_name && branding.app_name !== _BRANDING_DEFAULTS.app_name) {
       nameHost.textContent = branding.app_name;
+      if (swarmLabel) swarmLabel.style.display = "none";
     } else {
-      nameHost.innerHTML = `Swarm<span class="logo-wright">Wright</span>`;
+      nameHost.textContent = "WRIGHT";
+      if (swarmLabel) swarmLabel.style.display = "";
     }
   }
 
