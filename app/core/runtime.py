@@ -26,6 +26,7 @@ from app.core.skill_runner import (
 )
 from app.db import get_session
 from app.models.agent import Agent
+from app.models.settings import Setting
 from app.models.caller import Caller
 from app.models.human_action import (
     HumanAction,
@@ -57,8 +58,22 @@ from app.models.run_step import (
 logger = logging.getLogger(__name__)
 
 # Guards against infinite loops within a single run
-MAX_AGENT_TURNS = 10   # max LLM calls per agent before we bail
+MAX_AGENT_TURNS = 20   # default; overridden by runtime.max_agent_turns setting
 MAX_DEPTH = 20         # max recursive call depth (agent → agent → …)
+
+
+def _get_max_agent_turns() -> int:
+    try:
+        with get_session() as session:
+            row = session.get(Setting, "runtime.max_agent_turns")
+            if row is not None:
+                import json as _json
+                val = _json.loads(row.value_encrypted)
+                if isinstance(val, int) and val > 0:
+                    return val
+    except Exception:
+        pass
+    return MAX_AGENT_TURNS
 
 # Optional SSE broadcast hook — set by app/__init__.py
 _notify_fn = None
@@ -372,7 +387,7 @@ def resume_run(human_action_id: str) -> Run | None:
         "run_id": run_id,
         "swarm_id": swarm_id,
         "human_action_id": human_action_id,
-        "decision": decision,
+        "decision": action_result["decision"],
     })
 
     # Append the action_result to the snapshot's messages and re-enter the
@@ -532,7 +547,8 @@ def _run_agent_loop(
     if web_search and llm.provider == "anthropic":
         llm_kwargs["tools"] = [{"type": "web_search_20250305", "name": "web_search"}]
 
-    for turn in range(MAX_AGENT_TURNS):
+    _max_turns = _get_max_agent_turns()
+    for turn in range(_max_turns):
         raw, usage = llm.complete_with_usage(system=system_prompt, messages=messages, **llm_kwargs)
         total_input_tokens += usage.get("input_tokens", 0)
         total_output_tokens += usage.get("output_tokens", 0)
@@ -578,7 +594,7 @@ def _run_agent_loop(
         })
 
     raise MaxTurnsError(
-        f"Agent '{agent_name}' exceeded the maximum of {MAX_AGENT_TURNS} turns without completing"
+        f"Agent '{agent_name}' exceeded the maximum of {_max_turns} turns without completing"
     )
 
 

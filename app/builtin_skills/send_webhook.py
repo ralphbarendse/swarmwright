@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import sys
 import urllib.request
 import urllib.error
 
@@ -21,3 +22,12 @@ def run(input_data: dict, context: dict) -> dict:
     except urllib.error.HTTPError as e:
         body = e.read().decode("utf-8", errors="replace")
         return {"status": e.code, "body": body, "ok": False}
+
+
+if __name__ == "__main__":
+    payload = json.loads(sys.argv[1])
+    try:
+        print(json.dumps(run(payload["input"], payload["context"])))
+    except Exception as exc:
+        print(json.dumps({"error": str(exc)}), file=sys.stderr)
+        sys.exit(1)

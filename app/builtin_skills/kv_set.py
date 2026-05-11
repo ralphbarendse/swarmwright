@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 
 _KV_FILE = "_kv_store.json"
 
@@ -32,3 +33,12 @@ def run(input_data: dict, context: dict) -> dict:
     store[key] = value
     _save(files_root, store)
     return {"key": key, "value": value}
+
+
+if __name__ == "__main__":
+    payload = json.loads(sys.argv[1])
+    try:
+        print(json.dumps(run(payload["input"], payload["context"])))
+    except Exception as exc:
+        print(json.dumps({"error": str(exc)}), file=sys.stderr)
+        sys.exit(1)

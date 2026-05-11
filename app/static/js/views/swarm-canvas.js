@@ -1003,11 +1003,18 @@ function _buildTriggerCard(data) {
     const ep = cfg.endpoint ? `/webhook/${cfg.endpoint}` : "no endpoint set";
     bodyHtml = `<span class="cy-trigger-pill">${_esc(ep)}</span>`;
   } else if (kind === "invocation") {
-    const payload = cfg.default_payload;
-    const keys = payload && typeof payload === "object" ? Object.keys(payload) : [];
-    bodyHtml = keys.length
-      ? keys.map(k => `<span class="cy-trigger-pill">${_esc(k)}</span>`).join("")
-      : `<span class="cy-trigger-none">fire on demand</span>`;
+    const schema = cfg.payload_schema;
+    if (schema && schema.length) {
+      const fixed  = schema.filter(f => f.mode === "fixed").length;
+      const input  = schema.filter(f => f.mode !== "fixed").length;
+      bodyHtml = (fixed  ? `<span class="cy-trigger-pill">${fixed} fixed</span>` : "")
+               + (input  ? `<span class="cy-trigger-pill" style="background:var(--color-orchestrator-bg,#e8f4f8)">${input} input</span>` : "");
+    } else if (cfg.default_payload) {
+      const keys = Object.keys(cfg.default_payload);
+      bodyHtml = keys.map(k => `<span class="cy-trigger-pill">${_esc(k)}</span>`).join("");
+    } else {
+      bodyHtml = `<span class="cy-trigger-none">fire on demand</span>`;
+    }
   }
 
   return `
@@ -1820,9 +1827,103 @@ function _showConnectToSwarmModal(swarmId, agentName, targetSwarmId, targetSwarm
   setTimeout(() => document.getElementById("m-alias")?.focus(), 50);
 }
 
+// ── Invocation payload-schema helpers ────────────────────────────────────────
+
+function _fieldSchemaRowHTML(f = {}) {
+  const key      = f.key   || "";
+  const label    = f.label || "";
+  const type     = f.type  || "string";
+  const mode     = f.mode  || "input";
+  const val      = f.value   !== undefined ? String(f.value)   : "";
+  const req      = f.required ? "checked" : "";
+  const defVal   = f.default  !== undefined ? String(f.default) : "";
+  const typeOpts = ["string","text","number","boolean"]
+    .map(t => `<option value="${t}"${type===t?" selected":""}>${t}</option>`).join("");
+  return `
+    <div class="field-schema-row" style="display:flex;gap:5px;align-items:center;margin-bottom:4px">
+      <input class="form-input fs-key"     placeholder="key"   value="${_esc(key)}"   style="width:86px;flex-shrink:0">
+      <input class="form-input fs-label"   placeholder="label" value="${_esc(label)}" style="flex:1;min-width:70px">
+      <select class="form-input fs-type" style="width:82px;flex-shrink:0">${typeOpts}</select>
+      <select class="form-input fs-mode" style="width:76px;flex-shrink:0">
+        <option value="input"${mode==="input"?" selected":""}>Input</option>
+        <option value="fixed"${mode==="fixed"?" selected":""}>Fixed</option>
+      </select>
+      <span class="fs-fixed-wrap" style="display:${mode==="fixed"?"flex":"none"};gap:4px;align-items:center">
+        <input class="form-input fs-value" placeholder="value" value="${_esc(val)}" style="width:90px">
+      </span>
+      <span class="fs-input-wrap" style="display:${mode==="input"?"flex":"none"};gap:4px;align-items:center">
+        <label style="display:flex;align-items:center;gap:3px;font-size:11px;white-space:nowrap;color:var(--color-ink-soft)">
+          <input type="checkbox" class="fs-required" ${req} style="width:12px;height:12px"> req
+        </label>
+        <input class="form-input fs-default" placeholder="default" value="${_esc(defVal)}" style="width:72px">
+      </span>
+      <button type="button" class="btn btn-ghost fs-remove"
+              style="padding:2px 7px;font-size:13px;line-height:1;flex-shrink:0" title="Remove row">✕</button>
+    </div>`;
+}
+
+function _wireFieldSchemaContainer(container) {
+  container.addEventListener("change", e => {
+    const sel = e.target.closest(".fs-mode");
+    if (!sel) return;
+    const row = sel.closest(".field-schema-row");
+    row.querySelector(".fs-fixed-wrap").style.display = sel.value === "fixed" ? "flex" : "none";
+    row.querySelector(".fs-input-wrap").style.display = sel.value === "input" ? "flex" : "none";
+  });
+  container.addEventListener("click", e => {
+    if (e.target.closest(".fs-remove")) e.target.closest(".field-schema-row").remove();
+  });
+}
+
+function _readFieldSchema(container) {
+  const fields = [];
+  for (const row of container.querySelectorAll(".field-schema-row")) {
+    const key = (row.querySelector(".fs-key")?.value || "").trim();
+    if (!key) continue;
+    const type  = row.querySelector(".fs-type")?.value  || "string";
+    const mode  = row.querySelector(".fs-mode")?.value  || "input";
+    const field = { key, label: (row.querySelector(".fs-label")?.value || "").trim() || key, type, mode };
+    if (mode === "fixed") {
+      const raw = row.querySelector(".fs-value")?.value ?? "";
+      field.value = type === "number" ? (parseFloat(raw) || 0) : type === "boolean" ? raw === "true" : raw;
+    } else {
+      field.required = row.querySelector(".fs-required")?.checked ?? false;
+      const raw = (row.querySelector(".fs-default")?.value || "").trim();
+      if (raw !== "") field.default = type === "number" ? (parseFloat(raw) || 0) : type === "boolean" ? raw === "true" : raw;
+    }
+    fields.push(field);
+  }
+  return fields;
+}
+
+function _fieldSchemaBuilderHTML(schema = []) {
+  const rows = (schema.length ? schema : []).map(_fieldSchemaRowHTML).join("");
+  return `
+    <div class="form-group">
+      <label class="form-label">Payload fields</label>
+      <div class="form-helper" style="margin-bottom:6px">
+        <b>Fixed</b> fields are locked at design time and sent automatically.
+        <b>Input</b> fields are filled in by whoever fires the run.
+      </div>
+      <div id="fs-rows" style="margin-bottom:6px">${rows}</div>
+      <button type="button" id="fs-add" class="btn btn-secondary btn-sm">+ Add field</button>
+    </div>`;
+}
+
+function _wireFieldSchemaModal() {
+  const cont = document.getElementById("fs-rows");
+  if (!cont) return;
+  _wireFieldSchemaContainer(cont);
+  document.getElementById("fs-add")?.addEventListener("click", () => {
+    cont.insertAdjacentHTML("beforeend", _fieldSchemaRowHTML());
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 async function _showAddTriggerModal(swarmId, kind, onDone) {
   // Per-kind config field. Heartbeats need a cron expression, listeners need
-  // an endpoint suffix, invocations get a default payload.
+  // an endpoint suffix, invocations get a payload schema builder.
   let configFields = "";
   if (kind === "heartbeat") {
     configFields = `
@@ -1844,15 +1945,7 @@ async function _showAddTriggerModal(swarmId, kind, onDone) {
         <div class="form-helper">Required as <code style="font-family:var(--font-mono)">Authorization: Bearer &lt;secret&gt;</code> on every call.</div>
       </div>`;
   } else if (kind === "invocation") {
-    configFields = `
-      <div class="form-group">
-        <label class="form-label">Default payload (JSON)</label>
-        <textarea class="form-input" id="m-default-payload" rows="4"
-          style="font-family:var(--font-mono);font-size:12px;resize:vertical">{
-  "message": "Hello"
-}</textarea>
-        <div class="form-helper">Pre-filled with an example. Edit to fit. Used when "Fire now" runs with the default; each invocation can also send a one-off override.</div>
-      </div>`;
+    configFields = _fieldSchemaBuilderHTML([]);
   } else if (kind === "file_watcher") {
     configFields = `
       <div class="form-group">
@@ -1912,14 +2005,8 @@ async function _showAddTriggerModal(swarmId, kind, onDone) {
         const secret = (document.getElementById("m-secret")?.value || "").trim();
         if (secret) config.secret = secret;
       } else if (kind === "invocation") {
-        const raw = (document.getElementById("m-default-payload")?.value || "").trim();
-        if (raw) {
-          try {
-            config.default_payload = JSON.parse(raw);
-          } catch (err) {
-            throw { message: "Default payload is not valid JSON: " + err.message };
-          }
-        }
+        const schema = _readFieldSchema(document.getElementById("fs-rows"));
+        if (schema.length) config.payload_schema = schema;
       } else if (kind === "file_watcher") {
         const glob = (document.getElementById("m-glob")?.value || "").trim();
         if (!glob) throw { message: "Glob pattern is required" };
@@ -1933,10 +2020,13 @@ async function _showAddTriggerModal(swarmId, kind, onDone) {
     },
     "Create trigger"
   );
-  setTimeout(() => document.getElementById("m-name")?.focus(), 50);
+  setTimeout(() => {
+    document.getElementById("m-name")?.focus();
+    if (kind === "invocation") _wireFieldSchemaModal();
+  }, 50);
 }
 
-// ── Trigger edit + invoke modals (Phase 6.1) ─────────────────────────────────
+// ── Trigger edit + invoke modals ──────────────────────────────────────────────
 
 async function _showEditTriggerModal(swarmId, d, onDone) {
   let agents = [];
@@ -1950,16 +2040,14 @@ async function _showEditTriggerModal(swarmId, d, onDone) {
 
   let extra = "";
   if (d.trigger_kind === "invocation") {
-    const dp = cfg.default_payload
-      ? JSON.stringify(cfg.default_payload, null, 2)
-      : `{\n  "message": "Hello"\n}`;
-    extra = `
-      <div class="form-group">
-        <label class="form-label">Default payload (JSON)</label>
-        <textarea class="form-input" id="m-default-payload" rows="5"
-          style="font-family:var(--font-mono);font-size:12px;resize:vertical">${_esc(dp)}</textarea>
-        <div class="form-helper">Used when "Fire now" runs with the default. Empty / non-JSON clears the default.</div>
-      </div>`;
+    // Support both new payload_schema and legacy default_payload
+    const existingSchema = cfg.payload_schema || (cfg.default_payload
+      ? Object.entries(cfg.default_payload).map(([key, value]) => ({
+          key, label: key, type: typeof value === "number" ? "number" : typeof value === "boolean" ? "boolean" : "string",
+          mode: "fixed", value
+        }))
+      : []);
+    extra = _fieldSchemaBuilderHTML(existingSchema);
   } else if (d.trigger_kind === "heartbeat") {
     const initHuman = _cronHuman(cfg.schedule || "");
     extra = `
@@ -2020,13 +2108,10 @@ async function _showEditTriggerModal(swarmId, d, onDone) {
       else delete newCfg.target_agent;
 
       if (d.trigger_kind === "invocation") {
-        const raw = (document.getElementById("m-default-payload")?.value || "").trim();
-        if (raw) {
-          try { newCfg.default_payload = JSON.parse(raw); }
-          catch (err) { throw { message: "Default payload not valid JSON: " + err.message }; }
-        } else {
-          delete newCfg.default_payload;
-        }
+        const schema = _readFieldSchema(document.getElementById("fs-rows"));
+        if (schema.length) newCfg.payload_schema = schema;
+        else delete newCfg.payload_schema;
+        delete newCfg.default_payload; // migrate away from legacy
       } else if (d.trigger_kind === "heartbeat") {
         const sched = (document.getElementById("m-schedule")?.value || "").trim();
         if (sched) newCfg.schedule = sched;
@@ -2049,16 +2134,100 @@ async function _showEditTriggerModal(swarmId, d, onDone) {
     },
     "Save"
   );
+  setTimeout(() => {
+    if (d.trigger_kind === "invocation") _wireFieldSchemaModal();
+  }, 50);
 }
 
 
 function _showInvokeTriggerModal(d, onDone) {
   const cfg = d.trigger_config || {};
+  const schema = cfg.payload_schema;
+
+  // ── New schema-based fire modal ──────────────────────────────────────────
+  if (schema && schema.length) {
+    const fixedFields  = schema.filter(f => f.mode === "fixed");
+    const inputFields  = schema.filter(f => f.mode !== "fixed");
+
+    const fixedSection = fixedFields.length ? `
+      <div class="form-group">
+        <label class="form-label" style="color:var(--color-ink-soft)">Fixed fields (sent automatically)</label>
+        <div style="background:var(--color-cream-deep);border:1px solid var(--color-cream-line);border-radius:4px;padding:8px 10px">
+          ${fixedFields.map(f => `
+            <div style="display:flex;gap:8px;align-items:center;margin-bottom:3px;font-size:12px">
+              <span style="font-family:var(--font-mono);color:var(--color-ink-soft);width:120px;flex-shrink:0">${_esc(f.key)}</span>
+              <span style="font-family:var(--font-mono)">${_esc(String(f.value ?? ""))}</span>
+            </div>`).join("")}
+        </div>
+      </div>` : "";
+
+    const inputSection = inputFields.map(f => {
+      const req  = f.required ? ' <span style="color:var(--color-red)">*</span>' : "";
+      const def  = f.default !== undefined ? String(f.default) : "";
+      let control;
+      if (f.type === "boolean") {
+        control = `<div style="display:flex;align-items:center;gap:6px">
+          <input type="checkbox" id="fi-${_esc(f.key)}" class="fi-field" data-key="${_esc(f.key)}" data-type="boolean" ${def === "true" ? "checked" : ""} style="width:14px;height:14px">
+          <label for="fi-${_esc(f.key)}" style="font-size:12px">${_esc(f.label || f.key)}</label>
+        </div>`;
+      } else if (f.type === "text") {
+        control = `<textarea class="form-input fi-field" id="fi-${_esc(f.key)}" data-key="${_esc(f.key)}" data-type="text"
+          rows="3" placeholder="${_esc(def)}" style="resize:vertical">${_esc(def)}</textarea>`;
+      } else if (f.type === "number") {
+        control = `<input class="form-input fi-field" id="fi-${_esc(f.key)}" data-key="${_esc(f.key)}" data-type="number"
+          type="number" value="${_esc(def)}" placeholder="${_esc(def)}">`;
+      } else {
+        control = `<input class="form-input fi-field" id="fi-${_esc(f.key)}" data-key="${_esc(f.key)}" data-type="string"
+          type="text" value="${_esc(def)}" placeholder="${_esc(def)}">`;
+      }
+      return f.type === "boolean" ? `<div class="form-group">${control}</div>` : `
+        <div class="form-group">
+          <label class="form-label" for="fi-${_esc(f.key)}">${_esc(f.label || f.key)}${req}</label>
+          ${control}
+        </div>`;
+    }).join("");
+
+    const extraSection = `
+      <details style="margin-top:8px">
+        <summary style="font-size:12px;color:var(--color-ink-soft);cursor:pointer">Extra fields (JSON, optional)</summary>
+        <textarea class="form-input" id="fi-extra" rows="3" placeholder="{}"
+          style="font-family:var(--font-mono);font-size:12px;margin-top:6px;resize:vertical"></textarea>
+      </details>`;
+
+    _showModal(`Fire "${_esc(d.name)}"`, fixedSection + inputSection + extraSection,
+      async () => {
+        const payload = {};
+        for (const f of inputFields) {
+          const el = document.getElementById(`fi-${f.key}`);
+          if (!el) continue;
+          let val;
+          if (f.type === "boolean")     val = el.checked;
+          else if (f.type === "number") val = el.value !== "" ? parseFloat(el.value) : undefined;
+          else                          val = el.value;
+          if (val === undefined || val === "") {
+            if (f.required) throw { message: `"${f.label || f.key}" is required` };
+          } else {
+            payload[f.key] = val;
+          }
+        }
+        const extraRaw = (document.getElementById("fi-extra")?.value || "").trim();
+        if (extraRaw) {
+          let extra;
+          try { extra = JSON.parse(extraRaw); }
+          catch (e) { throw { message: "Extra fields is not valid JSON: " + e.message }; }
+          Object.assign(payload, extra);
+        }
+        const r = await api.invokeTrigger(d.trigger_id, payload);
+        toastSuccess(`Fired "${d.name}" — event ${r.event_id?.slice(0, 8) || ""}`);
+        onDone();
+      }, "Fire");
+    return;
+  }
+
+  // ── Legacy default_payload fire modal ─────────────────────────────────────
   const hasDefault = !!cfg.default_payload;
   const defaultStr = hasDefault ? JSON.stringify(cfg.default_payload, null, 2) : "{}";
-  const fallbackOverride = hasDefault
-    ? defaultStr
-    : `{\n  "message": "Hello"\n}`;
+  const fallbackOverride = hasDefault ? defaultStr : `{\n  "message": "Hello"\n}`;
 
   _showModal(`Fire "${_esc(d.name)}"`, `
     <div style="font-size:12px;color:var(--color-ink-soft);font-family:var(--font-mono);margin-bottom:10px">

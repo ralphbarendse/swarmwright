@@ -563,6 +563,7 @@ function _renderSystemTab(pane) {
   const skillTo  = _get("system.default_skill_timeout_seconds")?.value ?? 30;
   const heartbeat= _get("system.default_heartbeat_schedule")?.value || "*/5 * * * *";
   const allowed  = _get("system.allowed_packages")?.value || DEFAULT_PACKAGES;
+  const maxTurns = _get("runtime.max_agent_turns")?.value ?? 20;
 
   pane.innerHTML = `
     <div style="max-width:760px;display:flex;flex-direction:column;gap:18px">
@@ -584,6 +585,12 @@ function _renderSystemTab(pane) {
         <div class="sec-header" style="margin:0 0 10px 0">Default skill timeout (seconds)</div>
         <input class="form-input" id="sys-skill-timeout" type="number" min="1" max="600" value="${Number(skillTo) || 30}">
         <div class="form-helper">Used when a skill's <code style="font-family:var(--font-mono)">.yaml</code> doesn't specify <code style="font-family:var(--font-mono)">timeout_seconds</code>.</div>
+      </div>
+
+      <div class="card" style="padding:18px 20px">
+        <div class="sec-header" style="margin:0 0 10px 0">Max agent turns per run</div>
+        <input class="form-input" id="sys-max-turns" type="number" min="1" max="200" value="${Number(maxTurns) || 20}">
+        <div class="form-helper">Maximum LLM calls a single agent can make before the run is aborted. Higher values allow complex multi-step agents (like the Swarm Architect) but increase cost and latency. Default: 20.</div>
       </div>
 
       <div class="card" style="padding:18px 20px">
@@ -685,10 +692,12 @@ function _renderSystemTab(pane) {
     const llVal       = pane.querySelector("#sys-loglevel").value;
     const skVal       = parseInt(pane.querySelector("#sys-skill-timeout").value, 10);
     const hbVal       = pane.querySelector("#sys-heartbeat").value.trim();
+    const mtVal       = parseInt(pane.querySelector("#sys-max-turns").value, 10);
 
     if (!tzVal) { toastError({ message: "Timezone required" }); return; }
     if (!Number.isFinite(skVal) || skVal < 1) { toastError({ message: "Skill timeout must be ≥ 1" }); return; }
     if (!hbVal) { toastError({ message: "Heartbeat schedule required" }); return; }
+    if (!Number.isFinite(mtVal) || mtVal < 1) { toastError({ message: "Max agent turns must be ≥ 1" }); return; }
 
     const updates = [];
     const maybe = (key, value, value_type) => {
@@ -703,6 +712,7 @@ function _renderSystemTab(pane) {
     maybe("system.default_skill_timeout_seconds", skVal, "number");
     maybe("system.default_heartbeat_schedule", hbVal, "string");
     maybe("system.allowed_packages", pkgs, "json");
+    maybe("runtime.max_agent_turns", mtVal, "number");
 
     if (!updates.length) { toastSuccess("No changes"); return; }
     try {

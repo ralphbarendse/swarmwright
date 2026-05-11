@@ -382,18 +382,46 @@ def invoke_trigger(trigger_id: str):
         t_id = trigger.id
 
     body_payload = request.get_json(force=True, silent=True) or {}
+    invoked_by = body_payload.pop("invoked_by", "anonymous")
 
-    # Phase 6.1: if no body was sent (or it's empty), fall back to the
-    # invocation's stored default_payload. This lets operators define a
-    # standard message once and re-fire the same trigger with one click.
-    if not body_payload and config.get("default_payload"):
+    payload_schema = config.get("payload_schema")
+    if payload_schema:
+        # New schema-based payload assembly:
+        # 1. Start with any extra free-form fields from the caller.
+        payload = dict(body_payload)
+        # 2. Merge fixed fields (always override caller input).
+        for field in payload_schema:
+            key  = field.get("key")
+            mode = field.get("mode", "input")
+            if not key:
+                continue
+            if mode == "fixed":
+                payload[key] = field.get("value")
+            elif key not in payload:
+                if field.get("required"):
+                    return jsonify({"error": {
+                        "code": "missing_field",
+                        "message": f"Required field '{key}' not provided",
+                    }}), 422
+                if "default" in field:
+                    payload[key] = field["default"]
+        # 3. Auto-parse text fields that contain valid JSON — the GUI
+        #    collects structured data as raw JSON text in textareas.
+        for key, val in list(payload.items()):
+            if isinstance(val, str):
+                stripped = val.strip()
+                if stripped and stripped[0] in ("{", "["):
+                    try:
+                        payload[key] = json.loads(stripped)
+                    except (json.JSONDecodeError, ValueError):
+                        pass
+    elif not body_payload and config.get("default_payload"):
+        # Legacy: fall back to stored default_payload when body is empty.
         payload = dict(config["default_payload"])
     else:
         payload = body_payload
 
-    invoked_by = payload.pop("invoked_by", "anonymous")
-
-    # Optional schema validation
+    # Optional JSON-Schema validation (legacy config.schema field)
     schema = config.get("schema")
     if schema:
         try:
