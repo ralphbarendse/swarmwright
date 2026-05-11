@@ -64,84 +64,59 @@ export function renderConstitutionEditor(container, agentId) {
     </div>
 
     <!-- Toolbar -->
-    <div style="
-      padding:8px 20px;border-bottom:1px solid var(--color-border-soft);
-      background:var(--color-surface);display:flex;align-items:center;
-      justify-content:space-between;flex-shrink:0;gap:12px;
-    ">
-      <div style="display:flex;align-items:center;gap:8px;font-family:var(--font-mono);font-size:12px;overflow:hidden">
-        <span id="ed-dirty-dot" style="
-          width:8px;height:8px;border-radius:50%;
-          background:var(--color-text-muted);display:inline-block;
-          flex-shrink:0;opacity:0;transition:opacity .2s;
-        " title="Unsaved changes"></span>
-        <span id="ed-filename" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">…</span>
-        <span id="ed-stats" style="
-          color:var(--color-ink-faint);font-size:10px;white-space:nowrap;
-          border-left:1px solid var(--color-cream-line);padding-left:8px;
-        "></span>
+    <div class="ed-toolbar">
+      <div class="ed-toolbar-left">
+        <span id="ed-dirty-dot" class="ed-dirty-dot" title="Unsaved changes"></span>
+        <span id="ed-filename" class="ed-filename">…</span>
+        <span id="ed-stats" class="ed-stats"></span>
       </div>
-      <div style="display:flex;gap:6px;flex-shrink:0">
-        <button class="btn btn-ghost btn-sm" id="btn-draft" style="font-size:11px">✦ Draft</button>
-        <button class="btn btn-ghost btn-sm" id="btn-discard" style="font-size:11px">Discard</button>
-        <button class="btn btn-primary btn-sm" id="btn-save" style="font-size:11px">Save  ⌘S</button>
+      <div class="ed-toolbar-right">
+        <button class="btn btn-ghost btn-sm" id="btn-draft">✦ Draft</button>
+        <button class="btn btn-ghost btn-sm" id="btn-discard">Discard</button>
+        <button class="btn btn-primary btn-sm" id="btn-save">Save ⌘S</button>
       </div>
     </div>
 
-    <!-- Body -->
-    <div style="flex:1;display:grid;grid-template-columns:1fr 1fr;overflow:hidden">
+    <!-- Three-pane body -->
+    <div class="ed-body">
 
-      <!-- ── Left: form + editor ── -->
-      <div style="display:flex;flex-direction:column;border-right:1px solid var(--color-border-soft);overflow:hidden">
+      <!-- ── Left sidebar: Config + Skills + Agents ── -->
+      <aside class="ed-sidebar">
+        <div class="ed-sidebar-inner">
 
-        <!-- Frontmatter -->
-        <div style="padding:12px 16px;border-bottom:1px solid var(--color-border-soft);background:var(--color-bg);flex-shrink:0">
-          <div class="sec-header" style="margin-bottom:10px">Frontmatter</div>
-          <div id="ed-fm-form"></div>
-        </div>
-
-        <!-- Skills -->
-        <div style="padding:12px 16px;border-bottom:1px solid var(--color-border-soft);background:var(--color-bg);flex-shrink:0;max-height:28%;overflow-y:auto">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
-            <div class="sec-header" style="margin:0">Skills</div>
-            <button class="btn btn-secondary btn-sm" id="ed-attach-skill" style="font-size:11px">+ Attach</button>
+          <div class="ed-sidebar-section">
+            <span class="ed-sidebar-label">Config</span>
+            <div id="ed-fm-form"></div>
           </div>
-          <div style="font-size:10px;color:var(--color-ink-faint);font-family:var(--font-mono);margin-bottom:6px;line-height:1.4">
-            Stored in <code>hierarchy.json</code>, not the constitution.
-          </div>
-          <div id="ed-skills-list"></div>
-        </div>
 
-        <!-- Swarm agents reference panel (populated when swarm_id is known) -->
-        <div id="ed-swarm-agents" style="display:none;border-bottom:1px solid var(--color-border-soft);background:var(--color-bg);flex-shrink:0">
-          <div style="
-            display:flex;align-items:center;justify-content:space-between;
-            padding:6px 16px;cursor:pointer;user-select:none;
-          " id="ed-swarm-agents-hdr">
-            <div class="sec-header" style="margin:0">Swarm agents</div>
-            <span id="ed-swarm-agents-arrow" style="font-size:10px;color:var(--color-ink-faint)">▾</span>
+          <div class="ed-sidebar-section">
+            <div class="ed-sidebar-label-row">
+              <span class="ed-sidebar-label" style="margin-bottom:0">Skills</span>
+              <button class="btn btn-secondary btn-sm" id="ed-attach-skill" style="font-size:10px;padding:2px 8px">+ Attach</button>
+            </div>
+            <div class="ed-sidebar-hint">Stored in hierarchy.json</div>
+            <div id="ed-skills-list"></div>
           </div>
-          <div id="ed-swarm-agents-body" style="padding:0 16px 8px;max-height:140px;overflow-y:auto">
-            <div id="ed-swarm-agents-list"></div>
+
+          <div id="ed-swarm-agents" style="display:none" class="ed-sidebar-section">
+            <div class="ed-sidebar-label-row" id="ed-swarm-agents-hdr" style="cursor:pointer;user-select:none">
+              <span class="ed-sidebar-label" style="margin-bottom:0">Swarm agents</span>
+              <span id="ed-swarm-agents-arrow" style="font-size:10px;color:var(--color-ink-faint)">▾</span>
+            </div>
+            <div id="ed-swarm-agents-body">
+              <div id="ed-swarm-agents-list"></div>
+            </div>
           </div>
-        </div>
 
-        <!-- Section scaffold -->
-        <div style="
-          padding:5px 16px;border-bottom:1px solid var(--color-border-soft);
-          background:var(--color-panel);display:flex;align-items:center;
-          gap:4px;flex-wrap:wrap;flex-shrink:0;
-        ">
-          <span style="font-family:var(--font-mono);font-size:9px;color:var(--color-ink-faint);letter-spacing:.06em;text-transform:uppercase;margin-right:2px">Insert</span>
-          ${["Role","Responsibilities","Behavior","Output Format","Constraints"].map(s =>
-            `<button class="btn btn-ghost btn-sm scaffold-btn" data-section="${s}" style="font-size:10px;padding:2px 8px;letter-spacing:0">${s}</button>`
-          ).join("")}
-          <span style="display:inline-block;width:1px;height:14px;background:var(--color-cream-line);margin:0 4px;vertical-align:middle"></span>
-          <button class="btn btn-ghost btn-sm" id="btn-insert-action" style="font-size:10px;padding:2px 8px;letter-spacing:0">↗ Action</button>
         </div>
+      </aside>
 
-        <!-- Action insert popover -->
-        <div id="ed-action-popover" style="display:none;padding:10px 16px;border-bottom:1px solid var(--color-border-soft);background:var(--color-surface);flex-shrink:0">
+      <!-- ── Center: editor + scaffold bar ── -->
+      <div class="ed-center">
+        <div id="ed-cm" class="ed-cm"></div>
+
+        <!-- Action insert popover (above scaffold) -->
+        <div id="ed-action-popover" class="ed-action-popover" style="display:none">
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">
             <div class="form-group" style="margin-bottom:0">
               <label class="form-label">Action</label>
@@ -165,31 +140,32 @@ export function renderConstitutionEditor(container, agentId) {
             <input class="form-input" id="ap-purpose" placeholder="e.g. To summarize the document" style="font-size:11px;padding:5px 10px">
           </div>
           <div style="display:flex;gap:6px;justify-content:flex-end">
-            <button class="btn btn-ghost btn-sm" id="ap-cancel" style="font-size:11px">Cancel</button>
-            <button class="btn btn-primary btn-sm" id="ap-insert" style="font-size:11px">Insert snippet</button>
+            <button class="btn btn-ghost btn-sm" id="ap-cancel">Cancel</button>
+            <button class="btn btn-primary btn-sm" id="ap-insert">Insert snippet</button>
           </div>
         </div>
 
-        <!-- CodeMirror -->
-        <div style="flex:1;display:flex;flex-direction:column;overflow:hidden">
-          <div id="ed-cm" style="flex:1;overflow:hidden"></div>
+        <!-- Scaffold bar -->
+        <div class="ed-scaffold">
+          <span class="ed-scaffold-label">Insert</span>
+          ${["Role","Responsibilities","Behavior","Output Format","Constraints"].map(s =>
+            `<button class="btn btn-ghost btn-sm scaffold-btn" data-section="${s}" style="font-size:10px;padding:2px 8px;letter-spacing:0">${s}</button>`
+          ).join("")}
+          <span class="ed-scaffold-sep"></span>
+          <button class="btn btn-ghost btn-sm" id="btn-insert-action" style="font-size:10px;padding:2px 8px;letter-spacing:0">↗ Action</button>
         </div>
       </div>
 
-      <!-- ── Right: preview + context ── -->
-      <div style="display:flex;flex-direction:column;overflow:hidden">
-        <div style="
-          display:flex;gap:0;padding:0 20px;
-          border-bottom:1px solid var(--color-border-soft);
-          background:var(--color-surface);flex-shrink:0;
-        ">
+      <!-- ── Right: Preview + Context tabs ── -->
+      <div class="ed-right">
+        <div class="ed-right-tabs">
           <button id="tab-preview" class="topbar-tab active" style="font-size:12px;padding:8px 14px">Preview</button>
           <button id="tab-context" class="topbar-tab" style="font-size:12px;padding:8px 14px">Context</button>
         </div>
-        <div id="panel-preview" style="flex:1;overflow-y:auto;padding:20px 24px;background:var(--color-bg)">
+        <div id="panel-preview" class="ed-right-panel">
           <div id="ed-preview" style="line-height:1.7;font-size:13px;color:var(--color-text)"></div>
         </div>
-        <div id="panel-context" style="flex:1;overflow-y:auto;padding:20px 24px;background:var(--color-bg);display:none">
+        <div id="panel-context" class="ed-right-panel" style="display:none">
           <div id="ed-context"><div style="font-family:var(--font-mono);font-size:11px;color:var(--color-ink-faint)">Loading…</div></div>
         </div>
       </div>
@@ -640,34 +616,28 @@ function _buildFrontmatterForm(container, content, agent, setDirty, configuredMo
   const form = container.querySelector("#ed-fm-form");
   form.innerHTML = `
     <div class="form-group" style="margin-bottom:8px">
-      <label class="form-label">Name</label>
-      <input class="form-input readonly" value="${_esc(fm.name || agent.name)}" readonly>
+      <label class="form-label">Layer</label>
+      <select class="form-select" id="fm-layer" style="font-size:12px">
+        ${["policy","orchestrator","executioner","perceptionist"].map(l =>
+          `<option value="${l}" ${(fm.layer || agent.layer) === l ? "selected" : ""}>${_cap(l)}</option>`).join("")}
+      </select>
     </div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
-      <div class="form-group" style="margin-bottom:8px">
-        <label class="form-label">Layer</label>
-        <select class="form-select" id="fm-layer">
-          ${["policy","orchestrator","executioner","perceptionist"].map(l =>
-            `<option value="${l}" ${(fm.layer || agent.layer) === l ? "selected" : ""}>${_cap(l)}</option>`).join("")}
-        </select>
-      </div>
-      <div class="form-group" style="margin-bottom:8px">
-        <label class="form-label">Model</label>
-        <select class="form-select" id="fm-model">
-          ${allModels.map(m =>
-            `<option value="${_esc(m.id)}" ${currentModel === m.id ? "selected" : ""}>${_esc(m.display_name || m.id)}</option>`
-          ).join("")}
-        </select>
-      </div>
+    <div class="form-group" style="margin-bottom:8px">
+      <label class="form-label">Model</label>
+      <select class="form-select" id="fm-model" style="font-size:12px">
+        ${allModels.map(m =>
+          `<option value="${_esc(m.id)}" ${currentModel === m.id ? "selected" : ""}>${_esc(m.display_name || m.id)}</option>`
+        ).join("")}
+      </select>
     </div>
-    <div class="form-group" style="margin-bottom:0;position:relative">
+    <div class="form-group" style="margin-bottom:8px;position:relative">
       <label class="form-label">Knowledge</label>
       <div class="form-chips" id="fm-knowledge" style="position:relative">
         ${(fm.knowledge || []).map(k => `<span class="chip">${_esc(k)}<button class="chip-remove" onclick="this.parentElement.remove()">×</button></span>`).join("")}
-        <input style="border:none;outline:none;font-size:11px;min-width:80px;flex:1" id="fm-kn-input" placeholder="+ add" autocomplete="off">
+        <input style="border:none;outline:none;font-size:11px;min-width:60px;flex:1" id="fm-kn-input" placeholder="+ add" autocomplete="off">
       </div>
     </div>
-    <div class="form-group" style="margin-bottom:0;margin-top:10px;display:flex;align-items:center;gap:8px">
+    <div style="display:flex;align-items:center;gap:8px">
       <label class="toggle-switch">
         <input type="checkbox" id="fm-web-search" ${(fm.web_search === "true" || fm.web_search === true) ? "checked" : ""}>
         <span class="toggle-slider"></span>
@@ -842,7 +812,7 @@ function _getFullContent(container) {
   const layer   = form.querySelector("#fm-layer")?.value || "executioner";
   const model   = form.querySelector("#fm-model")?.value || "claude-sonnet-4-6";
   const knChips = [...form.querySelectorAll(".chip")].map(c => c.textContent.trim().replace("×", "").trim());
-  const name    = form.querySelector("input[readonly]")?.value || "";
+  const name    = container.querySelector("#ed-crumb-name")?.textContent.trim() || "";
   const wsOn    = form.querySelector("#fm-web-search")?.checked;
   const knYaml  = knChips.length ? `knowledge:\n${knChips.map(k => `  - ${k}`).join("\n")}` : "knowledge: []";
   const fm      = `---\nname: ${name}\nlayer: ${layer}\nmodel: ${model}\n${knYaml}${wsOn ? "\nweb_search: true" : ""}\n---\n`;
