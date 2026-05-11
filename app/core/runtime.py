@@ -78,6 +78,30 @@ def _get_max_agent_turns() -> int:
 # Optional SSE broadcast hook — set by app/__init__.py
 _notify_fn = None
 
+# Run-IDs that have been requested to stop (checked inside _execute_agent_call)
+_cancelled_runs: set[str] = set()
+_cancelled_lock = threading.Lock()
+
+
+def cancel_run(run_id: str) -> None:
+    """Signal a running run to stop at its next agent turn."""
+    with _cancelled_lock:
+        _cancelled_runs.add(run_id)
+
+
+def _is_cancelled(run_id: str) -> bool:
+    with _cancelled_lock:
+        return run_id in _cancelled_runs
+
+
+def _clear_cancelled(run_id: str) -> None:
+    with _cancelled_lock:
+        _cancelled_runs.discard(run_id)
+
+
+class RunCancelled(Exception):
+    pass
+
 
 def set_notify_fn(fn) -> None:
     global _notify_fn
@@ -278,6 +302,11 @@ def start_run(
         _notify("run.completed", {"run_id": run_id, "swarm_id": swarm_id, "status": "completed"})
         logger.info("Run %s completed successfully", run_id)
 
+    except RunCancelled:
+        logger.info("Run %s stopped by user", run_id)
+        _finish_run(run_id, STATUS_FAILED, error="Stopped by user")
+        _notify("run.failed", {"run_id": run_id, "swarm_id": swarm_id, "status": "failed", "error": "Stopped by user"})
+
     except RunSuspended as exc:
         # The run hit a `call` edge. Move it into awaiting_human (do NOT
         # mark it failed — it's pending, not broken).
@@ -293,6 +322,8 @@ def start_run(
         logger.exception("Run %s failed: %s", run_id, exc)
         _finish_run(run_id, STATUS_FAILED, error=str(exc))
         _notify("run.failed", {"run_id": run_id, "swarm_id": swarm_id, "status": "failed", "error": str(exc)})
+
+    _clear_cancelled(run_id)
 
     with get_session() as session:
         return session.get(Run, run_id)
@@ -453,6 +484,9 @@ def _execute_agent_call(
     Returns:
         The agent's final output dict (from its `complete` action's `input` field).
     """
+    if _is_cancelled(ctx.run_id):
+        raise RunCancelled("Run stopped by user")
+
     if depth > MAX_DEPTH:
         raise RunDepthError(
             f"Maximum call depth ({MAX_DEPTH}) exceeded at agent '{agent_name}'"

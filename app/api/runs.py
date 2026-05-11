@@ -124,6 +124,21 @@ def get_run(run_id: str):
         return jsonify(result)
 
 
+@bp.post("/runs/<run_id>/stop")
+def stop_run(run_id: str):
+    """Signal a running run to stop at its next agent turn."""
+    with get_session() as session:
+        run = session.get(Run, run_id)
+        if not run:
+            return jsonify({"error": {"code": "not_found", "message": "Run not found"}}), 404
+        if run.status not in (STATUS_RUNNING,):
+            return jsonify({"error": {"code": "not_running", "message": f"Run is {run.status}, not running"}}), 409
+
+    from app.core.runtime import cancel_run
+    cancel_run(run_id)
+    return jsonify({"ok": True})
+
+
 @bp.post("/runs/<run_id>/replay")
 def replay_run(run_id: str):
     """Re-fire the same event that triggered this run."""

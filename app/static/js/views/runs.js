@@ -757,6 +757,7 @@ function _renderRunRows(container, runs, reset) {
     const duration = _duration(run.started_at, run.ended_at);
     const started  = run.started_at ? _reltime(run.started_at) : "—";
 
+    const isRunning = run.status === "running";
     row.innerHTML = `
       <span style="flex-shrink:0">${dot}</span>
       <div style="flex:1;min-width:0">
@@ -770,18 +771,31 @@ function _renderRunRows(container, runs, reset) {
           color:var(--color-ink-faint);margin-top:2px;
         ">${_esc(run.id.slice(0, 8))} · ${_esc(run.source || "—")}</div>
       </div>
-      <div style="text-align:right;flex-shrink:0">
-        <div style="
-          font-family:var(--font-mono);font-size:10px;
-          background:${_statusColor(run.status)}22;
-          color:${_statusColor(run.status)};
-          padding:2px 7px;border-radius:4px;display:inline-block;
-        ">${label}</div>
-        <div style="
-          font-family:var(--font-mono);font-size:10px;
-          color:var(--color-ink-faint);margin-top:4px;
-        ">${started}${duration ? ` · ${duration}` : ""}</div>
+      <div style="text-align:right;flex-shrink:0;display:flex;align-items:center;gap:8px">
+        ${isRunning ? `<button class="btn btn-ghost btn-sm run-stop-btn" data-id="${run.id}" style="font-size:10px;padding:2px 7px;color:var(--color-danger);border-color:var(--color-danger)">■ Stop</button>` : ""}
+        <div>
+          <div style="
+            font-family:var(--font-mono);font-size:10px;
+            background:${_statusColor(run.status)}22;
+            color:${_statusColor(run.status)};
+            padding:2px 7px;border-radius:4px;display:inline-block;
+          ">${label}</div>
+          <div style="
+            font-family:var(--font-mono);font-size:10px;
+            color:var(--color-ink-faint);margin-top:4px;
+          ">${started}${duration ? ` · ${duration}` : ""}</div>
+        </div>
       </div>`;
+
+    row.querySelector(".run-stop-btn")?.addEventListener("click", async e => {
+      e.stopPropagation();
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      try {
+        await api.stopRun(run.id);
+        toastSuccess("Stop signal sent");
+      } catch (err) { toastError(err); btn.disabled = false; }
+    });
 
     row.addEventListener("click", () => window.swNav(`runs/${run.id}`));
     list.appendChild(row);
@@ -859,6 +873,7 @@ function _renderRunHeader(container, run) {
       <span style="font-family:var(--font-display);font-size:16px;color:var(--color-ink)">${_esc(run.swarm_display_name || run.swarm_id)}</span>
       <span style="color:var(--color-ink-faint);font-size:11px;font-family:var(--font-mono)">${_esc(run.id)}</span>
       <button class="btn btn-ghost btn-sm" id="btn-replay" style="margin-left:auto">↺ Replay</button>
+      ${run.status === "running" ? `<button class="btn btn-ghost btn-sm" id="btn-stop-run" style="color:var(--color-danger);border-color:var(--color-danger)">■ Stop</button>` : ""}
     </div>
     <div style="display:flex;gap:24px;flex-wrap:wrap;font-size:12px;font-family:var(--font-mono);color:var(--color-ink-soft);margin-bottom:${run.error ? 0 : 8}px">
       <span><b>Source</b> ${_esc(run.source || "—")}</span>
@@ -878,6 +893,17 @@ function _renderRunHeader(container, run) {
       toastSuccess("Replay fired");
     } catch (err) { toastError(err); }
   });
+
+  const stopBtn = container.querySelector("#btn-stop-run");
+  if (stopBtn) {
+    stopBtn.addEventListener("click", async () => {
+      stopBtn.disabled = true;
+      try {
+        await api.stopRun(run.id);
+        toastSuccess("Stop signal sent — run will halt at next turn");
+      } catch (err) { toastError(err); stopBtn.disabled = false; }
+    });
+  }
 }
 
 // ── Run summary bar ───────────────────────────────────────────────────────

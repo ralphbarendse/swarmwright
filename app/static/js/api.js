@@ -77,6 +77,7 @@ export const getSkillsRuntime = () => get("/skills/_meta/runtime");
 export const listRuns    = (params = {}) => get("/runs?" + new URLSearchParams(params));
 export const getRun      = (id)          => get(`/runs/${id}`);
 export const replayRun   = (id)          => post(`/runs/${id}/replay`, {});
+export const stopRun     = (id)          => post(`/runs/${id}/stop`, {});
 export const getRunStats = ()            => get("/runs/stats");
 
 // ── Events ───────────────────────────────────────────────────────────────────
