@@ -1,0 +1,30 @@
+description: Create a skill (Python script + YAML config) at company, workspace, or swarm scope. Skills are sandboxed executables callable by executioner agents. The py_content must include a run(input, context) function AND an if __name__ == "__main__" block that reads sys.argv[1] as JSON and prints the result as JSON.
+input_schema:
+  type: object
+  properties:
+    scope:
+      type: string
+      description: "company, workspace, or swarm"
+    name:
+      type: string
+      description: Skill name (lowercase letters, digits, hyphens only)
+    py_content:
+      type: string
+      description: Full Python source — must define run(input, context) -> dict and include the __main__ block
+    yaml_content:
+      type: string
+      description: YAML config with description, input_schema, output_schema, allowed_packages, timeout_seconds
+    workspace_id:
+      type: string
+      description: Required when scope is workspace or swarm
+    swarm_id:
+      type: string
+      description: Required when scope is swarm
+  required: [scope, name, py_content, yaml_content]
+output_schema:
+  type: object
+  properties:
+    name: {type: string}
+    scope: {type: string}
+allowed_packages: []
+timeout_seconds: 15

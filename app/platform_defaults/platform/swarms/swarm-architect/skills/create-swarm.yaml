@@ -1,0 +1,23 @@
+description: Create a new swarm inside an existing workspace.
+input_schema:
+  type: object
+  properties:
+    workspace_id:
+      type: string
+      description: ID of the workspace to create the swarm in
+    display_name:
+      type: string
+      description: Human-readable swarm name
+    description:
+      type: string
+      description: What this swarm handles
+  required: [workspace_id, display_name]
+output_schema:
+  type: object
+  properties:
+    id: {type: string}
+    name: {type: string}
+    display_name: {type: string}
+    workspace_id: {type: string}
+allowed_packages: []
+timeout_seconds: 10

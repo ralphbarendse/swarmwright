@@ -1,0 +1,12 @@
+description: List all workspaces and their swarms on the platform.
+input_schema:
+  type: object
+  properties: {}
+  required: []
+output_schema:
+  type: object
+  properties:
+    workspaces:
+      type: array
+allowed_packages: []
+timeout_seconds: 15

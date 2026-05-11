@@ -1,0 +1,15 @@
+description: Write the full constitution text for an agent. The text should be a Markdown file with YAML frontmatter (name, layer, model, knowledge).
+input_schema:
+  type: object
+  properties:
+    agent_id:
+      type: string
+      description: The agent ID (from the topology agents array)
+    text:
+      type: string
+      description: Full constitution Markdown content including frontmatter
+  required: [agent_id, text]
+output_schema:
+  type: object
+allowed_packages: []
+timeout_seconds: 10

@@ -1,0 +1,116 @@
+{
+  "swarm": "swarm-architect",
+  "agents": [
+    "architect-orchestrator",
+    "topology-builder",
+    "run-operator",
+    "platform-reader"
+  ],
+  "edges": [
+    {
+      "from": "architect-orchestrator",
+      "to": "topology-builder",
+      "kind": "delegate",
+      "purpose": "delegate swarm and workspace creation, agent wiring, and topology modification tasks"
+    },
+    {
+      "from": "architect-orchestrator",
+      "to": "run-operator",
+      "kind": "delegate",
+      "purpose": "delegate event firing and run status monitoring"
+    },
+    {
+      "from": "architect-orchestrator",
+      "to": "platform-reader",
+      "kind": "delegate",
+      "purpose": "delegate read-only queries about existing workspaces, swarms, and topologies"
+    },
+    {
+      "from": "topology-builder",
+      "to": "architect-orchestrator",
+      "kind": "report",
+      "purpose": "report created IDs and results back to the orchestrator"
+    },
+    {
+      "from": "run-operator",
+      "to": "architect-orchestrator",
+      "kind": "report",
+      "purpose": "report run status and outcomes back to the orchestrator"
+    },
+    {
+      "from": "platform-reader",
+      "to": "architect-orchestrator",
+      "kind": "report",
+      "purpose": "report current platform state back to the orchestrator"
+    }
+  ],
+  "consultations": [],
+  "skills": [
+    {
+      "agent": "topology-builder",
+      "skill": "create-workspace",
+      "purpose": "create new workspaces on the platform"
+    },
+    {
+      "agent": "topology-builder",
+      "skill": "create-swarm",
+      "purpose": "create new swarms within a workspace"
+    },
+    {
+      "agent": "topology-builder",
+      "skill": "patch-topology",
+      "purpose": "add or remove agents, edges, skills, and human nodes from any swarm topology"
+    },
+    {
+      "agent": "topology-builder",
+      "skill": "update-constitution",
+      "purpose": "write agent constitutions after creating agents"
+    },
+    {
+      "agent": "run-operator",
+      "skill": "fire-event",
+      "purpose": "fire an event payload into a swarm to start a run"
+    },
+    {
+      "agent": "run-operator",
+      "skill": "get-runs",
+      "purpose": "check recent run status for a swarm"
+    },
+    {
+      "agent": "platform-reader",
+      "skill": "list-platform",
+      "purpose": "read all workspaces and swarms from the platform"
+    },
+    {
+      "agent": "platform-reader",
+      "skill": "get-topology",
+      "purpose": "read the full topology hierarchy.json for a given swarm"
+    },
+    {
+      "agent": "topology-builder",
+      "skill": "create-knowledge",
+      "purpose": "create knowledge documents at any scope for agents to reference in their constitutions"
+    },
+    {
+      "agent": "topology-builder",
+      "skill": "create-skill",
+      "purpose": "write and register Python skills at any scope"
+    },
+    {
+      "agent": "topology-builder",
+      "skill": "list-agents",
+      "purpose": "get agent UUIDs after swarm creation so constitutions can be written via update-constitution"
+    },
+    {
+      "agent": "topology-builder",
+      "skill": "build-topology",
+      "purpose": "build the full topology of a new swarm in one compound call \u2014 agents, edges, knowledge, skills, connections"
+    },
+    {
+      "agent": "topology-builder",
+      "skill": "write-constitutions",
+      "purpose": "write all agent constitutions in a single batched call"
+    }
+  ],
+  "entry_point": "architect-orchestrator"
+}

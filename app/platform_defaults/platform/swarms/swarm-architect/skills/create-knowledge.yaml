@@ -1,0 +1,31 @@
+description: Create a knowledge document (Markdown) at company, workspace, or swarm scope. The content is injected into agent system prompts when referenced in constitutions.
+input_schema:
+  type: object
+  properties:
+    scope:
+      type: string
+      description: "company, workspace, or swarm"
+    name:
+      type: string
+      description: Reference name used in constitution knowledge arrays (kebab-case)
+    title:
+      type: string
+      description: Human-readable title (defaults to name)
+    content:
+      type: string
+      description: Full Markdown content of the document
+    workspace_id:
+      type: string
+      description: Required when scope is workspace or swarm
+    swarm_id:
+      type: string
+      description: Required when scope is swarm
+  required: [scope, name, content]
+output_schema:
+  type: object
+  properties:
+    id: {type: string}
+    name: {type: string}
+    scope: {type: string}
+allowed_packages: []
+timeout_seconds: 10

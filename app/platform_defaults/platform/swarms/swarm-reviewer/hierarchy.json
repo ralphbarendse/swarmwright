@@ -1,0 +1,106 @@
+{
+  "swarm": "swarm-reviewer",
+  "agents": [
+    "review-orchestrator",
+    "topology-auditor",
+    "test-runner",
+    "swarm-modifier"
+  ],
+  "edges": [
+    {
+      "from": "review-orchestrator",
+      "to": "topology-auditor",
+      "kind": "delegate",
+      "purpose": "delegate topology reading and audit tasks for any target swarm"
+    },
+    {
+      "from": "review-orchestrator",
+      "to": "test-runner",
+      "kind": "delegate",
+      "purpose": "delegate test event firing and run outcome monitoring"
+    },
+    {
+      "from": "review-orchestrator",
+      "to": "swarm-modifier",
+      "kind": "delegate",
+      "purpose": "delegate approved topology and constitution modifications \u2014 only after human approval"
+    },
+    {
+      "from": "topology-auditor",
+      "to": "review-orchestrator",
+      "kind": "report",
+      "purpose": "report audit findings and topology state back to the orchestrator"
+    },
+    {
+      "from": "test-runner",
+      "to": "review-orchestrator",
+      "kind": "report",
+      "purpose": "report test run status and errors back to the orchestrator"
+    },
+    {
+      "from": "swarm-modifier",
+      "to": "review-orchestrator",
+      "kind": "report",
+      "purpose": "report modification results and any errors back to the orchestrator"
+    }
+  ],
+  "consultations": [],
+  "skills": [
+    {
+      "agent": "topology-auditor",
+      "skill": "get-topology",
+      "purpose": "read the full topology of any target swarm"
+    },
+    {
+      "agent": "topology-auditor",
+      "skill": "list-platform",
+      "purpose": "survey all workspaces and swarms on the platform"
+    },
+    {
+      "agent": "topology-auditor",
+      "skill": "list-agents",
+      "purpose": "get agent UUIDs for a swarm"
+    },
+    {
+      "agent": "topology-auditor",
+      "skill": "get-skill",
+      "purpose": "read the source code of a skill to diagnose failures and inform fix proposals"
+    },
+    {
+      "agent": "test-runner",
+      "skill": "fire-event",
+      "purpose": "fire a test event payload into a target swarm"
+    },
+    {
+      "agent": "test-runner",
+      "skill": "get-runs",
+      "purpose": "check run status and outcomes for a target swarm"
+    },
+    {
+      "agent": "swarm-modifier",
+      "skill": "patch-topology",
+      "purpose": "apply a topology operation to a target swarm after human approval"
+    },
+    {
+      "agent": "swarm-modifier",
+      "skill": "write-constitutions",
+      "purpose": "update agent constitutions in batch after human approval"
+    },
+    {
+      "agent": "swarm-modifier",
+      "skill": "update-skill",
+      "purpose": "update a skill's Python and YAML source code after human approval"
+    }
+  ],
+  "entry_point": "review-orchestrator",
+  "canvas_callers": [
+    "human-approval"
+  ],
+  "calls": [
+    {
+      "agent": "review-orchestrator",
+      "caller": "human-approval",
+      "purpose": "request human approval before any modification is applied to a live swarm"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+description: Fetch the full hierarchy.json topology for a given swarm.
+input_schema:
+  type: object
+  properties:
+    swarm_id:
+      type: string
+      description: The swarm ID to read topology for
+  required: [swarm_id]
+output_schema:
+  type: object
+allowed_packages: []
+timeout_seconds: 10

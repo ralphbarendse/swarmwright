@@ -1,0 +1,41 @@
+kind: invocation
+enabled: true
+config:
+  payload_schema:
+  - key: workspace
+    label: Workspace name or ID
+    type: string
+    mode: input
+    required: true
+    placeholder: e.g. Operations
+  - key: swarm_name
+    label: Swarm name
+    type: string
+    mode: input
+    required: true
+    placeholder: e.g. Invoice Processor
+  - key: description
+    label: What this swarm handles
+    type: text
+    mode: input
+    required: true
+  - key: agents
+    label: Agent specs (JSON array)
+    type: text
+    mode: input
+    required: true
+  - key: edges
+    label: Edges (JSON array)
+    type: text
+    mode: input
+    required: true
+  - key: skills
+    label: Skill connections (JSON array)
+    type: text
+    mode: input
+    required: false
+  - key: test_payload
+    label: Test payload (JSON, optional)
+    type: text
+    mode: input
+    required: false

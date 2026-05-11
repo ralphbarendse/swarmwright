@@ -1,0 +1,27 @@
+description: Update a skill's Python and YAML source code. Use after human approval to fix a broken skill. Requires the full updated py_content and yaml_content.
+timeout_seconds: 15
+allowed_packages: []
+input_schema:
+  type: object
+  required: [name, py_content, yaml_content]
+  properties:
+    name:
+      type: string
+      description: Skill name to update
+    scope:
+      type: string
+      enum: [swarm, workspace, company]
+      default: workspace
+    workspace_id:
+      type: string
+    swarm_id:
+      type: string
+    py_content:
+      type: string
+      description: Full updated Python source
+    yaml_content:
+      type: string
+      description: Full updated YAML config
+output_schema:
+  type: object
+  additionalProperties: true

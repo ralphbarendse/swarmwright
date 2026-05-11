@@ -1,0 +1,18 @@
+description: Fire an event payload into a swarm to start a run.
+input_schema:
+  type: object
+  properties:
+    swarm_id:
+      type: string
+      description: ID of the swarm to trigger
+    payload:
+      type: object
+      description: Arbitrary JSON payload to send as the event
+  required: [swarm_id]
+output_schema:
+  type: object
+  properties:
+    run_id: {type: string}
+    status: {type: string}
+allowed_packages: []
+timeout_seconds: 15

@@ -1,0 +1,32 @@
+kind: invocation
+enabled: true
+config:
+  payload_schema:
+  - key: swarm_id
+    label: Swarm ID to review
+    type: string
+    mode: input
+    required: true
+    placeholder: UUID of the target swarm
+  - key: action
+    label: Action
+    type: string
+    mode: input
+    required: true
+    default: review
+    placeholder: review / test / modify / review_and_test
+  - key: test_payload
+    label: Test payload (JSON, optional)
+    type: text
+    mode: input
+    required: false
+  - key: modification
+    label: Modification (JSON, for modify action)
+    type: text
+    mode: input
+    required: false
+  - key: constitution_updates
+    label: Constitution updates (JSON array, for modify)
+    type: text
+    mode: input
+    required: false

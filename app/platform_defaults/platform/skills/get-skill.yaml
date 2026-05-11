@@ -1,0 +1,19 @@
+description: Read a skill's Python and YAML source code. Resolves scope automatically (swarm → workspace → company → built-in). Use to diagnose skill failures before proposing a fix.
+timeout_seconds: 15
+allowed_packages: []
+input_schema:
+  type: object
+  required: [name]
+  properties:
+    name:
+      type: string
+      description: Skill name (e.g. "get_datetime")
+    swarm_id:
+      type: string
+      description: Optional swarm UUID — used to resolve workspace and try swarm scope first
+    workspace_id:
+      type: string
+      description: Optional workspace UUID — used to try workspace scope
+output_schema:
+  type: object
+  additionalProperties: true

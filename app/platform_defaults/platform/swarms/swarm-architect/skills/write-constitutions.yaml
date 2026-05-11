@@ -1,0 +1,22 @@
+description: Write constitutions for multiple agents in a single call. Takes a list of {agent_id, text} pairs and writes each constitution via the API. Returns success/failure per agent.
+input_schema:
+  type: object
+  properties:
+    constitutions:
+      type: array
+      description: List of objects with agent_id (UUID) and text (full Markdown with frontmatter)
+      items:
+        type: object
+        properties:
+          agent_id: {type: string}
+          text: {type: string}
+        required: [agent_id, text]
+  required: [constitutions]
+output_schema:
+  type: object
+  properties:
+    results: {type: array}
+    all_ok: {type: boolean}
+    failed: {type: array}
+allowed_packages: []
+timeout_seconds: 30

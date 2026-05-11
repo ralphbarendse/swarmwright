@@ -1,0 +1,16 @@
+description: Apply a named topology operation to a swarm's hierarchy.json. Supports all ops — add_agent, remove_agent, add_edge, remove_edge, add_skill_connection, remove_skill_connection, add_call, remove_call, add_inform, remove_inform, add_canvas_caller, remove_canvas_caller, add_canvas_informer, remove_canvas_informer, add_canvas_swarm, remove_canvas_swarm, add_swarm_call, remove_swarm_call.
+input_schema:
+  type: object
+  properties:
+    swarm_id:
+      type: string
+      description: Target swarm ID
+    op:
+      type: string
+      description: Operation name (e.g. add_agent, add_edge, add_skill_connection)
+  required: [swarm_id, op]
+  additionalProperties: true
+output_schema:
+  type: object
+allowed_packages: []
+timeout_seconds: 15

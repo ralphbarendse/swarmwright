@@ -1,0 +1,51 @@
+description: Compound skill — finds or creates a workspace, creates a swarm, then builds the full topology in one call. Adds agents, sets entry point, adds edges, creates knowledge and custom skills, wires skill connections, and returns workspace_id, swarm_id, and agent name-to-UUID map.
+input_schema:
+  type: object
+  properties:
+    workspace_id:
+      type: string
+      description: Use existing workspace by ID (takes priority over workspace_name)
+    workspace_name:
+      type: string
+      description: Find workspace by display name, or create it if not found
+    workspace_description:
+      type: string
+      description: Description used only when creating a new workspace
+    swarm_name:
+      type: string
+      description: Display name for the new swarm
+    swarm_description:
+      type: string
+      description: What the swarm handles
+    agents:
+      type: array
+      description: List of agents — each has name (kebab-case slug), layer, optional model
+    entry_point:
+      type: string
+      description: Agent name slug that receives incoming events
+    edges:
+      type: array
+      description: Connections — each has from, to, kind (delegate/escalate/report), purpose
+    skill_connections:
+      type: array
+      description: Agent-skill pairs — each has agent (slug), skill (name), purpose
+    knowledge:
+      type: array
+      description: Knowledge docs — each has scope, name, title, content; workspace_id/swarm_id default to the new swarm
+    custom_skills:
+      type: array
+      description: Skills to create — each has scope, name, py_content, yaml_content
+  required: [swarm_name]
+output_schema:
+  type: object
+  properties:
+    workspace_id: {type: string}
+    swarm_id: {type: string}
+    agent_map:
+      type: object
+      description: Agent name slug to database UUID
+    knowledge_ids: {type: array}
+    created_skills: {type: array}
+    steps: {type: array}
+allowed_packages: []
+timeout_seconds: 90

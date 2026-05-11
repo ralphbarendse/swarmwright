@@ -1,0 +1,21 @@
+description: List all agents in a swarm with their database UUIDs. Use this after creating a swarm to get agent IDs needed for update-constitution calls.
+input_schema:
+  type: object
+  properties:
+    swarm_id:
+      type: string
+      description: The swarm ID to list agents for
+  required: [swarm_id]
+output_schema:
+  type: object
+  properties:
+    agents:
+      type: array
+      items:
+        type: object
+        properties:
+          id: {type: string}
+          name: {type: string}
+          layer: {type: string}
+allowed_packages: []
+timeout_seconds: 10

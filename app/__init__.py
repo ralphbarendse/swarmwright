@@ -13,6 +13,20 @@ from app.db import init_db
 logger = logging.getLogger(__name__)
 
 
+def _seed_platform_workspace(data_dir: str) -> None:
+    """Copy the bundled Platform workspace into data_dir on first boot."""
+    dst = os.path.join(data_dir, "workspaces", "platform")
+    if os.path.isdir(dst):
+        return
+    src = os.path.join(os.path.dirname(__file__), "platform_defaults", "platform")
+    if not os.path.isdir(src):
+        logger.warning("Platform defaults bundle not found at %s — skipping seed", src)
+        return
+    import shutil
+    shutil.copytree(src, dst)
+    logger.info("Seeded platform workspace from bundle into %s", dst)
+
+
 def create_app(config: Config | None = None) -> Flask:
     """Flask application factory."""
     app = Flask(__name__, static_folder="static", static_url_path="/static")
@@ -128,6 +142,7 @@ def create_app(config: Config | None = None) -> Flask:
         data_dir = cfg.DATA_DIR
         os.makedirs(data_dir, exist_ok=True)
 
+        _seed_platform_workspace(data_dir)
         boot_scan(data_dir)
         register_all_heartbeats(app, app.event_bus, data_dir)
         app._file_observer = start_file_watcher(data_dir)

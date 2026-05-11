@@ -1,0 +1,19 @@
+description: Create a new workspace on the platform.
+input_schema:
+  type: object
+  properties:
+    display_name:
+      type: string
+      description: Human-readable workspace name
+    description:
+      type: string
+      description: What this workspace is for
+  required: [display_name]
+output_schema:
+  type: object
+  properties:
+    id: {type: string}
+    name: {type: string}
+    display_name: {type: string}
+allowed_packages: []
+timeout_seconds: 10
