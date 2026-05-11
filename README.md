@@ -1,111 +1,124 @@
+<h1 align="center">SwarmWright</h1>
+
 <p align="center">
-  <img src="banner.png" alt="SwarmWright" width="100%">
+  Self-hosted multi-agent AI orchestration — structured by design, auditable by default.
 </p>
 
 <p align="center">
-  <a href="https://www.swarmwright.com">www.swarmwright.com</a> &nbsp;·&nbsp;
-  <a href="https://www.swarmwright.com/docs.html">Documentation</a> &nbsp;·&nbsp;
+  <a href="https://www.swarmwright.com">swarmwright.com</a> &nbsp;·&nbsp;
+  <a href="https://www.swarmwright.com/docs.html">Docs</a> &nbsp;·&nbsp;
   <a href="LICENSE">CC BY-NC 4.0</a>
 </p>
 
-# SwarmWright
+---
 
-A self-hosted multi-agent orchestration platform. Build teams of AI agents that handle administrative and interpretive work — governed by a strict topology where every connection is declared, every action is auditable.
+Build teams of AI agents that handle real work. SwarmWright enforces a strict topology — every connection is declared, every action is logged, anything that needs a human lands in the Inbox.
 
-Agents don't call each other freely. You define who talks to whom, what triggers a run, and what requires human sign-off. SwarmWright enforces it.
+Agents don't call each other freely. You define who talks to whom, what triggers a run, and what requires sign-off. The runtime enforces it.
 
 ---
 
 ## Quick start
 
 ```bash
+docker pull ralphbarendse/swarmwright:latest
+
 docker run -d \
-  --network=host \
   --name swarmwright \
+  --network host \
   -v ./data:/data \
-  -e LLM_PROVIDER=anthropic \
-  -e LLM_MODEL=claude-opus-4-7 \
-  -e ANTHROPIC_API_KEY=sk-ant-... \
   ralphbarendse/swarmwright:latest
 ```
 
-Then open `http://localhost:5001`.
-
-Or with Docker Compose — copy `docker/docker-compose.yml` and a `.env` (see `.env.example`):
-
-```bash
-cp .env.example .env
-# Fill in LLM_PROVIDER, LLM_MODEL, and your API key
-docker compose -f docker/docker-compose.yml up -d
-```
+Open `http://localhost:5001`, go to **Settings**, and enter your LLM provider and API key. That's it.
 
 ---
 
 ## What it does
 
-You build **swarms** — named groups of agents, each with a written constitution describing their role, tools, and behaviour. Swarms live inside **workspaces** (think departments). A company-wide layer sits above everything.
+You build **swarms** — groups of agents, each with a written constitution describing their role and behaviour. Swarms live inside **workspaces** (think: departments). A company-wide layer sits above everything and is shared across all workspaces.
 
-A run starts when an event fires — on a schedule, via webhook, or manually. The runtime walks the declared topology, calls each agent in turn, logs every step, and surfaces anything that needs a human decision to the Inbox.
+A run starts when an event fires — on a schedule, via webhook, or manually from the Control Room. The runtime walks the declared topology, calls each agent in turn, logs every step, and surfaces anything requiring human judgement to the Inbox.
 
-The GUI covers the full lifecycle:
+### Agent layers
 
-- **Org** — manage workspaces and swarms
-- **Swarm canvas** — drag-and-drop agent topology editor
-- **Constitution editor** — write agent roles in plain Markdown with a live preview
-- **Control Room** — monitor active and historical runs per swarm, fire events manually, pause swarms
+Every agent has one of four roles — the topology only allows edges that make architectural sense:
+
+| Layer | Role |
+|---|---|
+| **Policy** | Defines rules and guardrails other agents must follow |
+| **Orchestrator** | Breaks goals into tasks and delegates down |
+| **Executioner** | Does the actual work — calls tools, runs skills |
+| **Perceptionist** | Watches for events, reads inputs, triggers runs |
+
+### The UI
+
+- **Canvas** — drag-and-drop topology editor, wire agents and set edge types
+- **Constitution editor** — write agent roles in plain Markdown with live preview
+- **Control Room** — fire runs manually, monitor active runs, stop them mid-flight
 - **Inbox** — human-in-the-loop approvals and escalations
-- **Library** — manage knowledge documents, skills, and triggers across scopes
-- **Settings** — LLM provider, model, branding, API keys stored encrypted at rest
+- **Library** — manage knowledge docs, Python skills, and triggers at any scope
+- **Settings** — LLM provider, model, API keys (encrypted at rest), custom branding
 
 ---
 
 ## Features
 
-- Topology-enforced agent graphs — agents can only call or inform peers you explicitly wire up
-- Three-scope resource resolver: swarm → workspace → company, unqualified references auto-resolve
-- Scheduled and webhook triggers with cron expressions
+- Topology-enforced agent graphs — delegate, escalate, and report edges only where declared
+- Three-scope resource resolver: swarm → workspace → company, unqualified refs auto-resolve
+- Python skills — drop a `.py` file in `skills/`, agents can call it as a tool
+- Scheduled and webhook triggers with cron expressions, backed by YAML files
 - Full run trace with per-step input/output logging
 - Human-in-the-loop escalation with inbox approvals
 - Encrypted secret storage (Fernet, key auto-generated on first boot)
-- File-backed configuration — workspaces, agents, and constitutions are plain files you can version
-- Single Docker container, SQLite by default, no external dependencies
+- File-backed topology — `hierarchy.json` and constitutions are plain files you can version
+- Single Docker container, SQLite, no external dependencies
 
 ---
 
-## Environment variables
-
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| `LLM_PROVIDER` | Yes | `anthropic` | `anthropic` or `openai` |
-| `LLM_MODEL` | Yes | `claude-opus-4-7` | Model identifier |
-| `ANTHROPIC_API_KEY` | If provider=anthropic | — | Anthropic API key |
-| `OPENAI_API_KEY` | If provider=openai | — | OpenAI API key |
-| `SWARM_ENCRYPTION_KEY` | No | auto-generated | Fernet master key. If unset, generated on first boot and written to `<DATA_DIR>/.encryption_key`. Back this file up alongside `swarm.db`. |
-| `DATABASE_URL` | No | `sqlite:////data/swarm.db` | SQLAlchemy connection URL |
-| `DATA_DIR` | No | `/data` | Path to the data volume |
-| `LOG_LEVEL` | No | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR` |
-| `SCHEDULER_TIMEZONE` | No | `Europe/Amsterdam` | Timezone for cron triggers |
-
----
-
-## Data volume
+## Data layout
 
 Everything that survives a container rebuild lives in the mounted `/data` directory:
 
 ```
 data/
 ├── swarm.db                  — SQLite database
-├── .encryption_key           — Master key (back this up)
-├── company/                  — Company-wide knowledge, skills, perceptionists
+├── .encryption_key           — Fernet master key (back this up)
+├── company/                  — Company-wide knowledge, skills, triggers
 └── workspaces/
     └── <workspace>/
         ├── knowledge/
         ├── skills/
+        ├── triggers/         — YAML trigger definitions
         └── swarms/
             └── <swarm>/
                 ├── meta.yaml
-                ├── hierarchy.json    — topology definition
-                └── agents/           — constitution .md files
+                ├── hierarchy.json    — topology (source of truth)
+                └── agents/           — constitution .md files per agent
 ```
 
-The `hierarchy.json` file is the source of truth for a swarm's topology. The GUI writes it; you can also edit it directly and the runtime picks up changes live.
+The GUI writes `hierarchy.json`; you can also edit it directly and the runtime picks up changes live.
+
+---
+
+## Advanced: environment variables
+
+All required settings (LLM provider, API keys) can be configured through the Settings UI. Environment variables are optional overrides — useful for automated deployments or secret managers.
+
+| Variable | Default | Description |
+|---|---|---|
+| `LLM_PROVIDER` | — | `anthropic` or `openai` |
+| `LLM_MODEL` | — | Model identifier, e.g. `claude-opus-4-7` |
+| `ANTHROPIC_API_KEY` | — | Required if provider is `anthropic` |
+| `OPENAI_API_KEY` | — | Required if provider is `openai` |
+| `SWARM_ENCRYPTION_KEY` | auto-generated | Fernet master key. If unset, generated on first boot and written to `<DATA_DIR>/.encryption_key` |
+| `DATABASE_URL` | `sqlite:////data/swarm.db` | SQLAlchemy connection URL |
+| `DATA_DIR` | `/data` | Path to the data volume |
+| `LOG_LEVEL` | `INFO` | `DEBUG` / `INFO` / `WARNING` / `ERROR` |
+| `SCHEDULER_TIMEZONE` | `Europe/Amsterdam` | Timezone for cron triggers |
+
+---
+
+## License
+
+[CC BY-NC 4.0](LICENSE) — free for personal and non-commercial use.
