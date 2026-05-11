@@ -583,11 +583,22 @@ def _sync_knowledge_docs(
 # ── Trigger syncing ───────────────────────────────────────────────────────────
 
 def _sync_triggers(triggers_folder: str, swarm_id: str) -> None:
+    """Sync trigger YAML files → DB rows.
+
+    File format:
+        kind: invocation | heartbeat | listener
+        enabled: true
+        config:
+          payload_schema: [...]   # or schedule, endpoint, etc.
+
+    The filename (without .yaml) is the trigger name.
+    ``watermark`` is runtime state — never read from the file.
+    """
     if not os.path.isdir(triggers_folder):
         return
 
     with get_session() as session:
-        for filename in os.listdir(triggers_folder):
+        for filename in sorted(os.listdir(triggers_folder)):
             if not filename.endswith(".yaml"):
                 continue
             name = filename[:-5]
@@ -595,12 +606,15 @@ def _sync_triggers(triggers_folder: str, swarm_id: str) -> None:
 
             try:
                 with open(yaml_path) as f:
-                    config = yaml.safe_load(f)
+                    data = yaml.safe_load(f) or {}
             except Exception as exc:
-                logger.warning("Could not parse trigger config %s: %s", yaml_path, exc)
+                logger.warning("Could not parse trigger %s: %s", yaml_path, exc)
                 continue
 
-            kind = config.get("kind", "heartbeat")
+            kind    = data.get("kind", "heartbeat")
+            enabled = data.get("enabled", True)
+            config  = data.get("config", {})
+
             existing = session.execute(
                 select(Trigger).where(
                     Trigger.swarm_id == swarm_id,
@@ -609,19 +623,21 @@ def _sync_triggers(triggers_folder: str, swarm_id: str) -> None:
             ).scalar_one_or_none()
 
             if existing:
-                existing.kind = kind
+                existing.kind        = kind
+                existing.enabled     = enabled
                 existing.config_json = json.dumps(config)
                 session.commit()
             else:
                 trigger = Trigger(
-                    swarm_id=swarm_id,
-                    name=name,
-                    kind=kind,
-                    config_json=json.dumps(config),
-                    enabled=True,
+                    swarm_id    = swarm_id,
+                    name        = name,
+                    kind        = kind,
+                    enabled     = enabled,
+                    config_json = json.dumps(config),
                 )
                 session.add(trigger)
                 session.commit()
+                logger.info("Trigger '%s' registered for swarm %s", name, swarm_id)
 
 
 # ── Utilities ─────────────────────────────────────────────────────────────────

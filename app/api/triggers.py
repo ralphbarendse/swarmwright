@@ -7,6 +7,7 @@ import threading
 import time
 from collections import OrderedDict
 
+import yaml
 from flask import Blueprint, jsonify, request, current_app
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -142,6 +143,44 @@ def _deregister_heartbeat(trigger_id: str) -> None:
         logger.exception("Failed to remove heartbeat job %s", trigger_id)
 
 
+# ── Trigger file helpers ──────────────────────────────────────────────────────
+
+def _triggers_dir(swarm_id: str, data_dir: str) -> str | None:
+    """Return the swarm's triggers/ directory path, creating it if needed."""
+    with get_session() as session:
+        swarm = session.get(Swarm, swarm_id)
+        if not swarm:
+            return None
+        workspace = session.get(Workspace, swarm.workspace_id)
+        if not workspace:
+            return None
+        path = os.path.join(
+            data_dir, "workspaces", workspace.name, "swarms", swarm.name, "triggers"
+        )
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def _write_trigger_yaml(triggers_dir: str, trigger: Trigger) -> None:
+    config = json.loads(trigger.config_json or "{}")
+    data = {"kind": trigger.kind, "enabled": trigger.enabled, "config": config}
+    tmp = os.path.join(triggers_dir, f"{trigger.name}.yaml.tmp")
+    dst = os.path.join(triggers_dir, f"{trigger.name}.yaml")
+    with open(tmp, "w") as f:
+        yaml.dump(data, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
+    os.replace(tmp, dst)
+
+
+def _delete_trigger_yaml(triggers_dir: str, name: str) -> None:
+    path = os.path.join(triggers_dir, f"{name}.yaml")
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        pass
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+
 class TriggerCreate(BaseModel):
     name: str
     kind: str
@@ -209,6 +248,13 @@ def create_trigger(swarm_id: str):
         result = trigger.to_dict()
         new_id = trigger.id
 
+    tdir = _triggers_dir(swarm_id, current_app.config["DATA_DIR"])
+    if tdir:
+        with get_session() as session:
+            t = session.get(Trigger, new_id)
+            if t:
+                _write_trigger_yaml(tdir, t)
+
     if body.kind == KIND_HEARTBEAT and body.enabled:
         _register_heartbeat_now(new_id)
 
@@ -227,6 +273,10 @@ def update_trigger(trigger_id: str):
         if not trigger:
             return jsonify({"error": {"code": "not_found", "message": "Trigger not found"}}), 404
 
+        old_name   = trigger.name
+        swarm_id   = trigger.swarm_id
+        old_tdir   = _triggers_dir(swarm_id, current_app.config["DATA_DIR"])
+
         if body.name is not None:
             trigger.name = body.name
         if body.kind is not None:
@@ -244,7 +294,12 @@ def update_trigger(trigger_id: str):
         session.refresh(trigger)
         result = trigger.to_dict()
         is_heartbeat = trigger.kind == KIND_HEARTBEAT
-        is_enabled = trigger.enabled
+        is_enabled   = trigger.enabled
+
+    if old_tdir:
+        if body.name is not None and body.name != old_name:
+            _delete_trigger_yaml(old_tdir, old_name)
+        _write_trigger_yaml(old_tdir, trigger)
 
     # Reconcile the scheduler with the new state.
     if is_heartbeat:
@@ -262,9 +317,15 @@ def delete_trigger(trigger_id: str):
         trigger = session.get(Trigger, trigger_id)
         if not trigger:
             return jsonify({"error": {"code": "not_found", "message": "Trigger not found"}}), 404
-        kind = trigger.kind
+        kind     = trigger.kind
+        name     = trigger.name
+        swarm_id = trigger.swarm_id
+        tdir     = _triggers_dir(swarm_id, current_app.config["DATA_DIR"])
         session.delete(trigger)
         session.commit()
+
+    if tdir:
+        _delete_trigger_yaml(tdir, name)
 
     if kind == KIND_HEARTBEAT:
         _deregister_heartbeat(trigger_id)
