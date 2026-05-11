@@ -184,7 +184,7 @@ async function _loadCanvas(container, swarmId) {
     const skillMap = {};
     for (const s of [...companySkills, ...wsSkills, ...swarmSkills]) skillMap[s.name] = s;
 
-    // Fetch display names for all swarm nodes referenced in canvas_swarms or swarm_calls
+    // Fetch display names + workspace info for all swarm nodes on canvas
     const linkedSwarmIds = new Set([
       ...(hierarchy.canvas_swarms || []),
       ...(hierarchy.swarm_calls || []).map(sc => sc.swarm_id),
@@ -194,7 +194,12 @@ async function _loadCanvas(container, swarmId) {
       await Promise.all([...linkedSwarmIds].map(async sid => {
         try {
           const s = await api.getSwarm(sid);
-          swarmMap[sid] = { display_name: s.display_name, name: s.name };
+          swarmMap[sid] = {
+            display_name: s.display_name,
+            name: s.name,
+            workspace_id: s.workspace_id,
+            is_cross_workspace: s.workspace_id !== swarm.workspace_id,
+          };
         } catch (_) {}
       }));
     }
@@ -520,6 +525,8 @@ function _buildElements(h, positions, agentMap = {}, skillMap = {}) {
         type: "swarm",
         swarm_id: sid,
         display_name: meta.display_name || sid,
+        is_cross_workspace: !!meta.is_cross_workspace,
+        workspace_id: meta.workspace_id || null,
       },
       classes: "swarm-node",
     });
@@ -862,8 +869,11 @@ function _buildLabelHtml(data) {
 /** Swarm node card — teal-accented, shows the target swarm's display name. */
 function _buildSwarmNodeCard(data) {
   const name = data.display_name || data.name || data.swarm_id || "swarm";
+  const crossWsBadge = data.is_cross_workspace
+    ? `<span class="cy-swarm-cross-ws" title="This swarm lives in a different workspace">↗ cross-workspace</span>`
+    : "";
   return `
-    <div class="cy-swarm-card">
+    <div class="cy-swarm-card${data.is_cross_workspace ? " cy-swarm-card-cross-ws" : ""}">
       <div class="cy-swarm-accent"></div>
       <div class="cy-swarm-inner">
         <div class="cy-swarm-header">
@@ -871,7 +881,10 @@ function _buildSwarmNodeCard(data) {
           <span class="cy-swarm-name">${_esc(name)}</span>
         </div>
         <hr class="cy-swarm-sep">
-        <span class="cy-swarm-role">external swarm · sync invoke</span>
+        <div class="cy-swarm-footer">
+          <span class="cy-swarm-role">external swarm · sync invoke</span>
+          ${crossWsBadge}
+        </div>
       </div>
     </div>`;
 }
@@ -1187,6 +1200,10 @@ function _showNodeInspector(container, node, swarmId, hierarchy, reload) {
         </div>
         <button class="btn btn-ghost btn-sm" id="insp-del-node">Disconnect from swarm</button>
       </div>` : isSwarmNode ? `
+      ${d.is_cross_workspace ? `
+      <div style="margin-top:10px;padding:7px 9px;background:#fff8e6;border:1.5px solid var(--color-warn);border-radius:4px;font-size:10px;color:var(--color-ink-soft);font-family:var(--font-mono);line-height:1.5">
+        ↗ <b>Cross-workspace</b> — this swarm lives in a different workspace. Ensure it is enabled and its entry point is configured.
+      </div>` : ""}
       <div class="insp-btn-row" style="flex-direction:column;gap:6px;padding-top:12px">
         <div style="font-size:11px;color:var(--color-ink-faint);font-family:var(--font-mono)">
           Connect via an agent node: select the agent, then click "Connect to…"
@@ -1689,22 +1706,37 @@ async function _showAddInformerModal(swarmId, onDone) {
 // then connects it to an agent via connect-mode (agent → "Connect to…" → click swarm node).
 
 async function _showAddSwarmNodeModal(swarmId, onDone) {
-  let workspaceId = null;
-  let allSwarms = [];
+  let currentWorkspaceId = null;
+  const allSwarms = [];  // flat list of {id, display_name, workspace_id, workspace_name}
+
   try {
     const swarm = await api.getSwarm(swarmId);
-    workspaceId = swarm.workspace_id;
-    if (workspaceId) {
-      allSwarms = await api.listSwarms(workspaceId).catch(() => []);
-    }
+    currentWorkspaceId = swarm.workspace_id;
+
+    // Fetch all workspaces, then all their swarms in parallel
+    const workspaces = await api.listWorkspaces().catch(() => []);
+    await Promise.all(workspaces.map(async ws => {
+      const swarms = await api.listSwarms(ws.id).catch(() => []);
+      for (const s of swarms) {
+        if (s.id !== swarmId) {  // exclude current swarm
+          allSwarms.push({ ...s, workspace_id: ws.id, workspace_name: ws.name || ws.display_name || ws.id });
+        }
+      }
+    }));
   } catch (_) {}
 
-  // Exclude the current swarm from the list
-  const otherSwarms = allSwarms.filter(s => s.id !== swarmId);
+  // Split into same-workspace and cross-workspace, each sorted by name
+  const sameWs  = allSwarms.filter(s => s.workspace_id === currentWorkspaceId).sort((a, b) => a.display_name.localeCompare(b.display_name));
+  const otherWs = allSwarms.filter(s => s.workspace_id !== currentWorkspaceId).sort((a, b) => a.display_name.localeCompare(b.display_name));
 
-  const swarmOpts = otherSwarms.length
-    ? otherSwarms.map(s => `<option value="${_esc(s.id)}">${_esc(s.display_name)}${s.description ? ` — ${_esc(s.description)}` : ""}</option>`).join("")
-    : `<option value="" disabled>(no other swarms in this workspace)</option>`;
+  const optHtml = s => `<option value="${_esc(s.id)}" data-ws="${_esc(s.workspace_id)}">${_esc(s.display_name)}${s.description ? ` — ${_esc(s.description)}` : ""}</option>`;
+
+  const groupOpts = [
+    sameWs.length  ? `<optgroup label="Same workspace">${sameWs.map(optHtml).join("")}</optgroup>` : "",
+    otherWs.length ? `<optgroup label="↗ Other workspaces (cross-workspace)">${otherWs.map(optHtml).join("")}</optgroup>` : "",
+  ].join("");
+
+  const hasAny = allSwarms.length > 0;
 
   _showModal("Add external swarm node", `
     <div style="font-size:11px;color:var(--color-ink-soft);font-family:var(--font-mono);margin-bottom:12px">
@@ -1714,21 +1746,36 @@ async function _showAddSwarmNodeModal(swarmId, onDone) {
       <label class="form-label">Target swarm <span style="color:var(--color-danger)">*</span></label>
       <select class="form-input" id="m-swarm-id">
         <option value="">— pick a swarm —</option>
-        ${swarmOpts}
+        ${hasAny ? groupOpts : `<option value="" disabled>(no other swarms found)</option>`}
       </select>
-      <div class="form-helper">Only swarms in the same workspace are shown.</div>
+    </div>
+    <div id="m-cross-ws-warn" style="display:none;padding:7px 9px;background:#fff8e6;border:1.5px solid var(--color-warn);border-radius:4px;font-size:10px;color:var(--color-ink-soft);font-family:var(--font-mono);line-height:1.5;margin-top:-4px">
+      ↗ <b>Cross-workspace</b> — this swarm is in a different workspace. It must be enabled with a configured entry point for delegation to work.
     </div>`,
     async () => {
       const targetId = document.getElementById("m-swarm-id")?.value;
       if (!targetId) throw { message: "Please select a target swarm" };
       await api.patchTopology(swarmId, "add_canvas_swarm", { swarm_id: targetId });
-      const chosen = otherSwarms.find(s => s.id === targetId);
+      const chosen = allSwarms.find(s => s.id === targetId);
       toastSuccess(`Swarm "${chosen?.display_name || targetId}" added to canvas`);
       onDone();
     },
     "Add to canvas"
   );
-  setTimeout(() => document.getElementById("m-swarm-id")?.focus(), 50);
+
+  // Show/hide cross-workspace warning based on selection
+  setTimeout(() => {
+    const sel = document.getElementById("m-swarm-id");
+    const warn = document.getElementById("m-cross-ws-warn");
+    if (sel && warn) {
+      sel.addEventListener("change", () => {
+        const opt = sel.selectedOptions[0];
+        const isOtherWs = opt && opt.dataset.ws && opt.dataset.ws !== currentWorkspaceId;
+        warn.style.display = isOtherWs ? "block" : "none";
+      });
+      sel.focus();
+    }
+  }, 50);
 }
 
 function _showConnectToSwarmModal(swarmId, agentName, targetSwarmId, targetSwarmName, onDone) {

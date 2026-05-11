@@ -865,12 +865,59 @@
   margin: 0.05em 0 0;
 }
 
+#cy-container .cy-swarm-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4em;
+}
+
 #cy-container .cy-swarm-role {
   font-family: var(--font-mono);
   font-size: 0.52em;
   color: var(--color-teal);
   opacity: .8;
   letter-spacing: 0.04em;
+}
+
+#cy-container .cy-swarm-cross-ws {
+  font-family: var(--font-mono);
+  font-size: 0.46em;
+  color: var(--color-warn);
+  background: #fff8e6;
+  border: 1px solid var(--color-warn);
+  border-radius: 2px;
+  padding: 0 0.35em;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Cross-workspace variant — amber border instead of teal */
+#cy-container .cy-swarm-card-cross-ws {
+  border-color: var(--color-warn);
+  box-shadow: 3px 3px 0 var(--color-warn);
+}
+
+#cy-container .cy-swarm-card-cross-ws .cy-swarm-accent {
+  background: var(--color-warn);
+}
+
+#cy-container .cy-swarm-card-cross-ws .cy-swarm-name {
+  color: var(--color-warn);
+}
+
+#cy-container .cy-swarm-card-cross-ws .cy-swarm-sep {
+  border-top-color: var(--color-warn);
+}
+
+#cy-container .cy-swarm-card-cross-ws .cy-swarm-glyph {
+  color: var(--color-warn);
+}
+
+#cy-container .cy-label-swarm.is-selected .cy-swarm-card-cross-ws {
+  border-color: var(--color-perceptionist);
+  box-shadow: 3px 3px 0 var(--color-perceptionist);
 }
 
 /* Edgehandles styling lives in swarm-canvas.js — its handle, ghost edge, and
