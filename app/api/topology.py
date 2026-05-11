@@ -377,6 +377,50 @@ def patch_topology(swarm_id: str):
                 if not (i.get("agent") == agent and i.get("informer") == informer)
             ]
 
+        elif op == "add_canvas_swarm":   # place swarm node on canvas (no connection yet)
+            swarm_id_param = params.get("swarm_id", "").strip()
+            if not swarm_id_param:
+                return jsonify({"error": {"code": "invalid_op", "message": "swarm_id is required"}}), 400
+            canvas = hierarchy.setdefault("canvas_swarms", [])
+            if swarm_id_param not in canvas:
+                canvas.append(swarm_id_param)
+
+        elif op == "remove_canvas_swarm":   # remove swarm node + all its swarm_call connections
+            swarm_id_param = params.get("swarm_id", "").strip()
+            hierarchy["canvas_swarms"] = [
+                s for s in hierarchy.get("canvas_swarms", []) if s != swarm_id_param
+            ]
+            hierarchy["swarm_calls"] = [
+                s for s in hierarchy.get("swarm_calls", []) if s.get("swarm_id") != swarm_id_param
+            ]
+
+        elif op == "add_swarm_call":   # agent → swarm delegation route
+            agent = params.get("agent", "")
+            alias = params.get("alias", "").strip()
+            swarm_id_param = params.get("swarm_id", "").strip()
+            purpose = params.get("purpose", "").strip()
+            if not alias:
+                return jsonify({"error": {"code": "invalid_op", "message": "alias is required"}}), 400
+            if not swarm_id_param:
+                return jsonify({"error": {"code": "invalid_op", "message": "swarm_id is required"}}), 400
+            if not purpose:
+                return jsonify({"error": {"code": "invalid_op", "message": "purpose is required"}}), 400
+            # Ensure swarm is on canvas
+            canvas = hierarchy.setdefault("canvas_swarms", [])
+            if swarm_id_param not in canvas:
+                canvas.append(swarm_id_param)
+            hierarchy.setdefault("swarm_calls", []).append(
+                {"agent": agent, "alias": alias, "swarm_id": swarm_id_param, "purpose": purpose}
+            )
+
+        elif op == "remove_swarm_call":
+            agent = params.get("agent", "")
+            alias = params.get("alias", "").strip()
+            hierarchy["swarm_calls"] = [
+                s for s in hierarchy.get("swarm_calls", [])
+                if not (s.get("agent") == agent and s.get("alias") == alias)
+            ]
+
         elif op == "set_entry_point":
             name = params.get("name")
             hierarchy["entry_point"] = name

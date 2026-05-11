@@ -14,6 +14,7 @@ STEP_PERCEPTIONIST_CALL = "perceptionist_call"
 STEP_HUMAN_ESCALATION = "human_escalation"
 STEP_CALLER_CALL = "caller_call"         # Phase 6: agent traversed a `call` edge (blocks)
 STEP_INFORMER_NOTIFY = "informer_notify" # Phase 6.1: agent traversed an `inform` edge (non-blocking)
+STEP_SWARM_CALL = "swarm_call"           # Cross-swarm delegation
 STEP_TOPOLOGY_VIOLATION = "topology_violation"
 
 

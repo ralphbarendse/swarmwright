@@ -658,6 +658,10 @@ input, textarea, select { font: inherit; }
   flex: 1; overflow-y: auto; padding: 16px; background: var(--color-bg);
 }
 
+/* Skill picker rows in attach modal */
+.skill-pick-row:hover { border-color: var(--color-amber) !important; background: #fffaf0 !important; }
+.skill-pick-row:has(input:checked) { border-color: var(--color-amber) !important; background: rgba(201,123,30,.06) !important; }
+
 /* ── Topbar pip (Inbox count badge — Phase 6) ─────────────────────────────── */
 .topbar-pip {
   display: inline-block;

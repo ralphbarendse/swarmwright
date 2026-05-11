@@ -40,6 +40,8 @@ class ParsedHierarchy:
     calls: list[dict] = field(default_factory=list)
     # Phase 6.1: agent → informer routes (non-blocking). Default `[]` for back-compat.
     informs: list[dict] = field(default_factory=list)
+    # Cross-swarm delegation: agent → external swarm invocation. Default `[]` for back-compat.
+    swarm_calls: list[dict] = field(default_factory=list)
 
     def get_allowed_edges(self, agent_name: str) -> list[dict]:
         return [e for e in self.edges if e["from"] == agent_name]
@@ -84,6 +86,15 @@ class ParsedHierarchy:
         for i in self.informs:
             if i["agent"] == agent_name and i["informer"] == informer_ref:
                 return i
+        return None
+
+    def get_allowed_swarm_calls(self, agent_name: str) -> list[dict]:
+        return [s for s in self.swarm_calls if s["agent"] == agent_name]
+
+    def find_swarm_call(self, agent_name: str, alias: str) -> dict | None:
+        for s in self.swarm_calls:
+            if s["agent"] == agent_name and s["alias"] == alias:
+                return s
         return None
 
 
@@ -136,9 +147,10 @@ def load_and_validate(
     edges: list[dict] = raw["edges"]
     consultations: list[dict] = raw["consultations"]
     skills: list[dict] = raw["skills"]
-    # `calls` (Phase 6) and `informs` (Phase 6.1) are optional — default to []
+    # `calls` (Phase 6), `informs` (Phase 6.1), and `swarm_calls` are optional — default to []
     calls: list[dict] = raw.get("calls", [])
     informs: list[dict] = raw.get("informs", [])
+    swarm_calls: list[dict] = raw.get("swarm_calls", [])
     entry_point: str | None = raw.get("entry_point")
 
     agents_set = set(agents)
@@ -447,6 +459,46 @@ def load_and_validate(
             )
         seen_informs.add(sig)
 
+    # ── Swarm calls (cross-swarm delegation) ─────────────────────────────────
+    seen_swarm_calls: set[tuple] = set()
+    for i, sc_entry in enumerate(swarm_calls):
+        for key in ("agent", "alias", "swarm_id", "purpose"):
+            if key not in sc_entry:
+                raise HierarchyValidationError(
+                    code="swarm_call_missing_field",
+                    message=f"Swarm call entry #{i} is missing required field '{key}'",
+                    details={"swarm_call_index": i},
+                )
+
+        if not sc_entry["purpose"].strip():
+            raise HierarchyValidationError(
+                code="empty_purpose",
+                message=(
+                    f"Swarm call from '{sc_entry['agent']}' via alias "
+                    f"'{sc_entry['alias']}' has an empty purpose"
+                ),
+                details={"swarm_call": sc_entry},
+            )
+
+        if sc_entry["agent"] not in agents_set:
+            raise HierarchyValidationError(
+                code="unknown_agent",
+                message=f"Swarm call agent '{sc_entry['agent']}' is not in the agents list",
+                details={"swarm_call": sc_entry},
+            )
+
+        sig = (sc_entry["agent"], sc_entry["alias"])
+        if sig in seen_swarm_calls:
+            raise HierarchyValidationError(
+                code="duplicate_swarm_call",
+                message=(
+                    f"Duplicate swarm call: {sc_entry['agent']} → alias "
+                    f"'{sc_entry['alias']}'"
+                ),
+                details={"swarm_call": sc_entry},
+            )
+        seen_swarm_calls.add(sig)
+
     return ParsedHierarchy(
         swarm=swarm_name,
         agents=agents,
@@ -455,5 +507,6 @@ def load_and_validate(
         skills=skills,
         calls=calls,
         informs=informs,
+        swarm_calls=swarm_calls,
         entry_point=entry_point,
     )

@@ -184,6 +184,22 @@ async function _loadCanvas(container, swarmId) {
     const skillMap = {};
     for (const s of [...companySkills, ...wsSkills, ...swarmSkills]) skillMap[s.name] = s;
 
+    // Fetch display names for all swarm nodes referenced in canvas_swarms or swarm_calls
+    const linkedSwarmIds = new Set([
+      ...(hierarchy.canvas_swarms || []),
+      ...(hierarchy.swarm_calls || []).map(sc => sc.swarm_id),
+    ]);
+    const swarmMap = {};
+    if (linkedSwarmIds.size > 0) {
+      await Promise.all([...linkedSwarmIds].map(async sid => {
+        try {
+          const s = await api.getSwarm(sid);
+          swarmMap[sid] = { display_name: s.display_name, name: s.name };
+        } catch (_) {}
+      }));
+    }
+    hierarchy._swarm_map = swarmMap;
+
     const elements = _buildElements(hierarchy, positions, agentMap, skillMap);
 
     // Destroy previous instance
@@ -253,6 +269,14 @@ async function _loadCanvas(container, swarmId) {
           _showConnectToHumanModal(swarmId, "inform", sourceName, informerName, () => _loadCanvas(container, swarmId));
           return;
         }
+        if (srcType === "agent" && tgt.hasClass("swarm-node")) {
+          const sourceName = _connectSource.data("name");
+          const targetSwarmId = tgt.data("swarm_id");
+          const targetSwarmName = tgt.data("display_name");
+          _exitConnectMode(container);
+          _showConnectToSwarmModal(swarmId, sourceName, targetSwarmId, targetSwarmName, () => _loadCanvas(container, swarmId));
+          return;
+        }
         // Tapped same node or incompatible target: cancel
         _exitConnectMode(container);
       }
@@ -301,6 +325,7 @@ const TRIGGER_GLYPH = {
 
 const CALLER_GLYPH   = "✋";   // Phase 6 — humans-in-the-loop (blocking)
 const INFORMER_GLYPH = "📢";  // Phase 6.1 — fire-and-forget notifications
+const SWARM_GLYPH    = "⬡";   // Cross-swarm delegation node
 
 function _buildElements(h, positions, agentMap = {}, skillMap = {}) {
   const els = [];
@@ -479,6 +504,44 @@ function _buildElements(h, positions, agentMap = {}, skillMap = {}) {
     });
   }
 
+  // Swarm nodes — from canvas_swarms list; also include any referenced in swarm_calls.
+  const swarmNodes = new Set([
+    ...(h.canvas_swarms || []),
+    ...(h.swarm_calls || []).map(s => s.swarm_id),
+  ]);
+  for (const sid of swarmNodes) {
+    const nsid = `swarm__${sid}`;
+    const meta = (h._swarm_map || {})[sid] || {};
+    els.push({
+      data: {
+        id: nsid,
+        name: sid,
+        label: `${SWARM_GLYPH}  ${meta.display_name || sid}`,
+        type: "swarm",
+        swarm_id: sid,
+        display_name: meta.display_name || sid,
+      },
+      classes: "swarm-node",
+    });
+  }
+
+  // Swarm call edges (agent → swarm node)
+  for (const sc of (h.swarm_calls || [])) {
+    els.push({
+      data: {
+        id: `swarm_call_${sc.agent}_${sc.alias}`,
+        source: sc.agent,
+        target: `swarm__${sc.swarm_id}`,
+        kind: "swarm_call",
+        alias: sc.alias,
+        swarm_id: sc.swarm_id,
+        purpose: sc.purpose,
+        label: _truncate(sc.alias, 24),
+      },
+      classes: "edge-swarm-call",
+    });
+  }
+
   return els;
 }
 
@@ -595,6 +658,15 @@ function _cyStyles() {
       "shadow-opacity": 0,
     }},
 
+    // ── Swarm nodes — transparent hit area; DOM overlay renders the swarm card ──
+    { selector: ".swarm-node", style: {
+      width: 220, height: 85,
+      shape: "rectangle",
+      "background-opacity": 0,
+      "border-width": 0,
+      "shadow-opacity": 0,
+    }},
+
     // ── State ──
     { selector: "node:selected", style: {
       "overlay-color": PERCEPTIONIST,
@@ -603,7 +675,7 @@ function _cyStyles() {
       "border-color": PERCEPTIONIST,
     }},
     // All card-style nodes handle selection via CSS class on the DOM overlay.
-    { selector: ".agent:selected, .skill:selected, .trigger:selected, .caller:selected, .informer:selected", style: {
+    { selector: ".agent:selected, .skill:selected, .trigger:selected, .caller:selected, .informer:selected, .swarm-node:selected", style: {
       "border-width": 0,
       "overlay-opacity": 0,
     }},
@@ -672,6 +744,14 @@ function _cyStyles() {
       "line-style": "dashed",
       "target-arrow-shape": "none",
       width: 2,
+    }},
+
+    // ── Swarm call edge (agent → external swarm) — teal solid ──
+    { selector: ".edge-swarm-call", style: {
+      "line-color": "#1AAF87",
+      "target-arrow-color": "#1AAF87",
+      "line-style": "solid",
+      width: 2.5,
     }},
   ];
 }
@@ -754,7 +834,7 @@ function _mountLabelOverlay(container) {
   _cy.on("layoutstop", update);
 
   // Sync Cytoscape selected state to all card overlays.
-  const CARD_TYPES = "node[type='agent'], node[type='skill'], node[type='trigger'], node[type='caller'], node[type='informer']";
+  const CARD_TYPES = "node[type='agent'], node[type='skill'], node[type='trigger'], node[type='caller'], node[type='informer'], node[type='swarm']";
   _cy.on("select",   CARD_TYPES, e => { labelMap.get(e.target.id())?.classList.add("is-selected"); });
   _cy.on("unselect", CARD_TYPES, e => { labelMap.get(e.target.id())?.classList.remove("is-selected"); });
 
@@ -773,9 +853,27 @@ function _buildLabelHtml(data) {
   if (data.type === "trigger")  return _buildTriggerCard(data);
   if (data.type === "caller")   return _buildCallerCard(data);
   if (data.type === "informer") return _buildInformerCard(data);
+  if (data.type === "swarm")    return _buildSwarmNodeCard(data);
 
   // Fallback: plain two-line label for any unlisted node type
   return `<div class="cy-label-name">${_esc(data.label || data.name || "")}</div>`;
+}
+
+/** Swarm node card — teal-accented, shows the target swarm's display name. */
+function _buildSwarmNodeCard(data) {
+  const name = data.display_name || data.name || data.swarm_id || "swarm";
+  return `
+    <div class="cy-swarm-card">
+      <div class="cy-swarm-accent"></div>
+      <div class="cy-swarm-inner">
+        <div class="cy-swarm-header">
+          <span class="cy-swarm-glyph">${SWARM_GLYPH}</span>
+          <span class="cy-swarm-name">${_esc(name)}</span>
+        </div>
+        <hr class="cy-swarm-sep">
+        <span class="cy-swarm-role">external swarm · sync invoke</span>
+      </div>
+    </div>`;
 }
 
 /**
@@ -1035,6 +1133,7 @@ function _showNodeInspector(container, node, swarmId, hierarchy, reload) {
   const isAgent = d.type === "agent";
   const isCaller = d.type === "caller";
   const isInformer = d.type === "informer";
+  const isSwarmNode = d.type === "swarm";
 
   const outgoing = _cy.edges().filter(e => e.data("source") === d.id);
   const incoming = _cy.edges().filter(e => e.data("target") === d.id);
@@ -1087,6 +1186,13 @@ function _showNodeInspector(container, node, swarmId, hierarchy, reload) {
           Connect via an agent node: select the agent, then click "Connect to…"
         </div>
         <button class="btn btn-ghost btn-sm" id="insp-del-node">Disconnect from swarm</button>
+      </div>` : isSwarmNode ? `
+      <div class="insp-btn-row" style="flex-direction:column;gap:6px;padding-top:12px">
+        <div style="font-size:11px;color:var(--color-ink-faint);font-family:var(--font-mono)">
+          Connect via an agent node: select the agent, then click "Connect to…"
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="swNav('swarm/${_esc(d.swarm_id)}')">Open swarm</button>
+        <button class="btn btn-ghost btn-sm" id="insp-del-node">Remove from canvas</button>
       </div>` : `
       <div class="insp-btn-row">
         <button class="btn btn-ghost btn-sm" id="insp-del-node">Remove</button>
@@ -1116,6 +1222,7 @@ function _showNodeInspector(container, node, swarmId, hierarchy, reload) {
     const confirmMsg = isAgent ? `Remove agent "${d.name}" from topology?`
       : isTrigger ? `Delete trigger "${d.name}"?`
       : (isCaller || isInformer) ? `Disconnect "${d.name}" from this swarm? This removes all connections to it.`
+      : isSwarmNode ? `Remove swarm "${d.display_name}" from canvas? This removes all call connections to it.`
       : `Remove "${d.name}"?`;
     if (!confirm(confirmMsg)) return;
     try {
@@ -1131,6 +1238,9 @@ function _showNodeInspector(container, node, swarmId, hierarchy, reload) {
       } else if (isInformer) {
         await api.patchTopology(swarmId, "remove_canvas_informer", { informer: d.name });
         toastSuccess(`Informer "${d.name}" removed`);
+      } else if (isSwarmNode) {
+        await api.patchTopology(swarmId, "remove_canvas_swarm", { swarm_id: d.swarm_id });
+        toastSuccess(`Swarm "${d.display_name}" removed from canvas`);
       } else {
         node.remove();
       }
@@ -1143,9 +1253,10 @@ function _showEdgeInspector(container, edge, swarmId, hierarchy, reload) {
   const d = edge.data();
   const isFires = d.kind === "fires";
   const isHumanEdge = d.kind === "call" || d.kind === "inform";
+  const isSwarmCallEdge = d.kind === "swarm_call";
   const insp = container.querySelector("#insp-content");
-  // Strip internal prefixes from the target label for human edges
-  const targetLabel = d.target.replace(/^(caller__|informer__)/, "");
+  // Strip internal prefixes from the target label for human/swarm edges
+  const targetLabel = d.target.replace(/^(caller__|informer__|swarm__)/, "");
   insp.innerHTML = `
     <div class="insp-label">Edge</div>
     <div class="insp-node-name" style="font-size:var(--text-sm)">${_esc(d.source)} → ${_esc(targetLabel)}</div>
@@ -1155,8 +1266,13 @@ function _showEdgeInspector(container, edge, swarmId, hierarchy, reload) {
       <div style="font-size:var(--text-xs);color:var(--color-text);font-style:italic;line-height:1.5">${_esc(d.purpose || "—")}</div>
     </div>
     ${isFires ? `<div class="insp-section" style="border:none;padding:8px 0 0;font-size:var(--text-xs);color:var(--color-ink-faint);font-family:var(--font-mono)">Trigger flow — managed automatically. Delete the trigger node to remove.</div>` : `
+    ${isSwarmCallEdge ? `
+    <div style="margin-top:10px">
+      <div class="insp-label">Alias</div>
+      <div style="font-family:var(--font-mono);font-size:11px;color:var(--color-ink)">${_esc(d.alias || "")}</div>
+    </div>` : ""}
     <div class="insp-btn-row" style="flex-direction:column;gap:6px;padding-top:12px">
-      ${!isHumanEdge ? `<button class="btn btn-ghost btn-sm" id="insp-edit-edge">Edit purpose</button>` : ""}
+      ${(!isHumanEdge && !isSwarmCallEdge) ? `<button class="btn btn-ghost btn-sm" id="insp-edit-edge">Edit purpose</button>` : ""}
       <button class="btn btn-ghost btn-sm" id="insp-del-edge">Delete edge</button>
     </div>`}`;
 
@@ -1168,14 +1284,16 @@ function _showEdgeInspector(container, edge, swarmId, hierarchy, reload) {
   insp.querySelector("#insp-del-edge").addEventListener("click", async () => {
     if (!confirm("Delete this edge?")) return;
     try {
-      const op = d.kind === "consult"  ? "remove_consultation" :
-        d.kind === "skill"             ? "remove_skill_connection" :
-        d.kind === "call"              ? "remove_call" :
-        d.kind === "inform"            ? "remove_inform" : "remove_edge";
+      const op = d.kind === "consult"     ? "remove_consultation" :
+        d.kind === "skill"                ? "remove_skill_connection" :
+        d.kind === "call"                 ? "remove_call" :
+        d.kind === "inform"               ? "remove_inform" :
+        d.kind === "swarm_call"           ? "remove_swarm_call" : "remove_edge";
       const params = d.kind === "consult" ? { agent: d.source, perceptionist: d.purpose } :
-        d.kind === "skill"   ? { agent: d.source, skill: d.target.replace("skill__", "") } :
-        d.kind === "call"    ? { agent: d.source, caller: d.target.replace("caller__", "") } :
-        d.kind === "inform"  ? { agent: d.source, informer: d.target.replace("informer__", "") } :
+        d.kind === "skill"       ? { agent: d.source, skill: d.target.replace("skill__", "") } :
+        d.kind === "call"        ? { agent: d.source, caller: d.target.replace("caller__", "") } :
+        d.kind === "inform"      ? { agent: d.source, informer: d.target.replace("informer__", "") } :
+        d.kind === "swarm_call"  ? { agent: d.source, alias: d.alias } :
         { from: d.source, to: d.target, kind: d.kind };
       await api.patchTopology(swarmId, op, params);
       toastSuccess("Edge removed");
@@ -1230,6 +1348,13 @@ function _buildPalette(pal, swarmId) {
       <span class="pal-dot pal-dot-informer"></span>
       Informer (notify only)
       <span class="pal-tip" title="Receives output from the swarm for visibility — no response expected.">?</span>
+    </div>
+    <hr class="pal-sep">
+    <div class="sec-header">Add swarm</div>
+    <div class="pal-item" id="pal-add-swarm">
+      <span class="pal-dot" style="background:var(--color-teal);border-color:var(--color-teal)"></span>
+      External swarm
+      <span class="pal-tip" title="Delegate work to another swarm synchronously. The calling agent waits for the result.">?</span>
     </div>`;
 
   // Tooltip for ? badges — JS-based so it escapes overflow:hidden clipping
@@ -1265,6 +1390,9 @@ function _buildPalette(pal, swarmId) {
 
   pal.querySelector("#pal-add-informer").addEventListener("click", () =>
     _showAddInformerModal(swarmId, reload));
+
+  pal.querySelector("#pal-add-swarm").addEventListener("click", () =>
+    _showAddSwarmNodeModal(swarmId, reload));
 }
 
 // ── Modals ─────────────────────────────────────────────────────────────────
@@ -1298,7 +1426,6 @@ function _showAddAgentModal(swarmId, layer, onDone) {
 }
 
 export async function _showAttachSkillModal(swarmId, agentName, onDone) {
-  // Resolve scope chain (swarm → workspace → company) and list all skills.
   let workspaceId = null;
   try {
     const swarm = await api.getSwarm(swarmId);
@@ -1307,52 +1434,89 @@ export async function _showAttachSkillModal(swarmId, agentName, onDone) {
 
   let groups = [];
   try {
-    const [swarmSkills, wsSkills, companySkills] = await Promise.all([
+    const [swarmSkills, wsSkills, companySkills, builtinSkills] = await Promise.all([
       api.listSkills({ scope: "swarm",     swarm_id: swarmId }).catch(() => []),
       workspaceId
         ? api.listSkills({ scope: "workspace", workspace_id: workspaceId }).catch(() => [])
         : Promise.resolve([]),
       api.listSkills({ scope: "company" }).catch(() => []),
+      api.listSkills({ scope: "builtin" }).catch(() => []),
     ]);
     groups = [
       { label: "Swarm",     scope: "swarm",     items: swarmSkills },
       { label: "Workspace", scope: "workspace", items: wsSkills },
       { label: "Company",   scope: "company",   items: companySkills },
+      { label: "Built-in",  scope: "builtin",   items: builtinSkills },
     ];
   } catch (err) { toastError(err); return; }
 
   const total = groups.reduce((n, g) => n + g.items.length, 0);
-  const refMaker = (scope, name) =>
-    scope === "swarm" ? name : (scope === "workspace" ? `workspace/${name}` : `company/${name}`);
+  const refMaker = (scope, name) => {
+    if (scope === "swarm")     return name;
+    if (scope === "workspace") return `workspace/${name}`;
+    if (scope === "builtin")   return `builtin/${name}`;
+    return `company/${name}`;
+  };
 
-  const optionsHtml = total === 0
-    ? `<div class="empty-state" style="padding:16px"><div class="empty-state-sub">No skills exist yet.</div><a class="btn btn-secondary btn-sm" href="#library/skills" style="margin-top:8px">Open Library to create one</a></div>`
-    : groups.filter(g => g.items.length).map(g => `
-        <div style="margin-bottom:12px">
-          <div class="form-label" style="margin-bottom:4px">${g.label} scope</div>
-          ${g.items.map(s => `
-            <label style="display:flex;gap:8px;align-items:center;padding:6px 8px;border:1px solid var(--color-cream-line);border-radius:6px;background:var(--color-card);margin-bottom:4px;cursor:pointer">
-              <input type="radio" name="m-skill" value="${_esc(refMaker(g.scope, s.name))}" style="accent-color:var(--color-perceptionist)">
-              <span style="font-family:var(--font-mono);font-size:12px;color:var(--color-ink)">${_esc(s.name)}</span>
-              <span style="font-size:11px;color:var(--color-ink-faint);flex:1">${_esc(s.description || "")}</span>
-            </label>`).join("")}
-        </div>`).join("");
+  // Flatten all skills for search/filter
+  const allSkills = groups.flatMap(g => g.items.map(s => ({
+    ...s,
+    scope: g.scope,
+    scopeLabel: g.label,
+    ref: refMaker(g.scope, s.name),
+  })));
 
-  _showModal(`Attach skill to "${agentName}"`, `
-    <div style="font-size:11px;color:var(--color-ink-soft);margin-bottom:12px;font-family:var(--font-mono)">
-      Skills are resolved most-local-first. Pick one and provide a purpose — that string becomes the audit-trail entry on every call.
-    </div>
-    ${optionsHtml}
-    ${total > 0 ? `
-      <div class="form-group" style="margin-top:12px">
+  const SCOPE_COLORS = {
+    swarm:     "var(--color-orchestrator)",
+    workspace: "var(--color-executioner)",
+    company:   "var(--color-policy)",
+    builtin:   "var(--color-amber)",
+  };
+
+  const renderList = (skills) => {
+    if (!skills.length) return `<div style="font-family:var(--font-mono);font-size:11px;color:var(--color-ink-faint);padding:8px 0">No skills match.</div>`;
+    return skills.map(s => `
+      <label class="skill-pick-row" style="
+        display:flex;gap:10px;align-items:flex-start;
+        padding:8px 10px;border:1px solid var(--color-cream-line);
+        border-radius:6px;background:var(--color-card);margin-bottom:4px;
+        cursor:pointer;transition:border-color .1s;
+      ">
+        <input type="radio" name="m-skill" value="${_esc(s.ref)}" style="accent-color:var(--color-perceptionist);margin-top:3px;flex-shrink:0">
+        <div style="flex:1;min-width:0">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px">
+            <span style="font-family:var(--font-mono);font-size:12px;font-weight:600;color:var(--color-ink)">${_esc(s.name)}</span>
+            <span style="
+              font-family:var(--font-mono);font-size:9px;letter-spacing:.05em;
+              text-transform:uppercase;color:${SCOPE_COLORS[s.scope]};
+              border:1px solid ${SCOPE_COLORS[s.scope]};border-radius:3px;padding:0 4px;
+              flex-shrink:0;
+            ">${_esc(s.scopeLabel)}</span>
+          </div>
+          ${s.description ? `<div style="font-size:11px;color:var(--color-ink-faint);line-height:1.4">${_esc(s.description)}</div>` : ""}
+        </div>
+      </label>`).join("");
+  };
+
+  const bodyHtml = total === 0
+    ? `<div class="empty-state" style="padding:16px"><div class="empty-state-sub">No skills exist yet.</div></div>`
+    : `
+      <input id="m-skill-search" class="form-input" placeholder="Filter skills…" autocomplete="off"
+        style="margin-bottom:10px;font-size:12px">
+      <div id="m-skill-list" style="max-height:260px;overflow-y:auto;padding-right:2px">
+        ${renderList(allSkills)}
+      </div>
+      <div class="form-group" style="margin-top:12px;margin-bottom:0">
         <label class="form-label">Purpose <span style="color:var(--color-danger)">*</span></label>
-        <textarea class="form-textarea" id="m-purpose" placeholder="Why does ${agentName} call this skill?" style="min-height:60px"></textarea>
-        <div class="form-helper">Required. Becomes the <code style="font-family:var(--font-mono)">edge_purpose</code> recorded for every invocation.</div>
-      </div>` : ""}`,
+        <textarea class="form-textarea" id="m-purpose" placeholder="Why does ${_esc(agentName)} call this skill?" style="min-height:56px;font-size:12px"></textarea>
+        <div class="form-helper">Becomes the audit-trail entry on every invocation.</div>
+      </div>`;
+
+  _showModal(`Attach skill to "${agentName}"`, bodyHtml,
     async () => {
       if (total === 0) { onDone(); return; }
       const picked = document.querySelector('input[name="m-skill"]:checked')?.value;
-      if (!picked) throw { message: "Pick a skill" };
+      if (!picked) throw { message: "Pick a skill first" };
       const purpose = document.getElementById("m-purpose")?.value.trim();
       if (!purpose) throw { message: "Purpose is required" };
       await api.patchTopology(swarmId, "add_skill_connection", {
@@ -1363,6 +1527,25 @@ export async function _showAttachSkillModal(swarmId, agentName, onDone) {
     },
     "Attach skill"
   );
+
+  // Wire up search filter after modal renders
+  setTimeout(() => {
+    const searchEl = document.getElementById("m-skill-search");
+    const listEl   = document.getElementById("m-skill-list");
+    if (!searchEl || !listEl) return;
+    searchEl.focus();
+    searchEl.addEventListener("input", () => {
+      const q = searchEl.value.toLowerCase().trim();
+      const filtered = q
+        ? allSkills.filter(s =>
+            s.name.toLowerCase().includes(q) ||
+            (s.description || "").toLowerCase().includes(q) ||
+            s.scopeLabel.toLowerCase().includes(q))
+        : allSkills;
+      listEl.innerHTML = renderList(filtered);
+      // Hover highlight re-binding not needed since CSS handles it
+    });
+  }, 30);
 }
 
 // ── Add Caller modal (Phase 6) ───────────────────────────────────────────────
@@ -1500,6 +1683,95 @@ async function _showAddInformerModal(swarmId, onDone) {
   setTimeout(() => document.getElementById("m-inf-existing")?.focus(), 50);
 }
 
+
+// ── Add Swarm node modal ───────────────────────────────────────────────────────
+// Places an external-swarm node on the canvas with no connections. The user
+// then connects it to an agent via connect-mode (agent → "Connect to…" → click swarm node).
+
+async function _showAddSwarmNodeModal(swarmId, onDone) {
+  let workspaceId = null;
+  let allSwarms = [];
+  try {
+    const swarm = await api.getSwarm(swarmId);
+    workspaceId = swarm.workspace_id;
+    if (workspaceId) {
+      allSwarms = await api.listSwarms(workspaceId).catch(() => []);
+    }
+  } catch (_) {}
+
+  // Exclude the current swarm from the list
+  const otherSwarms = allSwarms.filter(s => s.id !== swarmId);
+
+  const swarmOpts = otherSwarms.length
+    ? otherSwarms.map(s => `<option value="${_esc(s.id)}">${_esc(s.display_name)}${s.description ? ` — ${_esc(s.description)}` : ""}</option>`).join("")
+    : `<option value="" disabled>(no other swarms in this workspace)</option>`;
+
+  _showModal("Add external swarm node", `
+    <div style="font-size:11px;color:var(--color-ink-soft);font-family:var(--font-mono);margin-bottom:12px">
+      Places another swarm on the canvas. Connect it to an agent afterwards by selecting the agent and clicking "Connect to…".
+    </div>
+    <div class="form-group">
+      <label class="form-label">Target swarm <span style="color:var(--color-danger)">*</span></label>
+      <select class="form-input" id="m-swarm-id">
+        <option value="">— pick a swarm —</option>
+        ${swarmOpts}
+      </select>
+      <div class="form-helper">Only swarms in the same workspace are shown.</div>
+    </div>`,
+    async () => {
+      const targetId = document.getElementById("m-swarm-id")?.value;
+      if (!targetId) throw { message: "Please select a target swarm" };
+      await api.patchTopology(swarmId, "add_canvas_swarm", { swarm_id: targetId });
+      const chosen = otherSwarms.find(s => s.id === targetId);
+      toastSuccess(`Swarm "${chosen?.display_name || targetId}" added to canvas`);
+      onDone();
+    },
+    "Add to canvas"
+  );
+  setTimeout(() => document.getElementById("m-swarm-id")?.focus(), 50);
+}
+
+function _showConnectToSwarmModal(swarmId, agentName, targetSwarmId, targetSwarmName, onDone) {
+  _showModal("Connect agent to swarm", `
+    <div class="form-group">
+      <label class="form-label">From agent</label>
+      <input class="form-input" value="${_esc(agentName)}" readonly style="opacity:.7">
+    </div>
+    <div class="form-group">
+      <label class="form-label">To swarm</label>
+      <input class="form-input" value="${_esc(targetSwarmName || targetSwarmId)}" readonly style="opacity:.7">
+    </div>
+    <div class="form-group">
+      <label class="form-label">Alias <span style="color:var(--color-danger)">*</span></label>
+      <input class="form-input" id="m-alias" placeholder="e.g. payment-processor" autocomplete="off">
+      <div class="form-helper">Short slug the LLM uses as the <code style="font-family:var(--font-mono)">target</code> when invoking this swarm. Lowercase, hyphens.</div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Purpose <span style="color:var(--color-danger)">*</span></label>
+      <textarea class="form-textarea" id="m-purpose"
+        placeholder="e.g. Process payment and return confirmation"
+        style="min-height:70px"></textarea>
+      <div class="form-helper">Required. Becomes the audit-trail entry and is included in the agent's system prompt.</div>
+    </div>`,
+    async () => {
+      const alias = (document.getElementById("m-alias")?.value || "").trim().replace(/\s+/g, "-").toLowerCase();
+      const purpose = document.getElementById("m-purpose")?.value.trim();
+      if (!alias) throw { message: "Alias is required" };
+      if (!/^[a-z0-9][a-z0-9-]*$/.test(alias)) throw { message: "Alias must be lowercase letters, digits, and hyphens" };
+      if (!purpose) throw { message: "Purpose is required" };
+      await api.patchTopology(swarmId, "add_swarm_call", {
+        agent: agentName,
+        alias,
+        swarm_id: targetSwarmId,
+        purpose,
+      });
+      toastSuccess(`Connected "${agentName}" → "${targetSwarmName || targetSwarmId}" (alias: ${alias})`);
+      onDone();
+    },
+    "Connect"
+  );
+  setTimeout(() => document.getElementById("m-alias")?.focus(), 50);
+}
 
 async function _showAddTriggerModal(swarmId, kind, onDone) {
   // Per-kind config field. Heartbeats need a cron expression, listeners need

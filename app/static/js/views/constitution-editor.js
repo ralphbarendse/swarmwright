@@ -682,12 +682,16 @@ async function _setupKnowledgeAutocomplete(container, setDirty) {
   `;
   document.body.appendChild(dropdown);
 
-  const showDropdown = (query) => {
-    if (!query.trim()) { dropdown.style.display = "none"; return; }
-    const q = query.toLowerCase();
+  const showDropdown = (query, showAll = false) => {
+    const q = query.toLowerCase().trim();
+    const alreadyAdded = new Set(
+      [...container.querySelectorAll(".chip")].map(c => c.textContent.trim().replace("×", "").trim())
+    );
     const matches = items
-      .filter(k => k.name.toLowerCase().includes(q) || (k.title || "").toLowerCase().includes(q))
-      .slice(0, 8);
+      .filter(k => !alreadyAdded.has(k.name))
+      .filter(k => !q || k.name.toLowerCase().includes(q) || (k.title || "").toLowerCase().includes(q))
+      .slice(0, showAll && !q ? 20 : 8);
+    if (!matches.length) { dropdown.style.display = "none"; return; }
     if (!matches.length) { dropdown.style.display = "none"; return; }
     const rect = knInput.getBoundingClientRect();
     Object.assign(dropdown.style, {
@@ -716,6 +720,7 @@ async function _setupKnowledgeAutocomplete(container, setDirty) {
     });
   };
 
+  knInput.addEventListener("focus", () => showDropdown(knInput.value, true));
   knInput.addEventListener("input", () => showDropdown(knInput.value));
   knInput.addEventListener("blur", () => setTimeout(() => { dropdown.style.display = "none"; }, 160));
   knInput.addEventListener("keydown", (e) => {

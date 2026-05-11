@@ -50,6 +50,7 @@ from app.models.run_step import (
     STEP_HUMAN_ESCALATION,
     STEP_CALLER_CALL,
     STEP_INFORMER_NOTIFY,
+    STEP_SWARM_CALL,
     STEP_TOPOLOGY_VIOLATION,
 )
 
@@ -95,7 +96,7 @@ _RESPONSE_FORMAT = """
 When you respond, output ONLY a JSON object — no prose before or after — with this structure:
 
 {
-  "action": "<one of: escalate | delegate | report | consult_perceptionist | consult_caller | inform_informer | skill_call | escalate_to_human | complete>",
+  "action": "<one of: escalate | delegate | report | consult_perceptionist | consult_caller | inform_informer | skill_call | invoke_swarm | escalate_to_human | complete>",
   "target": "<name of agent, perceptionist, skill, or caller being called — omit for complete/escalate_to_human>",
   "purpose_match": "<exact purpose string from Allowed Actions below — omit for complete/escalate_to_human>",
   "input": { <data to pass to the target, or your final output for complete> },
@@ -149,11 +150,33 @@ class RunContext:
 
     _sequence: int = field(default=0, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
+    _next_seq_fn: Any = field(default=None, repr=False)
 
     def next_sequence(self) -> int:
+        if self._next_seq_fn is not None:
+            return self._next_seq_fn()
         with self._lock:
             self._sequence += 1
             return self._sequence
+
+    def spawn_child(
+        self,
+        swarm_id: str,
+        swarm_path: str,
+        workspace_path: str,
+        hierarchy: ParsedHierarchy,
+    ) -> "RunContext":
+        """Create a child context sharing this run's ID and sequence counter."""
+        child = RunContext(
+            run_id=self.run_id,
+            swarm_id=swarm_id,
+            swarm_path=swarm_path,
+            workspace_path=workspace_path,
+            data_dir=self.data_dir,
+            hierarchy=hierarchy,
+        )
+        child._next_seq_fn = self.next_sequence
+        return child
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
@@ -863,6 +886,32 @@ def _dispatch_sub_action(
         # Non-blocking: return a simple ack so the agent loop continues.
         return {"notified": target, "purpose": inform_entry["purpose"]}
 
+    # ── Cross-swarm invocation ────────────────────────────────────────────────
+    if action == "invoke_swarm":
+        swarm_call_entry = ctx.hierarchy.find_swarm_call(agent_name, target)
+        if swarm_call_entry is None:
+            return _record_topology_violation(
+                agent_name=agent_name,
+                attempted=f"invoke_swarm → alias {target!r} — not declared in swarm_calls",
+                ctx=ctx,
+            )
+        if swarm_call_entry["purpose"] != purpose_match:
+            return _record_topology_violation(
+                agent_name=agent_name,
+                attempted=(
+                    f"invoke_swarm → alias {target!r} with purpose_match {purpose_match!r}, "
+                    f"but declared purpose is {swarm_call_entry['purpose']!r}"
+                ),
+                ctx=ctx,
+            )
+        return _execute_swarm_call(
+            swarm_call_entry=swarm_call_entry,
+            input_data=input_data,
+            calling_agent=agent_name,
+            ctx=ctx,
+            depth=depth,
+        )
+
     # ── Unknown action ────────────────────────────────────────────────────────
     return _record_topology_violation(
         agent_name=agent_name,
@@ -957,6 +1006,91 @@ def _execute_skill_call(
     except SkillError as exc:
         _update_step(step_id, error=str(exc))
         raise RuntimeError(f"Skill '{skill_ref}' failed: {exc}") from exc
+
+
+def _execute_swarm_call(
+    swarm_call_entry: dict,
+    input_data: dict,
+    calling_agent: str,
+    ctx: RunContext,
+    depth: int,
+) -> dict:
+    """Invoke an external swarm synchronously within the current run."""
+    from app.models.swarm import Swarm
+    from app.models.workspace import Workspace
+
+    target_swarm_id = swarm_call_entry["swarm_id"]
+    alias = swarm_call_entry["alias"]
+
+    target_hierarchy = get_hierarchy(target_swarm_id)
+    if target_hierarchy is None:
+        raise RuntimeError(
+            f"Target swarm '{alias}' (id={target_swarm_id!r}) is not enabled "
+            f"or not found in registry cache"
+        )
+
+    with get_session() as session:
+        target_swarm = session.get(Swarm, target_swarm_id)
+        if not target_swarm:
+            raise RuntimeError(
+                f"Target swarm '{alias}' (id={target_swarm_id!r}) not found in database"
+            )
+        target_workspace = session.get(Workspace, target_swarm.workspace_id)
+        if not target_workspace:
+            raise RuntimeError(
+                f"Target swarm '{alias}' workspace not found in database"
+            )
+        target_swarm_path = os.path.join(
+            ctx.data_dir, "workspaces", target_workspace.name, "swarms", target_swarm.name
+        )
+        target_workspace_path = os.path.join(ctx.data_dir, "workspaces", target_workspace.name)
+
+    if not target_hierarchy.entry_point:
+        raise RuntimeError(
+            f"Target swarm '{alias}' has no entry_point configured"
+        )
+
+    seq = ctx.next_sequence()
+    now = datetime.now(timezone.utc)
+    with get_session() as session:
+        step = RunStep(
+            run_id=ctx.run_id,
+            agent_id=None,
+            step_type=STEP_SWARM_CALL,
+            step_name=alias,
+            edge_purpose=swarm_call_entry["purpose"],
+            input_json=json.dumps(input_data),
+            sequence=seq,
+            started_at=now,
+        )
+        session.add(step)
+        session.commit()
+        session.refresh(step)
+        step_id = step.id
+
+    _notify("run.step", {
+        "run_id": ctx.run_id, "swarm_id": ctx.swarm_id,
+        "step_name": alias, "step_type": STEP_SWARM_CALL, "sequence": seq,
+    })
+
+    child_ctx = ctx.spawn_child(
+        swarm_id=target_swarm_id,
+        swarm_path=target_swarm_path,
+        workspace_path=target_workspace_path,
+        hierarchy=target_hierarchy,
+    )
+
+    result = _execute_agent_call(
+        agent_name=target_hierarchy.entry_point,
+        messages=[{"role": "user", "content": json.dumps(input_data)}],
+        ctx=child_ctx,
+        depth=depth + 1,
+        edge_purpose=swarm_call_entry["purpose"],
+        step_type=STEP_SWARM_CALL,
+    )
+
+    _update_step(step_id, output_json=json.dumps(result))
+    return result
 
 
 def _record_topology_violation(
@@ -1062,6 +1196,17 @@ def _build_system_prompt(
         )
         for inf in informs:
             parts.append(f"  - {inf['informer']} — {inf['purpose']}")
+        parts.append("")
+
+    swarm_calls = hierarchy.get_allowed_swarm_calls(agent_name)
+    if swarm_calls:
+        parts.append(
+            "You may invoke external swarms (synchronous, blocking). Action=invoke_swarm. "
+            "Use target=<alias> where alias is the swarm's label below. "
+            "The external swarm runs to completion and returns its output."
+        )
+        for sc in swarm_calls:
+            parts.append(f"  - {sc['alias']} — {sc['purpose']}")
         parts.append("")
 
     parts.append("You may always use:")
