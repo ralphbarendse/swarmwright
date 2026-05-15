@@ -146,19 +146,19 @@ When you respond, output ONLY a JSON object — no prose before or after — wit
 
 # ── Public exceptions ─────────────────────────────────────────────────────────
 
-class RuntimeError(Exception):
+class SwarmRuntimeError(Exception):
     """Base class for swarm runtime errors."""
 
 
-class TopologyViolationError(RuntimeError):
+class TopologyViolationError(SwarmRuntimeError):
     """Raised when an agent attempts an action not declared in hierarchy.json."""
 
 
-class RunDepthError(RuntimeError):
+class RunDepthError(SwarmRuntimeError):
     """Raised when the maximum recursive call depth is exceeded."""
 
 
-class MaxTurnsError(RuntimeError):
+class MaxTurnsError(SwarmRuntimeError):
     """Raised when an agent exceeds the maximum number of LLM turns."""
 
 
@@ -248,7 +248,7 @@ def start_run(
     """
     hierarchy = get_hierarchy(swarm_id)
     if hierarchy is None:
-        raise RuntimeError(
+        raise SwarmRuntimeError(
             f"Swarm {swarm_id!r} hierarchy not found in cache — is the swarm enabled?"
         )
 
@@ -257,11 +257,11 @@ def start_run(
     # The override must still resolve to a declared agent.
     effective_entry = entry_point_override or hierarchy.entry_point
     if not effective_entry:
-        raise RuntimeError(
+        raise SwarmRuntimeError(
             f"Swarm {swarm_id!r} has no entry_point and no override was provided"
         )
     if effective_entry not in hierarchy.agents:
-        raise RuntimeError(
+        raise SwarmRuntimeError(
             f"Entry point {effective_entry!r} is not in the agents list of swarm {swarm_id!r}"
         )
 
@@ -553,7 +553,7 @@ def _run_agent_loop(
     Raises for topology violations, max turns, or human escalations.
     """
     if md_path is None or not os.path.isfile(md_path):
-        raise RuntimeError(
+        raise SwarmRuntimeError(
             f"Constitution file not found for agent '{agent_name}'"
             + (f": {md_path}" if md_path else "")
         )
@@ -618,7 +618,7 @@ def _run_agent_loop(
                 )
                 session.add(step)
                 session.commit()
-            raise RuntimeError(
+            raise SwarmRuntimeError(
                 f"Agent '{agent_name}' escalated to human: {reasoning}"
             )
 
@@ -707,7 +707,7 @@ def _dispatch_sub_action(
                 workspace_path=ctx.workspace_path,
             )
         except ResolverError as exc:
-            raise RuntimeError(
+            raise SwarmRuntimeError(
                 f"Could not resolve perceptionist '{target}': {exc}"
             ) from exc
 
@@ -778,7 +778,7 @@ def _dispatch_sub_action(
                 workspace_path=ctx.workspace_path,
             )
         except ResolverError as exc:
-            raise RuntimeError(f"Could not resolve caller '{target}': {exc}") from exc
+            raise SwarmRuntimeError(f"Could not resolve caller '{target}': {exc}") from exc
 
         # Find the registered Caller row by md_path (registry handles uniqueness)
         with get_session() as session:
@@ -786,7 +786,7 @@ def _dispatch_sub_action(
                 select(Caller).where(Caller.md_path == caller_path)
             ).scalar_one_or_none()
             if caller_row is None:
-                raise RuntimeError(
+                raise SwarmRuntimeError(
                     f"Caller '{target}' is not in the registry — boot scan may have failed"
                 )
             caller_id = caller_row.id
@@ -879,14 +879,14 @@ def _dispatch_sub_action(
                 workspace_path=ctx.workspace_path,
             )
         except ResolverError as exc:
-            raise RuntimeError(f"Could not resolve informer '{target}': {exc}") from exc
+            raise SwarmRuntimeError(f"Could not resolve informer '{target}': {exc}") from exc
 
         with get_session() as session:
             informer_row = session.execute(
                 select(Informer).where(Informer.md_path == informer_path)
             ).scalar_one_or_none()
             if informer_row is None:
-                raise RuntimeError(
+                raise SwarmRuntimeError(
                     f"Informer '{target}' is not in the registry — boot scan may have failed"
                 )
             informer_id = informer_row.id
@@ -988,7 +988,7 @@ def _execute_skill_call(
             workspace_path=ctx.workspace_path,
         )
     except ResolverError as exc:
-        raise RuntimeError(f"Could not resolve skill '{skill_ref}': {exc}") from exc
+        raise SwarmRuntimeError(f"Could not resolve skill '{skill_ref}': {exc}") from exc
 
     skill_yaml_path = os.path.splitext(skill_py_path)[0] + ".yaml"
     timeout_seconds = 30
@@ -1056,7 +1056,7 @@ def _execute_skill_call(
 
     except SkillError as exc:
         _update_step(step_id, error=str(exc))
-        raise RuntimeError(f"Skill '{skill_ref}' failed: {exc}") from exc
+        raise SwarmRuntimeError(f"Skill '{skill_ref}' failed: {exc}") from exc
 
 
 def _execute_swarm_call(
@@ -1075,7 +1075,7 @@ def _execute_swarm_call(
 
     target_hierarchy = get_hierarchy(target_swarm_id)
     if target_hierarchy is None:
-        raise RuntimeError(
+        raise SwarmRuntimeError(
             f"Target swarm '{alias}' (id={target_swarm_id!r}) is not enabled "
             f"or not found in registry cache"
         )
@@ -1083,12 +1083,12 @@ def _execute_swarm_call(
     with get_session() as session:
         target_swarm = session.get(Swarm, target_swarm_id)
         if not target_swarm:
-            raise RuntimeError(
+            raise SwarmRuntimeError(
                 f"Target swarm '{alias}' (id={target_swarm_id!r}) not found in database"
             )
         target_workspace = session.get(Workspace, target_swarm.workspace_id)
         if not target_workspace:
-            raise RuntimeError(
+            raise SwarmRuntimeError(
                 f"Target swarm '{alias}' workspace not found in database"
             )
         target_swarm_path = os.path.join(
@@ -1097,7 +1097,7 @@ def _execute_swarm_call(
         target_workspace_path = os.path.join(ctx.data_dir, "workspaces", target_workspace.name)
 
     if not target_hierarchy.entry_point:
-        raise RuntimeError(
+        raise SwarmRuntimeError(
             f"Target swarm '{alias}' has no entry_point configured"
         )
 
@@ -1308,13 +1308,13 @@ def _parse_action(raw: str, agent_name: str) -> dict:
     try:
         obj = json.loads(text)
     except json.JSONDecodeError as exc:
-        raise RuntimeError(
+        raise SwarmRuntimeError(
             f"Agent '{agent_name}' returned a non-JSON response: {exc}. "
             f"Output (first 400 chars): {raw[:400]}"
         ) from exc
 
     if "action" not in obj:
-        raise RuntimeError(
+        raise SwarmRuntimeError(
             f"Agent '{agent_name}' response missing required 'action' field. Got: {obj}"
         )
     return obj

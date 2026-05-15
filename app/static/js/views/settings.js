@@ -28,6 +28,7 @@ const TABS = [
 const RESTART_REQUIRED_KEYS = new Set([
   "system.scheduler_timezone",
   "system.log_level",
+  "runtime.event_bus_workers",
 ]);
 
 const DEFAULT_PACKAGES = [
@@ -571,6 +572,7 @@ function _renderSystemTab(pane) {
   const heartbeat= _get("system.default_heartbeat_schedule")?.value || "*/5 * * * *";
   const allowed  = _get("system.allowed_packages")?.value || DEFAULT_PACKAGES;
   const maxTurns = _get("runtime.max_agent_turns")?.value ?? 20;
+  const ebWorkers= _get("runtime.event_bus_workers")?.value ?? 4;
 
   pane.innerHTML = `
     <div style="max-width:760px;display:flex;flex-direction:column;gap:18px">
@@ -598,6 +600,12 @@ function _renderSystemTab(pane) {
         <div class="sec-header" style="margin:0 0 10px 0">Max agent turns per run</div>
         <input class="form-input" id="sys-max-turns" type="number" min="1" max="200" value="${Number(maxTurns) || 20}">
         <div class="form-helper">Maximum LLM calls a single agent can make before the run is aborted. Higher values allow complex multi-step agents (like the Swarm Architect) but increase cost and latency. Default: 20.</div>
+      </div>
+
+      <div class="card" style="padding:18px 20px">
+        <div class="sec-header" style="margin:0 0 10px 0">Concurrent run workers <span class="restart-pill">Requires restart</span></div>
+        <input class="form-input" id="sys-eb-workers" type="number" min="1" max="32" value="${Number(ebWorkers) || 4}" style="max-width:120px">
+        <div class="form-helper">Number of threads in the event-bus pool — controls how many swarm runs can execute in parallel. Default: 4. Requires a container restart to take effect.</div>
       </div>
 
       <div class="card" style="padding:18px 20px">
@@ -700,11 +708,13 @@ function _renderSystemTab(pane) {
     const skVal       = parseInt(pane.querySelector("#sys-skill-timeout").value, 10);
     const hbVal       = pane.querySelector("#sys-heartbeat").value.trim();
     const mtVal       = parseInt(pane.querySelector("#sys-max-turns").value, 10);
+    const ebVal       = parseInt(pane.querySelector("#sys-eb-workers").value, 10);
 
     if (!tzVal) { toastError({ message: "Timezone required" }); return; }
     if (!Number.isFinite(skVal) || skVal < 1) { toastError({ message: "Skill timeout must be ≥ 1" }); return; }
     if (!hbVal) { toastError({ message: "Heartbeat schedule required" }); return; }
     if (!Number.isFinite(mtVal) || mtVal < 1) { toastError({ message: "Max agent turns must be ≥ 1" }); return; }
+    if (!Number.isFinite(ebVal) || ebVal < 1 || ebVal > 32) { toastError({ message: "Concurrent run workers must be between 1 and 32" }); return; }
 
     const updates = [];
     const maybe = (key, value, value_type) => {
@@ -720,6 +730,7 @@ function _renderSystemTab(pane) {
     maybe("system.default_heartbeat_schedule", hbVal, "string");
     maybe("system.allowed_packages", pkgs, "json");
     maybe("runtime.max_agent_turns", mtVal, "number");
+    maybe("runtime.event_bus_workers", ebVal, "number");
 
     if (!updates.length) { toastSuccess("No changes"); return; }
     try {

@@ -27,6 +27,22 @@ def _seed_platform_workspace(data_dir: str) -> None:
     logger.info("Seeded platform workspace from bundle into %s", dst)
 
 
+def _get_event_bus_workers() -> int:
+    try:
+        from app.db import get_session
+        from app.models.settings import Setting
+        import json as _json
+        with get_session() as session:
+            row = session.get(Setting, "runtime.event_bus_workers")
+            if row is not None:
+                val = _json.loads(row.value_encrypted)
+                if isinstance(val, int) and val > 0:
+                    return val
+    except Exception:
+        pass
+    return 4
+
+
 def create_app(config: Config | None = None) -> Flask:
     """Flask application factory."""
     app = Flask(__name__, static_folder="static", static_url_path="/static")
@@ -127,7 +143,7 @@ def create_app(config: Config | None = None) -> Flask:
 
     # ── Event bus ─────────────────────────────────────────────────────────────
     from app.core.event_bus import EventBus
-    app.event_bus = EventBus()
+    app.event_bus = EventBus(max_workers=_get_event_bus_workers())
     app.event_bus.subscribe(_make_run_handler(app))
 
     # ── Scheduler ─────────────────────────────────────────────────────────────

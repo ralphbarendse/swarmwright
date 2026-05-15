@@ -28,7 +28,6 @@ export function renderSwarmCanvas(container, swarmId) {
       <div class="flex-row">
         <button class="btn btn-ghost btn-sm" id="btn-fit">⊡ Fit</button>
         <button class="btn btn-ghost btn-sm" id="btn-layout">⟳ Re-layout</button>
-        <button class="btn btn-primary btn-sm" id="btn-run">▶ Run</button>
       </div>
     </div>
     <div class="canvas-shell" style="flex:1;overflow:hidden">
@@ -77,7 +76,6 @@ export function renderSwarmCanvas(container, swarmId) {
 
   container.querySelector("#btn-fit").addEventListener("click", () => _cy?.fit(undefined, 40));
   container.querySelector("#btn-layout").addEventListener("click", () => _cy && _runLayout(_cy));
-  container.querySelector("#btn-run").addEventListener("click", () => _showRunModal(swarmId, container));
 
   // Esc cancels connect-mode; cleaned up on view teardown.
   const onKey = (e) => { if (e.key === "Escape" && _connectSource) _exitConnectMode(container); };

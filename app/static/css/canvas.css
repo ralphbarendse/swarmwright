@@ -607,7 +607,7 @@
   display: flex; flex-direction: column;
 }
 .insp-scroll-wrap {
-  flex: 1 1 0;
+  flex: 3 1 0;
   overflow-y: auto;
   min-height: 0;
   display: flex; flex-direction: column;
