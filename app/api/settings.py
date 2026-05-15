@@ -50,7 +50,7 @@ _KEY_RE = re.compile(r"^[a-z][a-z0-9._-]*$")
 _LOGO_MAX_BYTES = 200 * 1024
 _LOGO_MAX_WIDTH = 400
 _LOGO_MAX_HEIGHT = 100
-_PROVIDERS = {"anthropic", "openai"}
+_PROVIDERS = {"anthropic", "openai", "deepseek"}
 
 
 # ── Pydantic request models ──────────────────────────────────────────────────
@@ -330,6 +330,8 @@ def llm_test_connection():
         return jsonify({"ok": False, "message": "Invalid Anthropic key format"}), 200
     if body.provider == "openai" and not body.api_key.startswith("sk-"):
         return jsonify({"ok": False, "message": "Invalid OpenAI key format"}), 200
+    if body.provider == "deepseek" and not body.api_key.startswith("sk-"):
+        return jsonify({"ok": False, "message": "Invalid Deepseek key format"}), 200
 
     # Make a cheap probe call. Errors must NEVER include the api_key value.
     try:
@@ -340,11 +342,15 @@ def llm_test_connection():
         client.complete(system="ping", messages=[{"role": "user", "content": "hi"}], max_tokens=1)
         return jsonify({"ok": True, "message": "Connection successful"}), 200
     except Exception as exc:  # noqa: BLE001 — surface error class without value leakage
-        # Sanitize: never echo the api_key, even if some provider error includes it.
-        msg = type(exc).__name__
-        if body.api_key in str(exc):
+        raw = str(exc)
+        key_leaked = body.api_key in raw
+        if key_leaked:
             logger.warning("LLM test error contained api_key — sanitised before responding")
-        return jsonify({"ok": False, "message": f"Connection failed: {msg}"}), 200
+        safe = raw.replace(body.api_key, "***") if key_leaked else raw
+        status_code = getattr(exc, "status_code", None)
+        detail = f"{type(exc).__name__} {status_code}: {safe}" if status_code else f"{type(exc).__name__}: {safe}"
+        logger.error("LLM test failed for provider %s: %s", body.provider, detail)
+        return jsonify({"ok": False, "message": f"Connection failed: {detail}"}), 200
 
 
 @bp.post("/security/rotate-key")

@@ -49,6 +49,13 @@ const PROVIDERS = [
     keyPrefix: "sk-",
     keySetting: "llm.openai.api_key",
   },
+  {
+    id: "deepseek",
+    label: "Deepseek",
+    accent: "var(--color-worker)",
+    keyPrefix: "sk-",
+    keySetting: "llm.deepseek.api_key",
+  },
 ];
 
 // ── Module-scoped settings cache ─────────────────────────────────────────────

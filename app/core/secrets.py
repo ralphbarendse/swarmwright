@@ -206,6 +206,7 @@ _PROVIDER_KEY_MAP: dict[str, tuple[str, str]] = {
     # provider → (settings_key, env_var_fallback)
     "anthropic": ("llm.anthropic.api_key", "ANTHROPIC_API_KEY"),
     "openai": ("llm.openai.api_key", "OPENAI_API_KEY"),
+    "deepseek": ("llm.deepseek.api_key", "DEEPSEEK_API_KEY"),
 }
 
 
@@ -243,7 +244,7 @@ def resolve_llm_api_key(provider: str) -> str:
     provider = provider.lower()
     if provider not in _PROVIDER_KEY_MAP:
         raise SecretsError(
-            f"Unknown LLM provider: {provider!r}. Choose 'anthropic' or 'openai'."
+            f"Unknown LLM provider: {provider!r}. Choose 'anthropic', 'openai', or 'deepseek'."
         )
 
     settings_key, env_var = _PROVIDER_KEY_MAP[provider]

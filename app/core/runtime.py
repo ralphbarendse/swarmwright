@@ -562,6 +562,7 @@ def _run_agent_loop(
     constitution_body: str = post.content
     knowledge_refs: list[str] = post.get("knowledge", []) or []
     model: str | None = post.get("model")
+    provider: str | None = post.get("provider") or None
     web_search: bool = bool(post.get("web_search", False))
 
     knowledge_text = _load_knowledge(knowledge_refs, ctx)
@@ -572,7 +573,7 @@ def _run_agent_loop(
         ctx=ctx,
     )
 
-    llm = get_llm_credentials(model=model)
+    llm = get_llm_credentials(provider=provider, model=model)
     messages = list(initial_messages)
     total_input_tokens = 0
     total_output_tokens = 0
