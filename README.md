@@ -26,6 +26,7 @@ docker pull ralphbarendse/swarmwright:latest
 docker run -d \
   --name swarmwright \
   --network host \
+  --restart unless-stopped \
   -v ./data:/data \
   ralphbarendse/swarmwright:latest
 ```
