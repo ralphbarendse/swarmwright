@@ -75,6 +75,20 @@ def _get_max_agent_turns() -> int:
         pass
     return MAX_AGENT_TURNS
 
+
+def _get_default_skill_timeout() -> int:
+    try:
+        with get_session() as session:
+            row = session.get(Setting, "system.default_skill_timeout_seconds")
+            if row is not None:
+                import json as _json
+                val = _json.loads(row.value_encrypted)
+                if isinstance(val, int) and val > 0:
+                    return val
+    except Exception:
+        pass
+    return 30
+
 # Optional SSE broadcast hook — set by app/__init__.py
 _notify_fn = None
 
@@ -991,13 +1005,13 @@ def _execute_skill_call(
         raise SwarmRuntimeError(f"Could not resolve skill '{skill_ref}': {exc}") from exc
 
     skill_yaml_path = os.path.splitext(skill_py_path)[0] + ".yaml"
-    timeout_seconds = 30
+    timeout_seconds = _get_default_skill_timeout()
     input_schema: dict | None = None
     output_schema: dict | None = None
     if os.path.isfile(skill_yaml_path):
         try:
             config = load_skill_config(skill_yaml_path)
-            timeout_seconds = int(config.get("timeout_seconds", 30))
+            timeout_seconds = int(config.get("timeout_seconds", timeout_seconds))
             input_schema = config.get("input_schema")
             output_schema = config.get("output_schema")
         except Exception as exc:

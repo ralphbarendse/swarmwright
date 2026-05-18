@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING
 
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -19,6 +20,29 @@ def get_scheduler() -> BackgroundScheduler:
     return _scheduler
 
 
+def _prune_audit_log(app: Flask) -> None:
+    """Delete settings_audit rows older than security.audit_retention_days."""
+    with app.app_context():
+        import json as _json
+        from sqlalchemy import delete as sa_delete
+        from app.db import get_session
+        from app.models.settings import Setting, SettingsAudit
+
+        try:
+            with get_session() as session:
+                row = session.get(Setting, "security.audit_retention_days")
+                days = int(_json.loads(row.value_encrypted)) if row and row.value_encrypted else 365
+                cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+                result = session.execute(
+                    sa_delete(SettingsAudit).where(SettingsAudit.changed_at < cutoff)
+                )
+                session.commit()
+                if result.rowcount:
+                    logger.info("Pruned %d old audit entries (retention=%d days)", result.rowcount, days)
+        except Exception:
+            logger.exception("Failed to prune audit log")
+
+
 def init_scheduler(app: Flask) -> None:
     """Create and start the APScheduler instance.
 
@@ -27,10 +51,21 @@ def init_scheduler(app: Flask) -> None:
     """
     global _scheduler
 
-    timezone = app.config.get("SCHEDULER_TIMEZONE", "Europe/Amsterdam")
-    _scheduler = BackgroundScheduler(timezone=timezone)
+    timezone_name = app.config.get("SCHEDULER_TIMEZONE", "Europe/Amsterdam")
+    _scheduler = BackgroundScheduler(timezone=timezone_name)
     _scheduler.start()
-    logger.info("Scheduler started (timezone=%s)", timezone)
+    logger.info("Scheduler started (timezone=%s)", timezone_name)
+
+    _scheduler.add_job(
+        _prune_audit_log,
+        args=[app],
+        trigger="cron",
+        id="_audit_prune",
+        hour=3,
+        minute=0,
+        replace_existing=True,
+    )
+    logger.info("Registered daily audit-log prune job")
 
 
 def register_heartbeat(trigger_id: str, cron_expression: str, job_fn) -> None:

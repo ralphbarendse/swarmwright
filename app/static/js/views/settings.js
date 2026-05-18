@@ -2,6 +2,24 @@ import * as api from "../api.js";
 import { toastError, toastSuccess } from "../components/toast.js";
 import { _showModal } from "./org-design.js";
 
+const MODEL_SUGGESTIONS = {
+  anthropic: [
+    { id: "claude-opus-4-7",          display: "Claude Opus 4.7" },
+    { id: "claude-sonnet-4-6",         display: "Claude Sonnet 4.6" },
+    { id: "claude-haiku-4-5-20251001", display: "Claude Haiku 4.5" },
+  ],
+  openai: [
+    { id: "gpt-4o",      display: "GPT-4o" },
+    { id: "gpt-4o-mini", display: "GPT-4o mini" },
+    { id: "o3",          display: "o3" },
+    { id: "o4-mini",     display: "o4-mini" },
+  ],
+  deepseek: [
+    { id: "deepseek-chat",     display: "DeepSeek Chat" },
+    { id: "deepseek-reasoner", display: "DeepSeek Reasoner" },
+  ],
+};
+
 /**
  * Settings view — Phase 5.
  *
@@ -103,18 +121,36 @@ function _markChanged(key) {
 function _renderRestartBanner() {
   const banner = document.getElementById("settings-restart-banner");
   if (!banner) return;
-  if (_pendingRestart.size === 0) {
+  const persistedPending = _get("system.pending_restart")?.value === true;
+  if (_pendingRestart.size === 0 && !persistedPending) {
     banner.style.display = "none";
     banner.innerHTML = "";
     return;
   }
-  const keys = [..._pendingRestart].join(", ");
+  const keyDetail = _pendingRestart.size
+    ? `: <code>${_esc([..._pendingRestart].join(", "))}</code>`
+    : "";
   banner.style.display = "";
   banner.innerHTML = `
-    <span style="font-weight:600">Restart required</span>
-    <span style="color:var(--color-ink-soft);margin-left:8px">
-      Container restart needed for these changes to take effect: <code>${_esc(keys)}</code>
-    </span>`;
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+      <div>
+        <span style="font-weight:600">Restart required</span>
+        <span style="color:var(--color-ink-soft);margin-left:8px">
+          Container restart needed for recent changes to take effect${keyDetail}
+        </span>
+      </div>
+      <button class="btn btn-ghost btn-sm" id="settings-mark-restarted">Mark as restarted</button>
+    </div>`;
+  banner.querySelector("#settings-mark-restarted").addEventListener("click", async () => {
+    try {
+      await api.putSetting("system.pending_restart", { value: false, value_type: "boolean",
+        description: "Whether a container restart is needed for recent setting changes to take effect." });
+      _pendingRestart.clear();
+      _invalidate();
+      await _loadSettings(true);
+      _renderRestartBanner();
+    } catch (err) { toastError(err); }
+  });
 }
 
 // ── Entry point ──────────────────────────────────────────────────────────────
@@ -157,6 +193,7 @@ export function renderSettingsView(container, segments = []) {
 
   _loadSettings().then(() => {
     pane.innerHTML = "";
+    _renderRestartBanner();
     switch (tab) {
       case "providers": _renderProvidersTab(pane); break;
       case "models":    _renderModelsTab(pane); break;
@@ -326,6 +363,17 @@ function _makeProviderCard(provider, defaultProvider) {
 
   radio.addEventListener("change", async () => {
     if (!radio.checked) return;
+    if (!hasKey) {
+      toastError({ message: `Add a ${provider.label} API key before setting it as default.` });
+      radio.checked = false;
+      // Restore the previous default without triggering another change event
+      const wrap = radio.closest(".card")?.parentElement;
+      if (wrap) {
+        const prev = wrap.querySelector(`input[type=radio][data-provider="${defaultProvider}"]`);
+        if (prev) prev.checked = true;
+      }
+      return;
+    }
     try {
       await api.putSetting("llm.default_provider", {
         value: provider.id,
@@ -423,22 +471,31 @@ function _drawModelsTable(host, models, defaultModel) {
   });
 }
 
+function _buildSuggestionsList(provider) {
+  const suggestions = MODEL_SUGGESTIONS[provider] || [];
+  return suggestions.map(s => `<option value="${_esc(s.id)}">${_esc(s.display)}</option>`).join("");
+}
+
 function _showAddModelModal() {
+  const firstProvider = PROVIDERS[0].id;
   _showModal("Add model", `
-    <div class="form-group">
-      <label class="form-label">Identifier</label>
-      <input class="form-input" id="m-model-id" placeholder="claude-opus-4-7">
-      <div class="form-helper">Exact identifier the provider expects.</div>
-    </div>
-    <div class="form-group">
-      <label class="form-label">Display name</label>
-      <input class="form-input" id="m-model-display" placeholder="Claude Opus 4.7 (most capable)">
-    </div>
+    <datalist id="m-model-suggestions">
+      ${_buildSuggestionsList(firstProvider)}
+    </datalist>
     <div class="form-group">
       <label class="form-label">Provider</label>
       <select class="form-input" id="m-model-provider">
         ${PROVIDERS.map(p => `<option value="${p.id}">${_esc(p.label)}</option>`).join("")}
       </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Identifier</label>
+      <input class="form-input" id="m-model-id" list="m-model-suggestions" placeholder="Start typing or pick a suggestion…" autocomplete="off">
+      <div class="form-helper">Exact identifier the provider expects. Typos fail silently at run time.</div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Display name <span style="font-weight:400;color:var(--color-ink-faint)">(optional)</span></label>
+      <input class="form-input" id="m-model-display" placeholder="Leave blank to use the identifier">
     </div>`,
     async () => {
       const id = document.getElementById("m-model-id")?.value.trim();
@@ -456,7 +513,19 @@ function _showAddModelModal() {
       const pane = document.getElementById("settings-pane");
       if (pane) { pane.innerHTML = ""; await _loadSettings(true); _renderModelsTab(pane); }
     });
-  setTimeout(() => document.getElementById("m-model-id")?.focus(), 50);
+
+  setTimeout(() => {
+    const providerSelect = document.getElementById("m-model-provider");
+    const datalist = document.getElementById("m-model-suggestions");
+    const idInput = document.getElementById("m-model-id");
+    if (providerSelect && datalist) {
+      providerSelect.addEventListener("change", () => {
+        datalist.innerHTML = _buildSuggestionsList(providerSelect.value);
+        if (idInput) idInput.value = "";
+      });
+    }
+    idInput?.focus();
+  }, 50);
 }
 
 async function _removeModel(id) {
@@ -617,14 +686,14 @@ function _renderSystemTab(pane) {
       <div class="card" style="padding:18px 20px">
         <div class="sec-header" style="margin:0 0 10px 0">Allowed Python packages for skills</div>
         <div class="form-helper" style="margin-bottom:8px">
-          Skills' <code style="font-family:var(--font-mono)">.yaml</code> files must subset this list.
-          A package must already be installed in the container's Python environment to actually be importable.
+          Packages available to skills. Adding a package installs it into the runtime and persists it across container restarts.
         </div>
         <div id="sys-pkg-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px"></div>
-        <div style="display:flex;gap:8px">
-          <input class="form-input" id="sys-pkg-input" placeholder="Add package…" style="flex:1">
-          <button class="btn btn-ghost btn-sm" id="sys-pkg-add">Add</button>
+        <div style="display:flex;gap:8px;align-items:center">
+          <input class="form-input" id="sys-pkg-input" placeholder="Package name…" style="flex:1">
+          <button class="btn btn-primary btn-sm" id="sys-pkg-add">Install &amp; Add</button>
         </div>
+        <div id="sys-pkg-install-status" style="display:none;margin-top:6px;font-size:11px;font-family:var(--font-mono);color:var(--color-ink-faint)"></div>
       </div>
 
       <div style="display:flex;gap:8px;justify-content:flex-end">
@@ -651,39 +720,102 @@ function _renderSystemTab(pane) {
     document.head.appendChild(s);
   }
 
-  // Render package chips with live "installed?" indicator.
+  // Package manifest — install + allowlist in one action.
   const chips = pane.querySelector("#sys-pkg-chips");
   let pkgs = [...allowed];
+
+  const _installAndAdd = async (name) => {
+    if (pkgs.includes(name)) { toastError({ message: `${name} already in list` }); return; }
+    const statusEl = document.getElementById("sys-pkg-install-status");
+    if (statusEl) {
+      statusEl.style.display = "";
+      statusEl.style.color = "var(--color-ink-faint)";
+      statusEl.textContent = `Adding ${name}…`;
+    }
+    try {
+      const r = await api.installPackage(name);
+      if (!r.ok) {
+        if (statusEl) {
+          statusEl.style.color = "var(--color-danger)";
+          statusEl.textContent = `Install failed: ${r.output?.split("\n").pop() || "unknown error"}`;
+        }
+        toastError({ message: `Failed to install ${name}` });
+        return;
+      }
+      // Package is now installed and saved to DB by the endpoint.
+      pkgs.push(name);
+      _invalidate();
+      await _loadSettings(true);
+      drawChips();
+      if (statusEl) { statusEl.style.display = "none"; statusEl.textContent = ""; }
+      toastSuccess(r.already_installed ? `${name} already installed — added to allowlist` : `${name} installed and added`);
+    } catch (err) {
+      if (statusEl) {
+        statusEl.style.color = "var(--color-danger)";
+        statusEl.textContent = err.message || "Install failed";
+      }
+      toastError(err);
+    }
+  };
+
   const drawChips = () => {
     chips.innerHTML = "";
-    pkgs.forEach((pkg, idx) => {
+    pkgs.forEach((pkg) => {
       const chip = document.createElement("span");
       chip.className = "chip";
+      chip.dataset.pkg = pkg;
       chip.style.cssText = "display:inline-flex;align-items:center;gap:6px;padding:4px 8px;font-family:var(--font-mono);font-size:11px";
       chip.innerHTML = `
-        <span class="pkg-chip-status">…</span>
+        <span class="pkg-chip-status" title="Checking…">…</span>
         <span>${_esc(pkg)}</span>
-        <button style="background:none;border:none;cursor:pointer;color:var(--color-ink-faint);font-size:14px;line-height:1;padding:0 0 0 2px" title="Remove">×</button>`;
-      chip.querySelector("button").addEventListener("click", () => {
-        pkgs.splice(idx, 1);
+        <button class="pkg-install-btn" style="display:none;background:none;border:1px solid var(--color-warn);border-radius:3px;cursor:pointer;color:var(--color-warn);font-size:10px;font-family:var(--font-mono);padding:1px 5px;line-height:1.4" title="Not installed — click to install">Install</button>
+        <button class="pkg-remove-btn" style="background:none;border:none;cursor:pointer;color:var(--color-ink-faint);font-size:14px;line-height:1;padding:0 0 0 2px" title="Remove from allowlist">×</button>`;
+
+      chip.querySelector(".pkg-remove-btn").addEventListener("click", () => {
+        pkgs = pkgs.filter(p => p !== pkg);
         drawChips();
       });
+
+      chip.querySelector(".pkg-install-btn").addEventListener("click", async (e) => {
+        const btn = e.currentTarget;
+        btn.disabled = true;
+        btn.textContent = "Installing…";
+        try {
+          const r = await api.installPackage(pkg);
+          if (r.ok) {
+            toastSuccess(`${pkg} installed`);
+            _invalidate();
+            await _loadSettings(true);
+            drawChips();
+          } else {
+            toastError({ message: `Failed to install ${pkg}: ${r.output?.split("\n").pop() || ""}` });
+            btn.disabled = false;
+            btn.textContent = "Install";
+          }
+        } catch (err) {
+          toastError(err);
+          btn.disabled = false;
+          btn.textContent = "Install";
+        }
+      });
+
       chips.appendChild(chip);
 
       const status = chip.querySelector(".pkg-chip-status");
+      const installBtn = chip.querySelector(".pkg-install-btn");
       api.checkPackageInstalled(pkg).then(r => {
         if (r.installed) {
           status.textContent = "✓";
           status.className = "pkg-chip-status pkg-chip-installed";
-          chip.title = "Installed in this container";
+          status.title = "Installed";
+          installBtn.style.display = "none";
         } else {
           status.textContent = "!";
           status.className = "pkg-chip-status pkg-chip-missing";
-          chip.title = "Allowed but NOT installed in this container — skills using it will fail at runtime";
+          status.title = "Not installed in this container";
+          installBtn.style.display = "";
         }
-      }).catch(() => {
-        status.textContent = "?";
-      });
+      }).catch(() => { status.textContent = "?"; });
     });
   };
   drawChips();
@@ -693,10 +825,8 @@ function _renderSystemTab(pane) {
   const tryAdd = () => {
     const v = addInput.value.trim();
     if (!v) return;
-    if (pkgs.includes(v)) { toastError({ message: `${v} already in list` }); return; }
-    pkgs.push(v);
     addInput.value = "";
-    drawChips();
+    _installAndAdd(v);
   };
   addBtn.addEventListener("click", tryAdd);
   addInput.addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); tryAdd(); } });
@@ -728,16 +858,20 @@ function _renderSystemTab(pane) {
     maybe("system.log_level", llVal, "string");
     maybe("system.default_skill_timeout_seconds", skVal, "number");
     maybe("system.default_heartbeat_schedule", hbVal, "string");
-    maybe("system.allowed_packages", pkgs, "json");
     maybe("runtime.max_agent_turns", mtVal, "number");
     maybe("runtime.event_bus_workers", ebVal, "number");
 
     if (!updates.length) { toastSuccess("No changes"); return; }
+    const hasRestartKey = updates.some(u => RESTART_REQUIRED_KEYS.has(u.key));
+    if (hasRestartKey) {
+      updates.push({ key: "system.pending_restart", value: true, value_type: "boolean",
+        description: "Whether a container restart is needed for recent setting changes to take effect." });
+    }
     try {
       await api.bulkPutSettings({ updates, reason: "system tab save" });
       _invalidate();
       await _loadSettings(true);
-      toastSuccess(`${updates.length} setting${updates.length === 1 ? "" : "s"} saved`);
+      toastSuccess(`${updates.length - (hasRestartKey ? 1 : 0)} setting${updates.length - (hasRestartKey ? 1 : 0) === 1 ? "" : "s"} saved`);
     } catch (err) { toastError(err); }
   });
 }
@@ -983,7 +1117,7 @@ function _renderBrandingTab(pane) {
   logoClear.addEventListener("click", async () => {
     if (!confirm("Remove the uploaded logo? The default mark will be used.")) return;
     try {
-      await api.putSetting("branding.logo_path", { value: "", value_type: "string" });
+      await api.deleteLogo();
       _invalidate();
       await _loadSettings(true);
       applyBranding(_readBrandingFromCache());

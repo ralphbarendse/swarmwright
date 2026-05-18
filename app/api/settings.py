@@ -61,6 +61,7 @@ class SettingWrite(BaseModel):
     value_type: str = VALUE_TYPE_STRING
     description: str | None = None
     reason: str | None = None
+    # TODO: when auth lands, stamp actor server-side from the session instead of trusting the client
     actor: str | None = None
 
     @field_validator("value_type")
@@ -501,6 +502,34 @@ def upload_logo():
     }), 200
 
 
+@bp.delete("/branding/logo")
+def delete_logo():
+    """Delete the uploaded logo file(s) and clear branding.logo_path."""
+    data_dir = current_app.config["DATA_DIR"]
+    branding_dir = os.path.join(data_dir, "branding")
+    deleted = []
+    for fname in ("logo.svg", "logo.png"):
+        path = os.path.join(branding_dir, fname)
+        if os.path.isfile(path):
+            os.remove(path)
+            deleted.append(fname)
+
+    with get_session() as session:
+        _upsert_setting(
+            session,
+            key="branding.logo_path",
+            value="",
+            is_secret=False,
+            value_type=VALUE_TYPE_STRING,
+            description="Path to the uploaded logo, relative to DATA_DIR.",
+            actor=None,
+            reason="logo deleted",
+        )
+        session.commit()
+
+    return jsonify({"ok": True, "deleted": deleted})
+
+
 @bp.get("/branding/logo")
 def serve_logo():
     """Stream the uploaded logo file referenced by ``branding.logo_path``.
@@ -522,22 +551,86 @@ def serve_logo():
     return _error("not_found", "No logo uploaded", 404)
 
 
+@bp.post("/system/packages/install")
+def install_package():
+    """Pip-install a package into the current Python environment.
+
+    Adds the package to ``system.allowed_packages`` only when installation
+    succeeds. Idempotent: re-installing an already-present package is fine.
+    """
+    body = request.get_json(force=True) or {}
+    name = (body.get("name") or "").strip()
+    if not name or not re.match(r"^[A-Za-z0-9_][A-Za-z0-9_.\-]*$", name):
+        return _error("validation_error", "Invalid package name", 400)
+
+    import importlib.metadata
+    import subprocess
+    import sys
+
+    # Skip pip entirely when the distribution is already present.
+    try:
+        importlib.metadata.version(name)
+        already_installed = True
+        output = f"{name} is already installed."
+    except importlib.metadata.PackageNotFoundError:
+        already_installed = False
+        output = ""
+
+    if not already_installed:
+        try:
+            result = subprocess.run(
+                [sys.executable, "-m", "pip", "install", name],
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+        except subprocess.TimeoutExpired:
+            return jsonify({"ok": False, "output": "pip install timed out after 120s"}), 200
+        except Exception as exc:
+            return jsonify({"ok": False, "output": str(exc)}), 200
+
+        output = (result.stdout + result.stderr).strip()
+        if result.returncode != 0:
+            return jsonify({"ok": False, "output": output}), 200
+
+    # Persist the package into the global allowlist
+    with get_session() as session:
+        row = session.get(Setting, "system.allowed_packages")
+        existing: list = json.loads(row.value_encrypted) if (row and row.value_encrypted) else []
+        if name not in existing:
+            _upsert_setting(
+                session,
+                key="system.allowed_packages",
+                value=existing + [name],
+                is_secret=False,
+                value_type=VALUE_TYPE_JSON,
+                description="Packages allowed in skill .yaml files and installed in the runtime.",
+                actor=body.get("actor"),
+                reason="installed via UI",
+            )
+            session.commit()
+
+    return jsonify({"ok": True, "output": output, "already_installed": already_installed}), 200
+
+
 @bp.get("/system/packages/check")
 def check_package_installed():
-    """Return whether a Python package is importable in this container.
+    """Return whether a package is installed in this container.
 
-    Used by the System tab's allowed-packages chip input to surface
-    "allowed-but-not-installed" cases before they bite at skill runtime.
+    Checks by distribution name (e.g. "beautifulsoup4") via importlib.metadata,
+    which correctly resolves packages whose import name differs from their PyPI
+    name (beautifulsoup4 → bs4, pillow → PIL, pyyaml → yaml, etc.).
     """
     name = (request.args.get("name") or "").strip()
     if not name or not re.match(r"^[A-Za-z0-9_][A-Za-z0-9_.\-]*$", name):
         return _error("validation_error", "Invalid package name", 400)
-    import importlib.util
+    import importlib.metadata
     try:
-        spec = importlib.util.find_spec(name)
-    except (ImportError, ValueError):
-        spec = None
-    return jsonify({"name": name, "installed": spec is not None})
+        importlib.metadata.version(name)
+        installed = True
+    except importlib.metadata.PackageNotFoundError:
+        installed = False
+    return jsonify({"name": name, "installed": installed})
 
 
 # ── Catch-all single-key routes (registered after specific routes) ───────────

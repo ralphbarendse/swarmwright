@@ -13,6 +13,63 @@ from app.db import init_db
 logger = logging.getLogger(__name__)
 
 
+_DEFAULT_ALLOWED_PACKAGES = [
+    "requests", "pypdf", "pdfplumber", "pandas", "openpyxl", "lxml", "beautifulsoup4",
+]
+
+
+_DEFAULT_MODELS = [
+    {"id": "claude-opus-4-7",         "display_name": "Claude Opus 4.7 (most capable)", "provider": "anthropic"},
+    {"id": "claude-sonnet-4-6",        "display_name": "Claude Sonnet 4.6",              "provider": "anthropic"},
+    {"id": "claude-haiku-4-5-20251001","display_name": "Claude Haiku 4.5",               "provider": "anthropic"},
+    {"id": "gpt-4o",                   "display_name": "GPT-4o",                         "provider": "openai"},
+    {"id": "gpt-4o-mini",              "display_name": "GPT-4o mini",                    "provider": "openai"},
+    {"id": "deepseek-chat",            "display_name": "DeepSeek Chat",                  "provider": "deepseek"},
+    {"id": "deepseek-reasoner",        "display_name": "DeepSeek Reasoner",              "provider": "deepseek"},
+]
+
+
+def _seed_default_models() -> None:
+    """Populate models.available and system.allowed_packages on first boot."""
+    import json as _json
+    from app.db import get_session
+    from app.models.settings import Setting
+
+    try:
+        with get_session() as session:
+            if session.get(Setting, "models.available") is None:
+                session.add(Setting(
+                    key="models.available",
+                    value_encrypted=_json.dumps(_DEFAULT_MODELS),
+                    is_secret=False,
+                    value_type="json",
+                    description="Model identifiers available to agents.",
+                ))
+                logger.info("Seeded %d default models into models.available", len(_DEFAULT_MODELS))
+
+            pkg_row = session.get(Setting, "system.allowed_packages")
+            if pkg_row is None:
+                session.add(Setting(
+                    key="system.allowed_packages",
+                    value_encrypted=_json.dumps(_DEFAULT_ALLOWED_PACKAGES),
+                    is_secret=False,
+                    value_type="json",
+                    description="Packages allowed in skill .yaml files and installed in the runtime.",
+                ))
+                logger.info("Seeded %d default allowed packages", len(_DEFAULT_ALLOWED_PACKAGES))
+            else:
+                # Merge defaults into existing list so upgrades don't lose core packages.
+                existing = _json.loads(pkg_row.value_encrypted) if pkg_row.value_encrypted else []
+                merged = existing + [p for p in _DEFAULT_ALLOWED_PACKAGES if p not in existing]
+                if len(merged) != len(existing):
+                    pkg_row.value_encrypted = _json.dumps(merged)
+                    logger.info("Merged %d default packages into system.allowed_packages", len(merged) - len(existing))
+
+            session.commit()
+    except Exception:
+        logger.exception("Failed to seed defaults")
+
+
 def _seed_platform_workspace(data_dir: str) -> None:
     """Copy the bundled Platform workspace into data_dir on first boot."""
     dst = os.path.join(data_dir, "workspaces", "platform")
@@ -159,6 +216,7 @@ def create_app(config: Config | None = None) -> Flask:
         os.makedirs(data_dir, exist_ok=True)
 
         _seed_platform_workspace(data_dir)
+        _seed_default_models()
         boot_scan(data_dir)
         register_all_heartbeats(app, app.event_bus, data_dir)
         app._file_observer = start_file_watcher(data_dir)

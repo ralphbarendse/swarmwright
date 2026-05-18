@@ -257,6 +257,30 @@ def resolve_llm_api_key(provider: str) -> str:
     return key
 
 
+def resolve_default_model() -> str | None:
+    """Return the default model id from the ``models.default`` setting, or None.
+
+    Resolution order:
+        1. ``models.default`` setting (operator-set via the GUI)
+        2. ``LLM_MODEL`` env var
+        3. None (LLMClient falls back to its own per-provider hardcoded defaults)
+    """
+    from app.db import get_session
+    from app.models.settings import Setting
+
+    try:
+        with get_session() as session:
+            row = session.get(Setting, "models.default")
+        if row and row.value_encrypted:
+            import json
+            value = json.loads(row.value_encrypted)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    except Exception:
+        pass
+    return os.environ.get("LLM_MODEL") or None
+
+
 def get_llm_credentials(
     provider: str | None = None,
     model: str | None = None,
@@ -271,12 +295,15 @@ def get_llm_credentials(
     Args:
         provider: Provider id (``"anthropic"`` / ``"openai"``). If omitted,
             resolved via :func:`resolve_default_provider`.
-        model: Model id passed through to ``LLMClient``. If omitted, the
-            client falls back to the ``LLM_MODEL`` env var.
+        model: Model id passed through to ``LLMClient``. If omitted, resolved
+            via :func:`resolve_default_model` (``models.default`` setting,
+            then ``LLM_MODEL`` env var, then provider hardcoded default).
     """
     from app.core.llm import LLMClient
 
     if provider is None:
         provider = resolve_default_provider()
+    if model is None:
+        model = resolve_default_model()
     api_key = resolve_llm_api_key(provider)
     return LLMClient(provider=provider, model=model, api_key=api_key)

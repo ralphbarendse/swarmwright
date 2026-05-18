@@ -138,6 +138,9 @@ export const getSettingsAudit   = (params = {})   => get("/settings/audit?" + ne
 export const testLlmConnection  = (body)          => post("/settings/llm/test", body);
 export const rotateMasterKey    = (body)          => post("/settings/security/rotate-key", body || {});
 export const checkPackageInstalled = (name)       => get(`/settings/system/packages/check?name=${encodeURIComponent(name)}`);
+export const installPackage        = (name)       => post("/settings/system/packages/install", { name });
+
+export const deleteLogo = () => _req("DELETE", "/settings/branding/logo");
 
 export async function uploadLogo(file) {
   // Multipart form upload — bypasses the JSON `_req` helper.

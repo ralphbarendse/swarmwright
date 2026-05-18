@@ -16,6 +16,7 @@ from app.core.skill_runner import (
     validate_allowed_packages,
 )
 from app.db import get_session
+from app.models.settings import Setting
 from app.models.swarm import Swarm
 from app.models.workspace import Workspace
 
@@ -23,6 +24,32 @@ logger = logging.getLogger(__name__)
 bp = Blueprint("skills_api", __name__, url_prefix="/api/v1")
 
 _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
+
+
+def _get_global_allowed_packages() -> list[str]:
+    """Return system.allowed_packages from the DB, or [] if not configured."""
+    import json as _json
+    try:
+        with get_session() as session:
+            row = session.get(Setting, "system.allowed_packages")
+            if row and row.value_encrypted:
+                pkgs = _json.loads(row.value_encrypted)
+                if isinstance(pkgs, list):
+                    return pkgs
+    except Exception:
+        pass
+    return []
+
+
+def _check_global_allowlist(skill_packages: list[str]) -> list[str]:
+    """Return packages declared in the skill that are not in the global allowlist.
+
+    Returns an empty list (no violation) when the global list is not configured.
+    """
+    global_allowed = _get_global_allowed_packages()
+    if not global_allowed:
+        return []
+    return [p for p in skill_packages if p not in global_allowed]
 
 
 class SkillWrite(BaseModel):
@@ -238,10 +265,18 @@ def create_skill():
     if isinstance(cfg, tuple):
         return cfg
 
+    # Skill-declared packages must be a subset of the global allowlist (when configured).
+    skill_packages = list(cfg.get("allowed_packages") or [])
+    not_allowed = _check_global_allowlist(skill_packages)
+    if not_allowed:
+        return jsonify({"error": {"code": "package_not_allowed",
+                                  "message": f"Packages not in global allowlist: {', '.join(sorted(not_allowed))}. "
+                                             "Add them via Settings → System first."}}), 422
+
     # Static analysis: imports must be in allowed_packages (or stdlib).
     py_path_w, yaml_path_w = _write_skill_files(folder, body.name, py_src, yaml_src)
     try:
-        validate_allowed_packages(py_path_w, list(cfg.get("allowed_packages") or []))
+        validate_allowed_packages(py_path_w, skill_packages)
     except SkillValidationError as exc:
         # Roll back partial files so the scope stays clean.
         for p in (py_path_w, yaml_path_w):
@@ -285,9 +320,16 @@ def update_skill(skill_name: str):
     if isinstance(cfg, tuple):
         return cfg
 
+    skill_packages = list(cfg.get("allowed_packages") or [])
+    not_allowed = _check_global_allowlist(skill_packages)
+    if not_allowed:
+        return jsonify({"error": {"code": "package_not_allowed",
+                                  "message": f"Packages not in global allowlist: {', '.join(sorted(not_allowed))}. "
+                                             "Add them via Settings → System first."}}), 422
+
     py_path_w, yaml_path_w = _write_skill_files(folder, skill_name, body.py_content, body.yaml_content)
     try:
-        validate_allowed_packages(py_path_w, list(cfg.get("allowed_packages") or []))
+        validate_allowed_packages(py_path_w, skill_packages)
     except SkillValidationError as exc:
         return jsonify({"error": {"code": "invalid_skill", "message": str(exc)}}), 422
 
