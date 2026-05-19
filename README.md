@@ -10,6 +10,10 @@
   <a href="LICENSE">CC BY-NC 4.0</a>
 </p>
 
+<p align="center">
+  <img src="img/banner-readme.png" alt="SwarmWright" width="100%">
+</p>
+
 ---
 
 Build teams of AI agents that handle real work. SwarmWright enforces a strict topology — every connection is declared, every action is logged, anything that needs a human lands in the Inbox.
