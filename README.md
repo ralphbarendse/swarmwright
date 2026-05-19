@@ -31,7 +31,7 @@ docker run -d \
   ralphbarendse/swarmwright:latest
 ```
 
-Open `http://localhost:5001`, go to **Settings**, and enter your LLM provider and API key. That's it.
+Open `http://localhost:5001`. On first visit you'll be taken to a setup page to create your admin account. After that, go to **Settings** and enter your LLM provider and API key.
 
 ---
 
@@ -60,6 +60,7 @@ Every agent has one of four roles — the topology only allows edges that make a
 - **Inbox** — human-in-the-loop approvals and escalations
 - **Library** — manage knowledge docs, Python skills, and triggers at any scope
 - **Settings** — LLM provider, model, API keys (encrypted at rest), custom branding
+- **Users** — create and manage user accounts, assign per-user permissions
 
 ---
 
@@ -74,6 +75,8 @@ Every agent has one of four roles — the topology only allows edges that make a
 - Encrypted secret storage (Fernet, key auto-generated on first boot)
 - File-backed topology — `hierarchy.json` and constitutions are plain files you can version
 - Single Docker container, SQLite, no external dependencies
+- Built-in user authentication — session-based login, bcrypt passwords, first-boot setup wizard
+- Per-user permission system — 15 granular flags covering workspaces, swarms, runs, inbox, skills, and admin
 
 ---
 
@@ -102,6 +105,12 @@ The GUI writes `hierarchy.json`; you can also edit it directly and the runtime p
 
 ---
 
+## Users
+
+SwarmWright ships with a built-in user system. On first boot a setup wizard creates the initial admin account. From Settings, admins can create additional users and toggle 15 per-user permission flags covering workspaces, swarms, runs, inbox, skills, and admin access.
+
+---
+
 ## Advanced: environment variables
 
 All required settings (LLM provider, API keys) can be configured through the Settings UI. Environment variables are optional overrides — useful for automated deployments or secret managers.
@@ -123,3 +132,15 @@ All required settings (LLM provider, API keys) can be configured through the Set
 ## License
 
 [CC BY-NC 4.0](LICENSE) — free for personal and non-commercial use.
+
+---
+
+## Star History
+
+<a href="https://www.star-history.com/?repos=ralphbarendse%2Fswarmwright&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=ralphbarendse/swarmwright&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=ralphbarendse/swarmwright&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=ralphbarendse/swarmwright&type=date&legend=top-left" />
+ </picture>
+</a>
