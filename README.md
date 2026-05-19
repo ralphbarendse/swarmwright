@@ -109,12 +109,6 @@ The GUI writes `hierarchy.json`; you can also edit it directly and the runtime p
 
 ---
 
-## Users
-
-SwarmWright ships with a built-in user system. On first boot a setup wizard creates the initial admin account. From Settings, admins can create additional users and toggle 15 per-user permission flags covering workspaces, swarms, runs, inbox, skills, and admin access.
-
----
-
 ## Advanced: environment variables
 
 All required settings (LLM provider, API keys) can be configured through the Settings UI. Environment variables are optional overrides — useful for automated deployments or secret managers.
