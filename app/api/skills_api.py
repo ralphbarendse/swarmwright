@@ -15,6 +15,7 @@ from app.core.skill_runner import (
     SkillValidationError,
     validate_allowed_packages,
 )
+from app.core.auth import require_permission
 from app.db import get_session
 from app.models.settings import Setting
 from app.models.swarm import Swarm
@@ -241,6 +242,7 @@ def _parse_yaml_or_400(yaml_content: str) -> dict | tuple:
 
 
 @bp.post("/skills")
+@require_permission("can_manage_skills")
 def create_skill():
     try:
         body = SkillWrite.model_validate(request.get_json(force=True) or {})
@@ -298,6 +300,7 @@ def create_skill():
 
 
 @bp.put("/skills/<skill_name>")
+@require_permission("can_manage_skills")
 def update_skill(skill_name: str):
     try:
         body = SkillWrite.model_validate(request.get_json(force=True) or {})
@@ -366,6 +369,7 @@ class SkillDraftRequest(BaseModel):
 
 
 @bp.post("/skills/_meta/draft")
+@require_permission("can_manage_skills")
 def draft_skill():
     try:
         body = SkillDraftRequest.model_validate(request.get_json(force=True) or {})
@@ -515,6 +519,7 @@ class SkillTransfer(BaseModel):
 
 
 @bp.post("/skills/<skill_name>/transfer")
+@require_permission("can_manage_skills")
 def transfer_skill(skill_name: str):
     try:
         body = SkillTransfer.model_validate(request.get_json(force=True) or {})
@@ -566,6 +571,7 @@ def transfer_skill(skill_name: str):
 
 
 @bp.delete("/skills/<skill_name>")
+@require_permission("can_manage_skills")
 def delete_skill(skill_name: str):
     scope = request.args.get("scope", "company")
     workspace_id = request.args.get("workspace_id")

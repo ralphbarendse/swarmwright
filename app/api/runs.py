@@ -7,6 +7,7 @@ from datetime import datetime, date
 from flask import Blueprint, current_app, jsonify, request
 from sqlalchemy import select, func
 
+from app.core.auth import require_permission
 from app.db import get_session
 from app.models.event import Event
 from app.models.run import Run, STATUS_RUNNING, STATUS_COMPLETED, STATUS_FAILED, STATUS_AWAITING_HUMAN
@@ -125,6 +126,7 @@ def get_run(run_id: str):
 
 
 @bp.post("/runs/<run_id>/stop")
+@require_permission("can_stop_run")
 def stop_run(run_id: str):
     """Signal a running run to stop at its next agent turn."""
     with get_session() as session:
@@ -140,6 +142,7 @@ def stop_run(run_id: str):
 
 
 @bp.post("/runs/<run_id>/replay")
+@require_permission("can_start_run")
 def replay_run(run_id: str):
     """Re-fire the same event that triggered this run."""
     with get_session() as session:

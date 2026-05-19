@@ -9,6 +9,7 @@ from flask import Blueprint, current_app, jsonify, request
 from pydantic import BaseModel
 from sqlalchemy import select
 
+from app.core.auth import require_permission
 from app.db import get_session
 from app.models.knowledge import KnowledgeDocument
 from app.models.swarm import Swarm
@@ -93,6 +94,7 @@ def get_knowledge(doc_id: str):
 
 
 @bp.post("/knowledge")
+@require_permission("can_manage_knowledge")
 def create_knowledge():
     try:
         body = KnowledgeCreate.model_validate(request.get_json(force=True) or {})
@@ -139,6 +141,7 @@ def create_knowledge():
 
 
 @bp.put("/knowledge/<doc_id>")
+@require_permission("can_manage_knowledge")
 def update_knowledge(doc_id: str):
     try:
         body = KnowledgeUpdate.model_validate(request.get_json(force=True) or {})
@@ -168,6 +171,7 @@ def update_knowledge(doc_id: str):
 
 
 @bp.delete("/knowledge/<doc_id>")
+@require_permission("can_manage_knowledge")
 def delete_knowledge(doc_id: str):
     with get_session() as session:
         doc = session.get(KnowledgeDocument, doc_id)
@@ -194,6 +198,7 @@ class KnowledgeTransfer(BaseModel):
 
 
 @bp.post("/knowledge/<doc_id>/transfer")
+@require_permission("can_manage_knowledge")
 def transfer_knowledge(doc_id: str):
     try:
         body = KnowledgeTransfer.model_validate(request.get_json(force=True) or {})
@@ -272,6 +277,7 @@ class KnowledgeDraftRequest(BaseModel):
 
 
 @bp.post("/knowledge/<doc_id>/draft")
+@require_permission("can_manage_knowledge")
 def draft_knowledge(doc_id: str):
     try:
         body = KnowledgeDraftRequest.model_validate(request.get_json(force=True) or {})

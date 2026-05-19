@@ -1,6 +1,7 @@
 import * as api from "../api.js";
 import { onEvent } from "../sse.js";
 import { toastError, toastSuccess } from "../components/toast.js";
+import { canDo } from "../auth.js";
 
 // Tab definitions. "notifications" routes to /informs; others route to /inbox.
 const TABS = [
@@ -271,7 +272,7 @@ function _drawActionDetail(host, item, container) {
           style="width:100%;min-height:120px;font-family:var(--font-mono);font-size:12px;padding:8px 10px;background:var(--color-cream-deep);border:1px solid var(--color-cream-line);border-radius:4px;color:var(--color-ink);resize:vertical">${_esc(JSON.stringify(item.payload ?? {}, null, 2))}</textarea>
       </div>
 
-      ${isPending ? `
+      ${isPending && canDo("can_decide_inbox") ? `
         <div class="card" style="padding:14px 16px;margin-bottom:14px">
           <div class="sec-header" style="margin:0 0 6px 0">Reason / message back to agent <span style="color:var(--color-ink-faint);font-weight:normal;text-transform:none;letter-spacing:0">(optional)</span></div>
           <input class="form-input" id="inbox-reason" placeholder="e.g. Approved but use PO #1182">
@@ -298,7 +299,7 @@ function _drawActionDetail(host, item, container) {
       </div>
     </div>`;
 
-  if (!isPending) return;
+  if (!isPending || !canDo("can_decide_inbox")) return;
 
   const payloadEl = host.querySelector("#inbox-payload");
   const reasonEl  = host.querySelector("#inbox-reason");

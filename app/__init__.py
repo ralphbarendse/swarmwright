@@ -4,8 +4,9 @@ import json
 import logging
 import os
 
-from flask import Flask
+from flask import Flask, g, jsonify, redirect, request, session
 from flask_cors import CORS
+from sqlalchemy import func, select
 
 from app.config import Config, TestingConfig
 from app.db import init_db
@@ -159,7 +160,39 @@ def create_app(config: Config | None = None) -> Flask:
         resources={r"/api/*": {"origins": ["http://localhost:*", "http://127.0.0.1:*"]}},
     )
 
+    # ── Session ───────────────────────────────────────────────────────────────
+    from datetime import timedelta
+    app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(days=30)
+
+    # ── Auth before_request ───────────────────────────────────────────────────
+    _PUBLIC_API_PATHS = {
+        "/api/v1/auth/login",
+        "/api/v1/auth/logout",
+        "/api/v1/auth/setup",
+        "/api/v1/health",
+    }
+
+    from app.core.auth import load_current_user
+
+    @app.before_request
+    def _load_user():
+        if not cfg.TESTING:
+            load_current_user()
+
+    @app.before_request
+    def _require_api_auth():
+        if cfg.TESTING:
+            return
+        if not request.path.startswith("/api/"):
+            return
+        if request.path in _PUBLIC_API_PATHS:
+            return
+        if g.get("current_user") is None:
+            return jsonify({"error": {"code": "unauthorized", "message": "Login required"}}), 401
+
     # ── Blueprints ────────────────────────────────────────────────────────────
+    from app.api.auth import bp as auth_bp
+    from app.api.users import bp as users_bp
     from app.api.health import bp as health_bp
     from app.api.workspaces import bp as workspaces_bp
     from app.api.swarms import bp as swarms_bp
@@ -175,6 +208,8 @@ def create_app(config: Config | None = None) -> Flask:
     from app.api.callers import bp as callers_bp
     from app.api.files import bp as files_bp
 
+    app.register_blueprint(auth_bp)
+    app.register_blueprint(users_bp)
     app.register_blueprint(health_bp)
     app.register_blueprint(workspaces_bp)
     app.register_blueprint(swarms_bp)
@@ -227,7 +262,37 @@ def create_app(config: Config | None = None) -> Flask:
     # ── Frontend ──────────────────────────────────────────────────────────────
     @app.route("/")
     def index():
+        from app.db import get_session
+        from app.models.user import User
+        with get_session() as db:
+            count = db.execute(select(func.count(User.id))).scalar() or 0
+        if count == 0:
+            return redirect("/setup")
+        if not session.get("user_id"):
+            return redirect("/login")
         return app.send_static_file("index.html")
+
+    @app.route("/login")
+    def login_page():
+        from app.db import get_session
+        from app.models.user import User
+        with get_session() as db:
+            count = db.execute(select(func.count(User.id))).scalar() or 0
+        if count == 0:
+            return redirect("/setup")
+        if session.get("user_id"):
+            return redirect("/")
+        return app.send_static_file("login.html")
+
+    @app.route("/setup")
+    def setup_page():
+        from app.db import get_session
+        from app.models.user import User
+        with get_session() as db:
+            count = db.execute(select(func.count(User.id))).scalar() or 0
+        if count > 0:
+            return redirect("/login")
+        return app.send_static_file("setup.html")
 
     return app
 

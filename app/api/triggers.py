@@ -12,6 +12,7 @@ from flask import Blueprint, jsonify, request, current_app
 from pydantic import BaseModel
 from sqlalchemy import select
 
+from app.core.auth import require_permission
 from app.db import get_session
 from app.models.event import Event
 from app.models.swarm import Swarm
@@ -205,6 +206,7 @@ def list_triggers(swarm_id: str):
 
 
 @bp.post("/swarms/<swarm_id>/triggers")
+@require_permission("can_manage_triggers")
 def create_trigger(swarm_id: str):
     try:
         body = TriggerCreate.model_validate(request.get_json(force=True) or {})
@@ -262,6 +264,7 @@ def create_trigger(swarm_id: str):
 
 
 @bp.put("/triggers/<trigger_id>")
+@require_permission("can_manage_triggers")
 def update_trigger(trigger_id: str):
     try:
         body = TriggerUpdate.model_validate(request.get_json(force=True) or {})
@@ -312,6 +315,7 @@ def update_trigger(trigger_id: str):
 
 
 @bp.delete("/triggers/<trigger_id>")
+@require_permission("can_manage_triggers")
 def delete_trigger(trigger_id: str):
     with get_session() as session:
         trigger = session.get(Trigger, trigger_id)
@@ -336,6 +340,7 @@ def delete_trigger(trigger_id: str):
 # ── Listener webhook ──────────────────────────────────────────────────────────
 
 @bp.post("/triggers/listener/<path:suffix>")
+@require_permission("can_start_run")
 def listener_webhook(suffix: str):
     """Receive an inbound webhook for a listener trigger.
 
@@ -420,6 +425,7 @@ def listener_webhook(suffix: str):
 # ── Invocation endpoint ───────────────────────────────────────────────────────
 
 @bp.post("/triggers/invocations/<trigger_id>")
+@require_permission("can_start_run")
 def invoke_trigger(trigger_id: str):
     """Manually invoke a swarm via an invocation trigger.
 

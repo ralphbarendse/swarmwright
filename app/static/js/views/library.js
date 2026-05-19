@@ -1,5 +1,6 @@
 import * as api from "../api.js";
 import { toastError, toastSuccess } from "../components/toast.js";
+import { canDo } from "../auth.js";
 
 /**
  * Library view — skills and knowledge across scopes.
@@ -139,7 +140,7 @@ async function _renderKnowledge(container, wsId) {
   headerRow.style.cssText = "display:flex;align-items:center;justify-content:space-between;margin-bottom:12px";
   headerRow.innerHTML = `
     <div class="sec-header" style="margin:0">Knowledge documents</div>
-    <button class="btn btn-primary btn-sm" id="btn-new-doc">+ New document</button>`;
+    ${canDo("can_manage_knowledge") ? `<button class="btn btn-primary btn-sm" id="btn-new-doc">+ New document</button>` : ""}`;
   content.appendChild(headerRow);
 
   const filterRow = document.createElement("div");
@@ -151,7 +152,7 @@ async function _renderKnowledge(container, wsId) {
   grid.id = "kn-grid";
   content.appendChild(grid);
 
-  content.querySelector("#btn-new-doc").addEventListener("click", () =>
+  content.querySelector("#btn-new-doc")?.addEventListener("click", () =>
     _openKnowledgeEditor({ isNew: true, scopeParams, onDone: reload }));
 
   content.querySelector("#kn-filter").addEventListener("input", e =>
@@ -189,20 +190,20 @@ function _renderKnowledgeGrid(grid, docs, reload, scopeParams) {
         <div style="font-size:11px;color:var(--color-text-muted);margin-top:2px">${_esc(doc.name)}.md · ${_fmtBytes(doc.size_bytes)}${age}</div>
         ${preview}
       </div>
-      <div style="display:flex;gap:6px;flex-shrink:0;align-self:flex-start;margin-top:1px">
+      ${canDo("can_manage_knowledge") ? `<div style="display:flex;gap:6px;flex-shrink:0;align-self:flex-start;margin-top:1px">
         <button class="btn btn-ghost btn-sm" data-action="edit">Edit</button>
         <button class="btn btn-ghost btn-sm" data-action="transfer">Transfer</button>
         <button class="btn btn-danger btn-sm" data-action="delete">Delete</button>
-      </div>`;
+      </div>` : ""}`;
 
     const openEditor = () => _openKnowledgeEditor({ doc, isNew: false, scopeParams, onDone: reload });
     card.addEventListener("click", openEditor);
-    card.querySelector("[data-action=edit]").addEventListener("click", e => { e.stopPropagation(); openEditor(); });
-    card.querySelector("[data-action=transfer]").addEventListener("click", e => {
+    card.querySelector("[data-action=edit]")?.addEventListener("click", e => { e.stopPropagation(); openEditor(); });
+    card.querySelector("[data-action=transfer]")?.addEventListener("click", e => {
       e.stopPropagation();
       _showKnowledgeTransferModal(doc, reload);
     });
-    card.querySelector("[data-action=delete]").addEventListener("click", async e => {
+    card.querySelector("[data-action=delete]")?.addEventListener("click", async e => {
       e.stopPropagation();
       if (!confirm(`Delete "${doc.title || doc.name}"?`)) return;
       try {
@@ -262,10 +263,10 @@ async function _openKnowledgeEditor({ doc, isNew, scopeParams, onDone }) {
         <button class="btn btn-ghost btn-sm" id="btn-back">‹ Back</button>
         <div class="page-title" style="font-size:18px">${isNew ? "New document" : _esc(startTitle || startName)}</div>
       </div>
-      <div style="display:flex;gap:8px">
+      ${canDo("can_manage_knowledge") ? `<div style="display:flex;gap:8px">
         <button class="btn btn-ghost btn-sm" id="btn-ai-draft">Draft with AI</button>
         <button class="btn btn-primary btn-sm" id="btn-save">Save  ⌘S</button>
-      </div>
+      </div>` : ""}
     </div>
 
     <div id="kn-ai-row" style="display:none;margin-bottom:12px">
@@ -364,7 +365,7 @@ async function _openKnowledgeEditor({ doc, isNew, scopeParams, onDone }) {
   const aiPrompt   = document.getElementById("kn-ai-prompt");
   const aiGo       = document.getElementById("btn-kn-ai-go");
 
-  aiDraftBtn.addEventListener("click", () => {
+  aiDraftBtn?.addEventListener("click", () => {
     const visible = aiRow.style.display !== "none";
     aiRow.style.display = visible ? "none" : "flex";
     aiRow.style.flexDirection = "column";
@@ -418,15 +419,17 @@ async function _openKnowledgeEditor({ doc, isNew, scopeParams, onDone }) {
     }
   };
 
-  document.getElementById("btn-save").addEventListener("click", save);
+  document.getElementById("btn-save")?.addEventListener("click", save);
 
-  const kbd = e => {
-    if ((e.metaKey || e.ctrlKey) && e.key === "s") { e.preventDefault(); save(); }
-  };
-  document.addEventListener("keydown", kbd);
-  setTimeout(() => {
-    if (!document.getElementById("btn-save")) document.removeEventListener("keydown", kbd);
-  }, 1000);
+  if (canDo("can_manage_knowledge")) {
+    const kbd = e => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "s") { e.preventDefault(); save(); }
+    };
+    document.addEventListener("keydown", kbd);
+    setTimeout(() => {
+      if (!document.getElementById("btn-save")) document.removeEventListener("keydown", kbd);
+    }, 1000);
+  }
 
   if (isNew) setTimeout(() => document.getElementById("kn-name")?.focus(), 50);
 }
@@ -463,7 +466,7 @@ async function _renderSkills(container, scopeSel) {
         ${isBuiltin ? "Platform built-in skills. Read-only — override by creating a skill with the same name at any scope." : "Sandboxed Python scripts. Resolved most-local-first: swarm → workspace → company."}
       </div>
     </div>
-    ${isBuiltin ? "" : `<button class="btn btn-primary btn-sm" id="btn-new-skill">+ New skill</button>`}`;
+    ${isBuiltin || !canDo("can_manage_skills") ? "" : `<button class="btn btn-primary btn-sm" id="btn-new-skill">+ New skill</button>`}`;
   content.appendChild(headerRow);
 
   const filterRow = document.createElement("div");
@@ -507,13 +510,15 @@ async function _renderSkills(container, scopeSel) {
         </div>
         ${isBuiltin
           ? `<span class="chip" style="font-size:10px;opacity:.7">built-in</span>`
-          : `<button class="btn btn-secondary btn-sm" data-action="edit">Edit</button>
-             <button class="btn btn-ghost btn-sm" data-action="transfer">Transfer</button>
-             <button class="btn btn-ghost btn-sm" data-action="delete">Delete</button>`}`;
+          : canDo("can_manage_skills")
+            ? `<button class="btn btn-secondary btn-sm" data-action="edit">Edit</button>
+               <button class="btn btn-ghost btn-sm" data-action="transfer">Transfer</button>
+               <button class="btn btn-ghost btn-sm" data-action="delete">Delete</button>`
+            : ""}`;
 
       const openEditor = () => _openSkillEditor({ scopeSel, skillName: skill.name, isNew: false, onDone: reload });
       card.addEventListener("click", openEditor);
-      if (!isBuiltin) {
+      if (!isBuiltin && canDo("can_manage_skills")) {
         card.querySelector("[data-action=edit]").addEventListener("click", e => { e.stopPropagation(); openEditor(); });
         card.querySelector("[data-action=transfer]").addEventListener("click", e => {
           e.stopPropagation();
@@ -599,10 +604,10 @@ async function _openSkillEditor({ scopeSel, skillName, isNew, onDone }) {
         <div class="page-title" style="font-size:18px">${isNew ? "New skill" : _esc(startName)}</div>
         <span class="badge badge-perceptionist">${_scopeLabel(scopeSel)}</span>
       </div>
-      <div style="display:flex;gap:8px">
+      ${canDo("can_manage_skills") ? `<div style="display:flex;gap:8px">
         <button class="btn btn-ghost btn-sm" id="btn-ai-draft">Draft with AI</button>
         <button class="btn btn-primary btn-sm" id="btn-save">Save  ⌘S</button>
-      </div>
+      </div>` : ""}
     </div>
 
     <div id="sk-ai-row" style="display:none;margin-bottom:12px">
@@ -747,15 +752,17 @@ async function _openSkillEditor({ scopeSel, skillName, isNew, onDone }) {
     } catch (err) { toastError(err); }
   };
 
-  document.getElementById("btn-save").addEventListener("click", save);
+  document.getElementById("btn-save")?.addEventListener("click", save);
 
-  const kbd = e => {
-    if ((e.metaKey || e.ctrlKey) && e.key === "s") { e.preventDefault(); save(); }
-  };
-  document.addEventListener("keydown", kbd);
-  setTimeout(() => {
-    if (!document.getElementById("btn-save")) document.removeEventListener("keydown", kbd);
-  }, 1000);
+  if (canDo("can_manage_skills")) {
+    const kbd = e => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "s") { e.preventDefault(); save(); }
+    };
+    document.addEventListener("keydown", kbd);
+    setTimeout(() => {
+      if (!document.getElementById("btn-save")) document.removeEventListener("keydown", kbd);
+    }, 1000);
+  }
 }
 
 // ── Transfer modal ─────────────────────────────────────────────────────────

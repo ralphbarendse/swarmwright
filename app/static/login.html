@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SwarmWright — Sign in</title>
+  <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@700;800&family=DM+Sans:ital,wght@0,300;0,400;0,700&family=Caveat:wght@500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --color-parchment: #EFE5CB;
+      --color-card:      #FBF5E6;
+      --color-ink:       #1A1410;
+      --color-ink-soft:  #4A3C28;
+      --color-ink-faint: #8A7A60;
+      --color-primary:   #C97B1E;
+      --color-cream-line:#C8B98A;
+      --color-danger:    #a8423a;
+      --shadow:          4px 5px 0 #C0A87A;
+      --font-display:    'Syne', -apple-system, sans-serif;
+      --font-sans:       'DM Sans', -apple-system, sans-serif;
+      --font-hand:       'Caveat', cursive;
+    }
+
+    body {
+      background: var(--color-parchment);
+      font-family: var(--font-sans);
+      color: var(--color-ink);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 40px;
+    }
+    .brand-wordmark {
+      display: flex;
+      flex-direction: column;
+      line-height: 1;
+    }
+    .brand-swarm {
+      font-family: var(--font-display);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      color: var(--color-primary);
+      text-transform: uppercase;
+    }
+    .brand-name {
+      font-family: var(--font-display);
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: 0.04em;
+      color: var(--color-ink);
+    }
+
+    .card {
+      background: var(--color-card);
+      border: 1.5px solid var(--color-cream-line);
+      border-radius: 10px;
+      box-shadow: var(--shadow);
+      padding: 36px 40px;
+      width: 100%;
+      max-width: 380px;
+    }
+
+    h1 {
+      font-family: var(--font-display);
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 6px;
+    }
+    .subtitle {
+      font-size: 13px;
+      color: var(--color-ink-soft);
+      margin-bottom: 28px;
+    }
+
+    .field {
+      margin-bottom: 18px;
+    }
+    label {
+      display: block;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--color-ink-soft);
+      margin-bottom: 6px;
+    }
+    input[type="text"],
+    input[type="password"] {
+      width: 100%;
+      padding: 9px 12px;
+      background: var(--color-parchment);
+      border: 1.5px solid var(--color-cream-line);
+      border-radius: 6px;
+      font-family: var(--font-sans);
+      font-size: 14px;
+      color: var(--color-ink);
+      outline: none;
+      transition: border-color 0.15s;
+    }
+    input[type="text"]:focus,
+    input[type="password"]:focus {
+      border-color: var(--color-primary);
+    }
+
+    .btn {
+      width: 100%;
+      padding: 10px 0;
+      background: var(--color-primary);
+      color: #FBF5E6;
+      border: none;
+      border-radius: 6px;
+      font-family: var(--font-display);
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      cursor: pointer;
+      margin-top: 8px;
+      box-shadow: 3px 3px 0 #a0601a;
+      transition: opacity 0.15s, transform 0.1s;
+    }
+    .btn:hover { opacity: 0.9; }
+    .btn:active { transform: translate(1px, 1px); box-shadow: 2px 2px 0 #a0601a; }
+    .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .error-msg {
+      background: #f9eded;
+      border: 1.5px solid #c8a0a0;
+      border-radius: 6px;
+      padding: 10px 14px;
+      font-size: 13px;
+      color: var(--color-danger);
+      margin-bottom: 18px;
+      display: none;
+    }
+    .error-msg.visible { display: block; }
+  </style>
+</head>
+<body>
+  <div class="brand">
+    <svg viewBox="-26 -26 132 128" width="40" height="40" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" overflow="visible">
+      <path d="M 6,4 C 9,26 14,52 20,72 C 25,60 33,40 40,26 C 47,13 55,60 60,70 C 66,50 71,26 74,5"
+        fill="none" stroke="#C97B1E" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+    <div class="brand-wordmark">
+      <span class="brand-swarm">Swarm</span>
+      <span class="brand-name">WRIGHT</span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h1>Sign in</h1>
+    <p class="subtitle">Enter your credentials to continue.</p>
+
+    <div class="error-msg" id="error-msg"></div>
+
+    <form id="login-form" autocomplete="on">
+      <div class="field">
+        <label for="username">Username</label>
+        <input type="text" id="username" name="username" autocomplete="username" autofocus required>
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" autocomplete="current-password" required>
+      </div>
+      <button type="submit" class="btn" id="submit-btn">Sign in</button>
+    </form>
+  </div>
+
+  <script>
+    const form = document.getElementById('login-form');
+    const errEl = document.getElementById('error-msg');
+    const submitBtn = document.getElementById('submit-btn');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errEl.classList.remove('visible');
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Signing in…';
+
+      const username = document.getElementById('username').value.trim();
+      const password = document.getElementById('password').value;
+
+      try {
+        const res = await fetch('/api/v1/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, password }),
+        });
+        const data = await res.json();
+        if (res.ok) {
+          const next = new URLSearchParams(location.search).get('next') || '/';
+          location.href = next;
+        } else {
+          errEl.textContent = data?.error?.message || 'Login failed';
+          errEl.classList.add('visible');
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Sign in';
+        }
+      } catch {
+        errEl.textContent = 'Network error — please try again';
+        errEl.classList.add('visible');
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Sign in';
+      }
+    });
+  </script>
+</body>
+</html>

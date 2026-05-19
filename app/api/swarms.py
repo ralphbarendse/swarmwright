@@ -11,6 +11,7 @@ from flask import Blueprint, jsonify, request, current_app
 from pydantic import BaseModel, field_validator
 from sqlalchemy import select
 
+from app.core.auth import require_permission
 from app.db import get_session
 from app.models.workspace import Workspace
 from app.models.swarm import Swarm
@@ -129,6 +130,7 @@ def get_swarm(swarm_id: str):
 
 
 @bp.post("/workspaces/<workspace_id>/swarms")
+@require_permission("can_create_swarm")
 def create_swarm(workspace_id: str):
     try:
         body = SwarmCreate.model_validate(request.get_json(force=True) or {})
@@ -179,6 +181,7 @@ def create_swarm(workspace_id: str):
 
 
 @bp.put("/swarms/<swarm_id>")
+@require_permission("can_edit_swarm")
 def update_swarm(swarm_id: str):
     try:
         body = SwarmUpdate.model_validate(request.get_json(force=True) or {})
@@ -225,6 +228,7 @@ def _extract_title_from_md(content: str) -> str | None:
 
 
 @bp.post("/swarms/<swarm_id>/copy")
+@require_permission("can_create_swarm")
 def copy_swarm(swarm_id: str):
     body = request.get_json(force=True) or {}
     target_ws_id = body.get("target_workspace_id")
@@ -354,6 +358,7 @@ def copy_swarm(swarm_id: str):
 
 
 @bp.post("/swarms/<swarm_id>/move")
+@require_permission("can_edit_swarm")
 def move_swarm(swarm_id: str):
     body = request.get_json(force=True) or {}
     target_ws_id = body.get("target_workspace_id")
@@ -425,6 +430,7 @@ def move_swarm(swarm_id: str):
 
 
 @bp.delete("/swarms/<swarm_id>")
+@require_permission("can_delete_swarm")
 def delete_swarm(swarm_id: str):
     with get_session() as session:
         swarm = session.get(Swarm, swarm_id)

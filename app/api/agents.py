@@ -11,6 +11,7 @@ from flask import Blueprint, current_app, jsonify, request
 from pydantic import BaseModel
 from sqlalchemy import select
 
+from app.core.auth import require_permission
 from app.core.hierarchy import VALID_LAYERS, load_and_validate, HierarchyValidationError
 from app.db import get_session
 from app.models.agent import Agent, SCOPE_SWARM
@@ -92,6 +93,7 @@ def get_agent(agent_id: str):
 # ── Create ────────────────────────────────────────────────────────────────────
 
 @bp.post("/swarms/<swarm_id>/agents")
+@require_permission("can_edit_constitution")
 def create_agent(swarm_id: str):
     try:
         body = AgentCreate.model_validate(request.get_json(force=True) or {})
@@ -157,6 +159,7 @@ def create_agent(swarm_id: str):
 # ── Update constitution ───────────────────────────────────────────────────────
 
 @bp.put("/agents/<agent_id>/constitution")
+@require_permission("can_edit_constitution")
 def update_constitution(agent_id: str):
     try:
         body = AgentConstitutionUpdate.model_validate(request.get_json(force=True) or {})
@@ -220,6 +223,7 @@ def update_constitution(agent_id: str):
 # ── Delete ────────────────────────────────────────────────────────────────────
 
 @bp.delete("/agents/<agent_id>")
+@require_permission("can_edit_constitution")
 def delete_agent(agent_id: str):
     with get_session() as session:
         agent = session.get(Agent, agent_id)
@@ -241,6 +245,7 @@ def delete_agent(agent_id: str):
 # ── AI Draft ─────────────────────────────────────────────────────────────────
 
 @bp.post("/agents/<agent_id>/draft")
+@require_permission("can_edit_constitution")
 def draft_agent_constitution(agent_id: str):
     try:
         body = AgentDraftRequest.model_validate(request.get_json(force=True) or {})

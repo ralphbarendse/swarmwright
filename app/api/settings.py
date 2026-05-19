@@ -15,11 +15,12 @@ import re
 import xml.etree.ElementTree as ET
 from typing import Any
 
-from flask import Blueprint, current_app, jsonify, request, send_from_directory
+from flask import Blueprint, current_app, g, jsonify, request, send_from_directory
 from pydantic import BaseModel, ValidationError, field_validator
 from sqlalchemy import desc, select
 
 from app.core import secrets
+from app.core.auth import require_admin, require_permission
 from app.core.secrets import (
     EncryptionKeyError,
     SecretsError,
@@ -61,8 +62,6 @@ class SettingWrite(BaseModel):
     value_type: str = VALUE_TYPE_STRING
     description: str | None = None
     reason: str | None = None
-    # TODO: when auth lands, stamp actor server-side from the session instead of trusting the client
-    actor: str | None = None
 
     @field_validator("value_type")
     @classmethod
@@ -90,7 +89,6 @@ class BulkUpdateItem(BaseModel):
 class BulkUpdateRequest(BaseModel):
     updates: list[BulkUpdateItem]
     reason: str | None = None
-    actor: str | None = None
 
 
 class LLMTestRequest(BaseModel):
@@ -108,10 +106,14 @@ class LLMTestRequest(BaseModel):
 class RotateKeyRequest(BaseModel):
     new_key: str | None = None    # if absent, server generates
     reason: str | None = None
-    actor: str | None = None
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
+
+def _current_actor() -> str | None:
+    user = g.get("current_user")
+    return user.username if user else None
+
 
 def _error(code: str, message: str, status: int = 400):
     return jsonify({"error": {"code": code, "message": message}}), status
@@ -248,6 +250,7 @@ def _upsert_setting(
 # ── Routes: list / get / put / bulk ──────────────────────────────────────────
 
 @bp.get("")
+@require_permission("can_view_settings")
 def list_settings():
     with get_session() as session:
         rows = session.execute(select(Setting).order_by(Setting.key)).scalars().all()
@@ -255,6 +258,7 @@ def list_settings():
 
 
 @bp.get("/audit")
+@require_permission("can_view_settings")
 def audit_log():
     key = request.args.get("key")
     try:
@@ -273,6 +277,7 @@ def audit_log():
 
 
 @bp.put("")
+@require_admin
 def bulk_update():
     try:
         body = BulkUpdateRequest.model_validate(request.get_json(force=True) or {})
@@ -306,7 +311,7 @@ def bulk_update():
                 is_secret=item.is_secret,
                 value_type=item.value_type,
                 description=item.description,
-                actor=body.actor,
+                actor=_current_actor(),
                 reason=body.reason,
             )
             results.append(row.key)
@@ -319,6 +324,7 @@ def bulk_update():
 
 
 @bp.post("/llm/test")
+@require_permission("can_view_settings")
 def llm_test_connection():
     try:
         body = LLMTestRequest.model_validate(request.get_json(force=True) or {})
@@ -355,6 +361,7 @@ def llm_test_connection():
 
 
 @bp.post("/security/rotate-key")
+@require_admin
 def rotate_master_key():
     try:
         body = RotateKeyRequest.model_validate(request.get_json(force=True) or {})
@@ -398,17 +405,17 @@ def rotate_master_key():
                 value_encrypted=json.dumps(key_id),
                 is_secret=False,
                 value_type=VALUE_TYPE_STRING,
-                updated_by=body.actor,
+                updated_by=_current_actor(),
             ))
         else:
             existing.value_encrypted = json.dumps(key_id)
-            existing.updated_by = body.actor
+            existing.updated_by = _current_actor()
 
         session.add(SettingsAudit(
             key="_rotation_event",
             previous_value_hash=None,
             new_value_hash=hash_value(new_key),
-            actor=body.actor,
+            actor=_current_actor(),
             reason=body.reason,
         ))
         session.commit()
@@ -429,6 +436,7 @@ def rotate_master_key():
 
 
 @bp.post("/branding/logo")
+@require_admin
 def upload_logo():
     if "file" not in request.files:
         return _error("validation_error", "Missing 'file' field in multipart form", 400)
@@ -488,7 +496,7 @@ def upload_logo():
             is_secret=False,
             value_type=VALUE_TYPE_STRING,
             description="Path to the uploaded logo, relative to DATA_DIR.",
-            actor=request.form.get("actor"),
+            actor=_current_actor(),
             reason=request.form.get("reason"),
         )
         session.commit()
@@ -503,6 +511,7 @@ def upload_logo():
 
 
 @bp.delete("/branding/logo")
+@require_admin
 def delete_logo():
     """Delete the uploaded logo file(s) and clear branding.logo_path."""
     data_dir = current_app.config["DATA_DIR"]
@@ -552,6 +561,7 @@ def serve_logo():
 
 
 @bp.post("/system/packages/install")
+@require_admin
 def install_package():
     """Pip-install a package into the current Python environment.
 
@@ -605,7 +615,7 @@ def install_package():
                 is_secret=False,
                 value_type=VALUE_TYPE_JSON,
                 description="Packages allowed in skill .yaml files and installed in the runtime.",
-                actor=body.get("actor"),
+                actor=_current_actor(),
                 reason="installed via UI",
             )
             session.commit()
@@ -636,6 +646,7 @@ def check_package_installed():
 # ── Catch-all single-key routes (registered after specific routes) ───────────
 
 @bp.get("/<string:key>")
+@require_permission("can_view_settings")
 def get_setting(key: str):
     with get_session() as session:
         row = session.get(Setting, key)
@@ -645,6 +656,7 @@ def get_setting(key: str):
 
 
 @bp.put("/<string:key>")
+@require_admin
 def put_setting(key: str):
     if not _KEY_RE.match(key):
         return _error("validation_error", f"Invalid key {key!r}", 400)
@@ -668,7 +680,7 @@ def put_setting(key: str):
             is_secret=body.is_secret,
             value_type=body.value_type,
             description=body.description,
-            actor=body.actor,
+            actor=_current_actor(),
             reason=body.reason,
         )
         session.commit()

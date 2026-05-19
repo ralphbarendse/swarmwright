@@ -11,6 +11,7 @@ from flask import Blueprint, jsonify, request, current_app
 from pydantic import BaseModel, field_validator
 from sqlalchemy import select, func
 
+from app.core.auth import require_permission
 from app.db import get_session
 from app.models.workspace import Workspace
 from app.models.swarm import Swarm
@@ -139,6 +140,7 @@ def get_workspace(workspace_id: str):
 
 
 @bp.post("/workspaces")
+@require_permission("can_create_workspace")
 def create_workspace():
     try:
         body = WorkspaceCreate.model_validate(request.get_json(force=True) or {})
@@ -183,6 +185,7 @@ def create_workspace():
 
 
 @bp.put("/workspaces/<workspace_id>")
+@require_permission("can_edit_workspace")
 def update_workspace(workspace_id: str):
     try:
         body = WorkspaceUpdate.model_validate(request.get_json(force=True) or {})
@@ -217,6 +220,7 @@ def update_workspace(workspace_id: str):
 
 
 @bp.delete("/workspaces/<workspace_id>")
+@require_permission("can_delete_workspace")
 def delete_workspace(workspace_id: str):
     with get_session() as session:
         workspace = session.get(Workspace, workspace_id)

@@ -5,6 +5,7 @@ import os
 from flask import Blueprint, jsonify, request, current_app, send_file
 from sqlalchemy import select
 
+from app.core.auth import require_permission
 from app.db import get_session
 from app.models.swarm import Swarm
 from app.models.swarm_file import SwarmFile
@@ -53,6 +54,7 @@ def list_swarm_files(swarm_id: str):
 
 
 @bp.post("/swarms/<swarm_id>/files")
+@require_permission("can_edit_swarm")
 def upload_swarm_file(swarm_id: str):
     swarm, files_root = _get_swarm_files_root(swarm_id)
     if swarm is None:
@@ -120,6 +122,7 @@ def download_swarm_file(swarm_id: str):
 
 
 @bp.delete("/swarms/<swarm_id>/files")
+@require_permission("can_edit_swarm")
 def delete_swarm_file(swarm_id: str):
     swarm, files_root = _get_swarm_files_root(swarm_id)
     if swarm is None:

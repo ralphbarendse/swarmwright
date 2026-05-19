@@ -151,3 +151,10 @@ export async function uploadLogo(file) {
   if (!res.ok) throw json?.error || { code: "http_error", message: `HTTP ${res.status}` };
   return json;
 }
+
+// ── Users ─────────────────────────────────────────────────────────────────────
+export const listUsers   = ()          => get("/users");
+export const getUser     = (id)        => get(`/users/${id}`);
+export const createUser  = (body)      => post("/users", body);
+export const updateUser  = (id, body)  => put(`/users/${id}`, body);
+export const deleteUser  = (id)        => del(`/users/${id}`);

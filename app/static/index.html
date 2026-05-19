@@ -34,6 +34,42 @@
   <style>
     .CodeMirror { height: 100%; font-family: var(--font-mono); font-size: 12.5px; line-height: 1.65; }
     .CodeMirror-scroll { min-height: 200px; }
+
+    /* ── User widget ── */
+    .user-widget {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 0 4px 0 10px;
+      height: 30px;
+      border: 1px solid var(--color-cream-line);
+      border-radius: var(--radius);
+      background: var(--color-card);
+      font-size: var(--text-sm);
+    }
+    .user-widget-name {
+      color: var(--color-ink-soft);
+      font-weight: 500;
+      max-width: 120px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .user-widget-logout {
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 2px 6px;
+      font-size: 14px;
+      color: var(--color-ink-faint);
+      border-radius: var(--radius-sm);
+      line-height: 1;
+      transition: color 0.15s, background 0.15s;
+    }
+    .user-widget-logout:hover {
+      color: var(--color-danger);
+      background: #f9eded;
+    }
   </style>
 </head>
 <body>
@@ -112,6 +148,10 @@
 
 <!-- Toast container -->
 <div id="toast-container"></div>
+
+<style>
+  .topbar-logo { cursor: pointer; user-select: none; }
+</style>
 
 <!-- App bootstrap (ES module) -->
 <script type="module" src="/static/js/app.js"></script>

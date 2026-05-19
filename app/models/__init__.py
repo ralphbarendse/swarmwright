@@ -12,6 +12,7 @@ from app.models.caller import Caller
 from app.models.human_action import HumanAction
 from app.models.informer import Informer
 from app.models.human_inform import HumanInform
+from app.models.user import User
 
 __all__ = [
     "Workspace",
@@ -28,4 +29,5 @@ __all__ = [
     "HumanAction",
     "Informer",
     "HumanInform",
+    "User",
 ]

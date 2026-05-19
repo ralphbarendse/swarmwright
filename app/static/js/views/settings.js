@@ -1,6 +1,7 @@
 import * as api from "../api.js";
 import { toastError, toastSuccess } from "../components/toast.js";
 import { _showModal } from "./org-design.js";
+import { currentUser } from "../auth.js";
 
 const MODEL_SUGGESTIONS = {
   anthropic: [
@@ -41,6 +42,7 @@ const TABS = [
   { id: "branding",  label: "Branding" },
   { id: "system",    label: "System" },
   { id: "security",  label: "Security" },
+  { id: "users",     label: "Users", adminOnly: true },
 ];
 
 const RESTART_REQUIRED_KEYS = new Set([
@@ -172,7 +174,7 @@ export function renderSettingsView(container, segments = []) {
       </div>
       <div style="display:flex;gap:0;border-bottom:1px dashed var(--color-cream-line);padding:0 24px;flex-shrink:0;margin-top:12px"
            id="settings-tabs">
-        ${TABS.map(t => `
+        ${TABS.filter(t => !t.adminOnly || currentUser()?.is_admin).map(t => `
           <button class="topbar-tab ${t.id === tab ? "active" : ""}"
                   data-tab="${t.id}"
                   style="font-size:13px;padding:8px 16px">${_esc(t.label)}</button>`).join("")}
@@ -200,6 +202,7 @@ export function renderSettingsView(container, segments = []) {
       case "branding":  _renderBrandingTab(pane); break;
       case "system":    _renderSystemTab(pane); break;
       case "security":  _renderSecurityTab(pane); break;
+      case "users":     _renderUsersTab(pane); break;
       default:          _renderProvidersTab(pane);
     }
   }).catch(err => {
@@ -1196,8 +1199,7 @@ function _renderSecurityTab(pane) {
       <div class="card" style="padding:18px 20px">
         <div class="sec-header" style="margin:0 0 10px 0">API access</div>
         <div style="font-family:var(--font-mono);font-size:12px;color:var(--color-ink-soft)">
-          Not configured — local-only access.
-          <span style="color:var(--color-ink-faint)">(Authentication is added in a later phase.)</span>
+          Session-based login is active. Manage accounts in <strong>Settings → Users</strong>.
         </div>
       </div>
 
@@ -1447,6 +1449,322 @@ function _showRotationModal() {
   }
 
   draw();
+}
+
+// ── Users tab ─────────────────────────────────────────────────────────────────
+
+const PERM_LABELS = {
+  can_create_workspace:  "Create workspace",
+  can_edit_workspace:    "Edit workspace",
+  can_delete_workspace:  "Delete workspace",
+  can_create_swarm:      "Create swarm",
+  can_edit_swarm:        "Edit swarm",
+  can_delete_swarm:      "Delete swarm",
+  can_start_run:         "Start runs",
+  can_stop_run:          "Stop runs",
+  can_edit_constitution: "Edit constitutions",
+  can_manage_triggers:   "Manage triggers",
+  can_manage_skills:     "Manage skills",
+  can_manage_knowledge:  "Manage knowledge",
+  can_decide_inbox:      "Decide inbox items",
+  can_view_settings:     "View settings",
+  can_manage_users:      "Manage users",
+};
+
+const ALL_PERMS = Object.keys(PERM_LABELS);
+
+function _renderUsersTab(pane) {
+  pane.innerHTML = `
+    <div style="max-width:880px;display:flex;flex-direction:column;gap:18px">
+      <div class="card" style="padding:18px 20px">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px">
+          <div style="font-weight:600;font-size:14px">User accounts</div>
+          <button class="btn btn-primary btn-sm" id="users-create-btn">+ New user</button>
+        </div>
+        <div id="users-table-host" style="font-family:var(--font-mono);font-size:12px">
+          <div style="color:var(--color-ink-faint);padding:12px">Loading…</div>
+        </div>
+      </div>
+    </div>`;
+
+  pane.querySelector("#users-create-btn").addEventListener("click", () =>
+    _showCreateUserModal(() => _reloadUsersTable(pane))
+  );
+
+  _reloadUsersTable(pane);
+}
+
+async function _reloadUsersTable(pane) {
+  const host = pane.querySelector("#users-table-host");
+  if (!host) return;
+  host.innerHTML = `<div style="color:var(--color-ink-faint);padding:12px">Loading…</div>`;
+  try {
+    const users = await api.listUsers();
+    _drawUsersTable(host, users, () => _reloadUsersTable(pane));
+  } catch (err) {
+    host.innerHTML = `<div style="color:var(--color-danger);padding:12px">Failed to load: ${_esc(err.message || "")}</div>`;
+  }
+}
+
+function _drawUsersTable(host, users, reload) {
+  if (!users.length) {
+    host.innerHTML = `<div class="empty-state" style="padding:24px"><div class="empty-state-title">No users</div></div>`;
+    return;
+  }
+  const me = currentUser();
+
+  host.innerHTML = `
+    <table style="width:100%;border-collapse:collapse">
+      <thead>
+        <tr style="text-align:left;border-bottom:1px solid var(--color-cream-line)">
+          <th style="padding:8px 10px;color:var(--color-ink-soft);font-weight:500;text-transform:uppercase;letter-spacing:.05em">Username</th>
+          <th style="padding:8px 10px;color:var(--color-ink-soft);font-weight:500;text-transform:uppercase;letter-spacing:.05em">Display name</th>
+          <th style="padding:8px 10px;color:var(--color-ink-soft);font-weight:500;text-transform:uppercase;letter-spacing:.05em">Role</th>
+          <th style="padding:8px 10px;color:var(--color-ink-soft);font-weight:500;text-transform:uppercase;letter-spacing:.05em">Status</th>
+          <th style="padding:8px 10px"></th>
+        </tr>
+      </thead>
+      <tbody id="users-tbody"></tbody>
+    </table>`;
+
+  const tbody = host.querySelector("#users-tbody");
+  users.forEach(u => {
+    const tr = document.createElement("tr");
+    tr.style.borderBottom = "1px dashed var(--color-cream-line)";
+    const isSelf = me?.id === u.id;
+    tr.innerHTML = `
+      <td style="padding:8px 10px">
+        <strong>${_esc(u.username)}</strong>${isSelf ? ' <span style="color:var(--color-ink-faint)">(you)</span>' : ""}
+      </td>
+      <td style="padding:8px 10px;color:var(--color-ink-soft)">${_esc(u.display_name || "—")}</td>
+      <td style="padding:8px 10px">
+        ${u.is_admin
+          ? `<span style="background:var(--color-policy);color:#fff;border-radius:3px;padding:1px 6px;font-size:10px;font-weight:600;letter-spacing:.04em">ADMIN</span>`
+          : `<span style="background:var(--color-cream-deep);color:var(--color-ink-soft);border-radius:3px;padding:1px 6px;font-size:10px;font-weight:600;letter-spacing:.04em">USER</span>`}
+      </td>
+      <td style="padding:8px 10px">
+        ${u.is_active
+          ? `<span style="color:var(--color-ok)">Active</span>`
+          : `<span style="color:var(--color-danger)">Inactive</span>`}
+      </td>
+      <td style="padding:8px 10px;text-align:right;white-space:nowrap">
+        <button class="btn btn-ghost btn-sm" data-action="edit">Edit</button>
+        <button class="btn btn-ghost btn-sm" data-action="delete" style="color:var(--color-danger)${isSelf ? ";opacity:.35;cursor:not-allowed" : ""}">Delete</button>
+      </td>`;
+    tr.querySelector("[data-action=edit]").addEventListener("click", () =>
+      _showEditUserModal(u, reload)
+    );
+    const delBtn = tr.querySelector("[data-action=delete]");
+    if (isSelf) {
+      delBtn.disabled = true;
+      delBtn.title = "Cannot delete your own account";
+    } else {
+      delBtn.addEventListener("click", () => _confirmDeleteUser(u, reload));
+    }
+    tbody.appendChild(tr);
+  });
+}
+
+function _permChecklist(permissions, disabled) {
+  return `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px 16px;margin-top:6px">
+      ${ALL_PERMS.map(p => `
+        <label style="display:flex;align-items:center;gap:6px;cursor:${disabled ? "default" : "pointer"};opacity:${disabled ? ".45" : "1"}">
+          <input type="checkbox" name="perm_${p}" ${permissions?.[p] ? "checked" : ""} ${disabled ? "disabled" : ""}>
+          <span style="font-size:11px;font-family:var(--font-mono)">${_esc(PERM_LABELS[p])}</span>
+        </label>`).join("")}
+    </div>`;
+}
+
+function _readPerms(form) {
+  const perms = {};
+  ALL_PERMS.forEach(p => {
+    const el = form.querySelector(`[name="perm_${p}"]`);
+    if (el) perms[p] = el.checked;
+  });
+  return perms;
+}
+
+function _showCreateUserModal(reload) {
+  const veil = document.createElement("div");
+  veil.className = "modal-veil";
+  veil.innerHTML = `
+    <div class="modal" role="dialog" style="max-width:520px">
+      <div class="modal-header">
+        <span>New user</span>
+        <button class="modal-close" id="cu-x">✕</button>
+      </div>
+      <div class="modal-body" style="display:flex;flex-direction:column;gap:12px">
+        <div>
+          <label class="form-label">Username</label>
+          <input class="form-input" id="cu-username" placeholder="alice" autocomplete="off">
+        </div>
+        <div>
+          <label class="form-label">Display name <span style="color:var(--color-ink-faint)">(optional)</span></label>
+          <input class="form-input" id="cu-display" placeholder="Alice Smith">
+        </div>
+        <div>
+          <label class="form-label">Password</label>
+          <input class="form-input" id="cu-password" type="password" placeholder="Min 8 characters" autocomplete="new-password">
+        </div>
+        <div>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" id="cu-admin">
+            <span class="form-label" style="margin:0">Administrator <span style="color:var(--color-ink-faint);font-weight:400">(bypasses all permissions)</span></span>
+          </label>
+        </div>
+        <div id="cu-perms-wrap">
+          <div class="form-label" style="margin-bottom:2px">Permissions</div>
+          ${_permChecklist({can_start_run:true,can_stop_run:true,can_decide_inbox:true}, false)}
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="cu-cancel">Cancel</button>
+        <button class="btn btn-primary" id="cu-save">Create</button>
+      </div>
+    </div>`;
+  document.body.appendChild(veil);
+
+  const close = () => veil.remove();
+  veil.querySelector("#cu-x").addEventListener("click", close);
+  veil.querySelector("#cu-cancel").addEventListener("click", close);
+
+  const adminChk = veil.querySelector("#cu-admin");
+  const permsWrap = veil.querySelector("#cu-perms-wrap");
+  adminChk.addEventListener("change", () => {
+    permsWrap.style.opacity = adminChk.checked ? ".4" : "1";
+    permsWrap.querySelectorAll("input[type=checkbox]").forEach(c => c.disabled = adminChk.checked);
+  });
+
+  veil.querySelector("#cu-save").addEventListener("click", async () => {
+    const username = veil.querySelector("#cu-username").value.trim();
+    const password = veil.querySelector("#cu-password").value;
+    const display  = veil.querySelector("#cu-display").value.trim() || null;
+    const isAdmin  = adminChk.checked;
+
+    if (!username) { toastError({ message: "Username is required" }); return; }
+    if (password.length < 8) { toastError({ message: "Password must be at least 8 characters" }); return; }
+
+    const body = { username, password, display_name: display, is_admin: isAdmin };
+    if (!isAdmin) body.permissions = _readPerms(veil);
+
+    try {
+      await api.createUser(body);
+      toastSuccess(`User "${username}" created`);
+      close();
+      reload();
+    } catch (err) { toastError(err); }
+  });
+}
+
+function _showEditUserModal(user, reload) {
+  const perms = user.permissions || {};
+  const veil = document.createElement("div");
+  veil.className = "modal-veil";
+  veil.innerHTML = `
+    <div class="modal" role="dialog" style="max-width:520px">
+      <div class="modal-header">
+        <span>Edit user — ${_esc(user.username)}</span>
+        <button class="modal-close" id="eu-x">✕</button>
+      </div>
+      <div class="modal-body" style="display:flex;flex-direction:column;gap:12px">
+        <div>
+          <label class="form-label">Display name <span style="color:var(--color-ink-faint)">(optional)</span></label>
+          <input class="form-input" id="eu-display" value="${_esc(user.display_name || "")}" placeholder="Full name">
+        </div>
+        <div>
+          <label class="form-label">New password <span style="color:var(--color-ink-faint)">(leave blank to keep current)</span></label>
+          <input class="form-input" id="eu-password" type="password" placeholder="Min 8 characters" autocomplete="new-password">
+        </div>
+        <div style="display:flex;gap:20px">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" id="eu-admin" ${user.is_admin ? "checked" : ""}>
+            <span class="form-label" style="margin:0">Administrator</span>
+          </label>
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer">
+            <input type="checkbox" id="eu-active" ${user.is_active ? "checked" : ""}>
+            <span class="form-label" style="margin:0">Active</span>
+          </label>
+        </div>
+        <div id="eu-perms-wrap" style="${user.is_admin ? "opacity:.4" : ""}">
+          <div class="form-label" style="margin-bottom:2px">Permissions</div>
+          ${_permChecklist(perms, user.is_admin)}
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="eu-cancel">Cancel</button>
+        <button class="btn btn-primary" id="eu-save">Save</button>
+      </div>
+    </div>`;
+  document.body.appendChild(veil);
+
+  const close = () => veil.remove();
+  veil.querySelector("#eu-x").addEventListener("click", close);
+  veil.querySelector("#eu-cancel").addEventListener("click", close);
+
+  const adminChk = veil.querySelector("#eu-admin");
+  const permsWrap = veil.querySelector("#eu-perms-wrap");
+  adminChk.addEventListener("change", () => {
+    permsWrap.style.opacity = adminChk.checked ? ".4" : "1";
+    permsWrap.querySelectorAll("input[type=checkbox]").forEach(c => c.disabled = adminChk.checked);
+  });
+
+  veil.querySelector("#eu-save").addEventListener("click", async () => {
+    const display  = veil.querySelector("#eu-display").value.trim() || null;
+    const password = veil.querySelector("#eu-password").value || null;
+    const isAdmin  = adminChk.checked;
+    const isActive = veil.querySelector("#eu-active").checked;
+
+    if (password && password.length < 8) {
+      toastError({ message: "Password must be at least 8 characters" });
+      return;
+    }
+
+    const body = { display_name: display, is_admin: isAdmin, is_active: isActive };
+    if (password) body.password = password;
+    if (!isAdmin) body.permissions = _readPerms(veil);
+
+    try {
+      await api.updateUser(user.id, body);
+      toastSuccess("User updated");
+      close();
+      reload();
+    } catch (err) { toastError(err); }
+  });
+}
+
+function _confirmDeleteUser(user, reload) {
+  const veil = document.createElement("div");
+  veil.className = "modal-veil";
+  veil.innerHTML = `
+    <div class="modal" role="dialog" style="max-width:400px">
+      <div class="modal-header">
+        <span>Delete user</span>
+        <button class="modal-close" id="du-x">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="margin:0;font-family:var(--font-mono);font-size:13px">
+          Permanently delete <strong>${_esc(user.username)}</strong>? This cannot be undone.
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="du-cancel">Cancel</button>
+        <button class="btn btn-primary" id="du-confirm" style="background:var(--color-danger);border-color:var(--color-danger)">Delete</button>
+      </div>
+    </div>`;
+  document.body.appendChild(veil);
+
+  const close = () => veil.remove();
+  veil.querySelector("#du-x").addEventListener("click", close);
+  veil.querySelector("#du-cancel").addEventListener("click", close);
+  veil.querySelector("#du-confirm").addEventListener("click", async () => {
+    try {
+      await api.deleteUser(user.id);
+      toastSuccess(`User "${user.username}" deleted`);
+      close();
+      reload();
+    } catch (err) { toastError(err); }
+  });
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

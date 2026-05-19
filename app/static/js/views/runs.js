@@ -2,6 +2,7 @@ import * as api from "../api.js";
 import { toastError, toastSuccess } from "../components/toast.js";
 import { onEvent, offEvent } from "../sse.js";
 import { _showModal } from "./org-design.js";
+import { canDo } from "../auth.js";
 
 /**
  * Control Room view (was: Runs).
@@ -772,7 +773,7 @@ function _renderRunRows(container, runs, reset) {
         ">${_esc(run.id.slice(0, 8))} · ${_esc(run.source || "—")}</div>
       </div>
       <div style="text-align:right;flex-shrink:0;display:flex;align-items:center;gap:8px">
-        ${isRunning ? `<button class="btn btn-ghost btn-sm run-stop-btn" data-id="${run.id}" style="font-size:10px;padding:2px 7px;color:var(--color-danger);border-color:var(--color-danger)">■ Stop</button>` : ""}
+        ${isRunning && canDo("can_stop_run") ? `<button class="btn btn-ghost btn-sm run-stop-btn" data-id="${run.id}" style="font-size:10px;padding:2px 7px;color:var(--color-danger);border-color:var(--color-danger)">■ Stop</button>` : ""}
         <div>
           <div style="
             font-family:var(--font-mono);font-size:10px;
@@ -872,8 +873,8 @@ function _renderRunHeader(container, run) {
       <span style="font-family:var(--font-mono);font-size:11px;background:${_statusColor(run.status)}22;color:${_statusColor(run.status)};padding:2px 8px;border-radius:4px">${label}</span>
       <span style="font-family:var(--font-display);font-size:16px;color:var(--color-ink)">${_esc(run.swarm_display_name || run.swarm_id)}</span>
       <span style="color:var(--color-ink-faint);font-size:11px;font-family:var(--font-mono)">${_esc(run.id)}</span>
-      <button class="btn btn-ghost btn-sm" id="btn-replay" style="margin-left:auto">↺ Replay</button>
-      ${run.status === "running" ? `<button class="btn btn-ghost btn-sm" id="btn-stop-run" style="color:var(--color-danger);border-color:var(--color-danger)">■ Stop</button>` : ""}
+      ${canDo("can_start_run") ? `<button class="btn btn-ghost btn-sm" id="btn-replay" style="margin-left:auto">↺ Replay</button>` : ""}
+      ${run.status === "running" && canDo("can_stop_run") ? `<button class="btn btn-ghost btn-sm" id="btn-stop-run" style="color:var(--color-danger);border-color:var(--color-danger)">■ Stop</button>` : ""}
     </div>
     <div style="display:flex;gap:24px;flex-wrap:wrap;font-size:12px;font-family:var(--font-mono);color:var(--color-ink-soft);margin-bottom:${run.error ? 0 : 8}px">
       <span><b>Source</b> ${_esc(run.source || "—")}</span>

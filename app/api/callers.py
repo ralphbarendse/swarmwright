@@ -18,11 +18,12 @@ from datetime import datetime, timezone
 from typing import Literal
 
 import frontmatter
-from flask import Blueprint, current_app, jsonify, request
+from flask import Blueprint, current_app, g, jsonify, request
 from pydantic import BaseModel, ValidationError, field_validator
 from sqlalchemy import desc, select
 
 from app.core import runtime
+from app.core.auth import require_permission
 from app.db import get_session
 from app.models.caller import Caller, VALID_TIMEOUT_ACTIONS
 from app.models.human_action import (
@@ -234,6 +235,7 @@ def get_caller(name: str):
 
 
 @bp.post("/callers")
+@require_permission("can_edit_constitution")
 def create_caller():
     try:
         body = CallerWrite.model_validate(request.get_json(force=True) or {})
@@ -266,6 +268,7 @@ def create_caller():
 
 
 @bp.put("/callers/<name>")
+@require_permission("can_edit_constitution")
 def update_caller(name: str):
     try:
         body = CallerWrite.model_validate(request.get_json(force=True) or {})
@@ -293,6 +296,7 @@ def update_caller(name: str):
 
 
 @bp.delete("/callers/<name>")
+@require_permission("can_edit_constitution")
 def delete_caller(name: str):
     scope = request.args.get("scope", "company")
     workspace_id = request.args.get("workspace_id")
@@ -399,6 +403,7 @@ def get_informer(name: str):
 
 
 @bp.post("/informers")
+@require_permission("can_edit_constitution")
 def create_informer():
     try:
         body = InformerWrite.model_validate(request.get_json(force=True) or {})
@@ -431,6 +436,7 @@ def create_informer():
 
 
 @bp.put("/informers/<name>")
+@require_permission("can_edit_constitution")
 def update_informer(name: str):
     try:
         body = InformerWrite.model_validate(request.get_json(force=True) or {})
@@ -458,6 +464,7 @@ def update_informer(name: str):
 
 
 @bp.delete("/informers/<name>")
+@require_permission("can_edit_constitution")
 def delete_informer(name: str):
     scope = request.args.get("scope", "company")
     workspace_id = request.args.get("workspace_id")
@@ -606,6 +613,7 @@ def _notify_resolved(app, ha_id: str, status: str) -> None:
 
 
 @bp.post("/inbox/<id>/decide")
+@require_permission("can_decide_inbox")
 def decide_inbox_item(id: str):
     try:
         body = DecisionRequest.model_validate(request.get_json(force=True) or {})
@@ -621,7 +629,8 @@ def decide_inbox_item(id: str):
 
         row.status = STATUS_YES if body.decision == "yes" else STATUS_NO
         row.decided_at = datetime.now(timezone.utc)
-        row.decided_by = body.actor
+        user = g.get("current_user")
+        row.decided_by = user.username if user else body.actor
         row.decision_reason = (body.reason or "").strip() or None
         if body.amend is not None:
             row.amend_json = json.dumps(body.amend)

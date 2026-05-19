@@ -5,6 +5,7 @@ import json
 from flask import Blueprint, jsonify, request, current_app
 from sqlalchemy import select
 
+from app.core.auth import require_permission
 from app.db import get_session
 from app.models.swarm import Swarm
 from app.models.event import Event
@@ -13,6 +14,7 @@ bp = Blueprint("events", __name__, url_prefix="/api/v1")
 
 
 @bp.post("/swarms/<swarm_id>/events")
+@require_permission("can_start_run")
 def fire_event(swarm_id: str):
     """Fire an event into a swarm — persists and dispatches via event bus."""
     body = request.get_json(force=True)

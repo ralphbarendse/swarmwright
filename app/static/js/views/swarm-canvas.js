@@ -3,6 +3,7 @@ import { toast, toastError, toastSuccess } from "../components/toast.js";
 import { onEvent, offEvent } from "../sse.js";
 import { setLastSwarm } from "../app.js";
 import { _showModal } from "./org-design.js";
+import { canDo } from "../auth.js";
 
 let _cy = null; // Cytoscape instance (module-level so cleanup can destroy it)
 let _connectSource = null; // when set, the next agent click creates a new edge from this node
@@ -1121,7 +1122,7 @@ function _showSwarmInspector(container, swarm, swarmId, hierarchy, reload) {
 
     <div class="insp-btn-row" style="margin-top:auto;padding-top:12px;flex-direction:column;gap:6px">
       <button class="btn btn-secondary btn-sm" onclick="swNav('runs?swarm=${swarm.id}')">View runs</button>
-      <button class="btn btn-danger btn-sm" id="insp-del-swarm">Delete swarm</button>
+      ${canDo("can_delete_swarm") ? `<button class="btn btn-danger btn-sm" id="insp-del-swarm">Delete swarm</button>` : ""}
     </div>`;
 
   insp.querySelector("#insp-del-swarm")?.addEventListener("click", async () => {
@@ -1189,21 +1190,21 @@ function _showNodeInspector(container, node, swarmId, hierarchy, reload) {
     ${incoming.length ? `<div style="margin-top:10px"><div class="insp-label">Incoming</div>${connList(incoming.toArray(), "in")}</div>` : ""}
     ${isAgent ? `
       <div class="insp-btn-row" style="flex-direction:column;gap:6px;padding-top:12px">
-        <button class="btn btn-primary btn-sm" id="insp-edit-const" ${d.agent_id ? "" : "disabled title='Agent not yet registered'"}>Edit constitution</button>
-        <button class="btn btn-secondary btn-sm" id="insp-connect">Connect to…</button>
-        <button class="btn btn-secondary btn-sm" id="insp-attach-skill">Attach skill…</button>
-        <button class="btn btn-ghost btn-sm" id="insp-del-node">Remove from swarm</button>
+        ${canDo("can_edit_constitution") ? `<button class="btn btn-primary btn-sm" id="insp-edit-const" ${d.agent_id ? "" : "disabled title='Agent not yet registered'"}>Edit constitution</button>` : ""}
+        ${canDo("can_edit_constitution") ? `<button class="btn btn-secondary btn-sm" id="insp-connect">Connect to…</button>` : ""}
+        ${canDo("can_edit_constitution") ? `<button class="btn btn-secondary btn-sm" id="insp-attach-skill">Attach skill…</button>` : ""}
+        ${canDo("can_edit_constitution") ? `<button class="btn btn-ghost btn-sm" id="insp-del-node">Remove from swarm</button>` : ""}
       </div>` : isTrigger ? `
       <div class="insp-btn-row" style="flex-direction:column;gap:6px;padding-top:12px">
-        ${d.trigger_kind === "invocation" ? `<button class="btn btn-primary btn-sm" id="insp-invoke-trigger">Fire now…</button>` : ""}
-        <button class="btn btn-secondary btn-sm" id="insp-edit-trigger">Edit target / config…</button>
-        <button class="btn btn-ghost btn-sm" id="insp-del-node">Delete trigger</button>
+        ${d.trigger_kind === "invocation" && canDo("can_start_run") ? `<button class="btn btn-primary btn-sm" id="insp-invoke-trigger">Fire now…</button>` : ""}
+        ${canDo("can_manage_triggers") ? `<button class="btn btn-secondary btn-sm" id="insp-edit-trigger">Edit target / config…</button>` : ""}
+        ${canDo("can_manage_triggers") ? `<button class="btn btn-ghost btn-sm" id="insp-del-node">Delete trigger</button>` : ""}
       </div>` : (isCaller || isInformer) ? `
       <div class="insp-btn-row" style="flex-direction:column;gap:6px;padding-top:12px">
         <div style="font-size:11px;color:var(--color-ink-faint);font-family:var(--font-mono)">
           Connect via an agent node: select the agent, then click "Connect to…"
         </div>
-        <button class="btn btn-ghost btn-sm" id="insp-del-node">Disconnect from swarm</button>
+        ${canDo("can_edit_constitution") ? `<button class="btn btn-ghost btn-sm" id="insp-del-node">Disconnect from swarm</button>` : ""}
       </div>` : isSwarmNode ? `
       ${d.is_cross_workspace ? `
       <div style="margin-top:10px;padding:7px 9px;background:#fff8e6;border:1.5px solid var(--color-warn);border-radius:4px;font-size:10px;color:var(--color-ink-soft);font-family:var(--font-mono);line-height:1.5">
@@ -1214,10 +1215,10 @@ function _showNodeInspector(container, node, swarmId, hierarchy, reload) {
           Connect via an agent node: select the agent, then click "Connect to…"
         </div>
         <button class="btn btn-secondary btn-sm" onclick="swNav('swarm/${_esc(d.swarm_id)}')">Open swarm</button>
-        <button class="btn btn-ghost btn-sm" id="insp-del-node">Remove from canvas</button>
+        ${canDo("can_edit_swarm") ? `<button class="btn btn-ghost btn-sm" id="insp-del-node">Remove from canvas</button>` : ""}
       </div>` : `
       <div class="insp-btn-row">
-        <button class="btn btn-ghost btn-sm" id="insp-del-node">Remove</button>
+        ${canDo("can_edit_constitution") ? `<button class="btn btn-ghost btn-sm" id="insp-del-node">Remove</button>` : ""}
       </div>`}`;
 
   if (isAgent && d.agent_id) {
@@ -1342,20 +1343,13 @@ function _buildPalette(pal, swarmId) {
   ];
 
   pal.innerHTML = `
+    ${canDo("can_edit_constitution") ? `
     <div class="sec-header">Add agent</div>
     ${layers.map(l => `
       <div class="pal-item" data-layer="${l.layer}" draggable="true">
         <span class="pal-dot ${l.cls}"></span>
         ${l.label}
         <span class="pal-tip" title="${l.tip}">?</span>
-      </div>`).join("")}
-    <hr class="pal-sep">
-    <div class="sec-header">Add trigger</div>
-    ${triggers.map(t => `
-      <div class="pal-item" data-trigger-kind="${t.kind}">
-        <span class="pal-dot ${t.cls}"></span>
-        ${t.label}
-        <span class="pal-tip" title="${t.tip}">?</span>
       </div>`).join("")}
     <hr class="pal-sep">
     <div class="sec-header">Add caller</div>
@@ -1371,13 +1365,23 @@ function _buildPalette(pal, swarmId) {
       Informer (notify only)
       <span class="pal-tip" title="Receives output from the swarm for visibility — no response expected.">?</span>
     </div>
-    <hr class="pal-sep">
+    <hr class="pal-sep">` : ""}
+    ${canDo("can_manage_triggers") ? `
+    <div class="sec-header">Add trigger</div>
+    ${triggers.map(t => `
+      <div class="pal-item" data-trigger-kind="${t.kind}">
+        <span class="pal-dot ${t.cls}"></span>
+        ${t.label}
+        <span class="pal-tip" title="${t.tip}">?</span>
+      </div>`).join("")}
+    <hr class="pal-sep">` : ""}
+    ${canDo("can_edit_swarm") ? `
     <div class="sec-header">Add swarm</div>
     <div class="pal-item" id="pal-add-swarm">
       <span class="pal-dot" style="background:var(--color-teal);border-color:var(--color-teal)"></span>
       External swarm
       <span class="pal-tip" title="Delegate work to another swarm synchronously. The calling agent waits for the result.">?</span>
-    </div>`;
+    </div>` : ""}`;
 
   // Tooltip for ? badges — JS-based so it escapes overflow:hidden clipping
   let _tt = null;

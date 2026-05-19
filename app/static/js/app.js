@@ -19,6 +19,8 @@ import { renderRunsView }         from "./views/runs.js";
 import { renderLibraryView }      from "./views/library.js";
 import { renderSettingsView, applyBrandingOnBoot } from "./views/settings.js";
 import { renderInboxView, refreshInboxPip }       from "./views/inbox.js";
+import { renderWelcomeView }                      from "./views/welcome.js";
+import { setCurrentUser, currentUser, logout }    from "./auth.js";
 
 // ── Router ────────────────────────────────────────────────────────────────────
 
@@ -86,6 +88,9 @@ function render() {
     case "inbox":
       _activeCleanup = renderInboxView(container, segments);
       break;
+    case "welcome":
+      renderWelcomeView(container);
+      break;
     default:
       container.innerHTML = `<div class="empty-state"><div class="empty-state-title">Not found</div></div>`;
   }
@@ -107,6 +112,7 @@ function _handleTabClick(e) {
 
 document.getElementById("topbar-tabs").addEventListener("click", _handleTabClick);
 document.querySelector(".topbar-right").addEventListener("click", _handleTabClick);
+document.querySelector(".topbar-logo").addEventListener("click", () => navigate("welcome"));
 
 // Track last-visited swarm and agent for tab re-activation
 export let _lastSwarmId = "";
@@ -116,32 +122,67 @@ export function setLastAgent(id) { _lastAgentId = id; }
 
 // ── Global search (Cmd+K) ─────────────────────────────────────────────────
 
-document.getElementById("global-search").addEventListener("focus", () => {
-  // Simple: just a placeholder for now, focus moves to field
-});
+const _searchEl = document.getElementById("global-search");
+if (_searchEl) _searchEl.addEventListener("focus", () => {});
 document.addEventListener("keydown", e => {
   if ((e.metaKey || e.ctrlKey) && e.key === "k") {
     e.preventDefault();
-    document.getElementById("global-search").focus();
+    document.getElementById("global-search")?.focus();
   }
   if (e.key === "Escape") {
-    document.getElementById("global-search").blur();
+    document.getElementById("global-search")?.blur();
     // Close any open modal
     document.querySelectorAll(".modal-veil").forEach(m => m.remove());
   }
 });
 
+// ── User widget ────────────────────────────────────────────────────────────
+
+function _renderUserWidget(user) {
+  const right = document.querySelector(".topbar-right");
+  if (!right) return;
+
+  // Remove any existing user widget
+  right.querySelector(".user-widget")?.remove();
+
+  const chip = document.createElement("div");
+  chip.className = "user-widget";
+  chip.innerHTML = `
+    <span class="user-widget-name">${_escHtml(user.display_name || user.username)}</span>
+    <button class="user-widget-logout" title="Sign out">↩</button>
+  `;
+  chip.querySelector(".user-widget-logout").addEventListener("click", logout);
+  right.insertBefore(chip, right.firstChild);
+}
+
+function _escHtml(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' })[c]);
+}
+
 // ── Bootstrap ─────────────────────────────────────────────────────────────
 
-// Apply persisted branding (primary / accent custom properties) before the
-// first paint settles, so the user's theme is in effect on every screen, not
-// just after they visit the Settings tab.
 applyBrandingOnBoot();
 
-// Refresh the Inbox count pip on boot and whenever the SSE stream sees a
-// human-action event. Cheap; just bumps a number in the topbar.
-refreshInboxPip();
+async function boot() {
+  try {
+    const res = await fetch("/api/v1/auth/me");
+    if (res.status === 401) {
+      window.location.href = "/login";
+      return;
+    }
+    const { user } = await res.json();
+    setCurrentUser(user);
+    _renderUserWidget(user);
+  } catch {
+    window.location.href = "/login";
+    return;
+  }
 
-sseConnect();
-window.addEventListener("popstate", render);
-render();
+  refreshInboxPip();
+  sseConnect();
+  window.addEventListener("popstate", render);
+  render();
+}
+
+boot();

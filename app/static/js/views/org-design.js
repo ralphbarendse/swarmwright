@@ -1,5 +1,6 @@
 import * as api from "../api.js";
 import { toast, toastError, toastSuccess } from "../components/toast.js";
+import { canDo } from "../auth.js";
 
 /**
  * Org-design view.
@@ -28,11 +29,11 @@ async function _renderWorkspaceList(container) {
         <div class="page-title">Workspaces</div>
         <div class="page-sub">Department-like containers for swarms</div>
       </div>
-      <button class="btn btn-primary" id="btn-new-ws">+ New workspace</button>
+      ${canDo("can_create_workspace") ? `<button class="btn btn-primary" id="btn-new-ws">+ New workspace</button>` : ""}
     </div>
     <div id="ws-grid" class="card-grid card-grid-3" style="padding:0 24px 24px"></div>`;
 
-  container.querySelector("#btn-new-ws").addEventListener("click", () => _showCreateWorkspaceModal(() => _renderWorkspaceList(container)));
+  container.querySelector("#btn-new-ws")?.addEventListener("click", () => _showCreateWorkspaceModal(() => _renderWorkspaceList(container)));
 
   try {
     const workspaces = await api.listWorkspaces();
@@ -42,8 +43,8 @@ async function _renderWorkspaceList(container) {
       return;
     }
     grid.innerHTML = workspaces.map(ws => _wsCard(ws)).join("") +
-      `<div class="card card-add" id="add-ws-card">+ New workspace</div>`;
-    grid.querySelector("#add-ws-card").addEventListener("click", () => _showCreateWorkspaceModal(() => _renderWorkspaceList(container)));
+      (canDo("can_create_workspace") ? `<div class="card card-add" id="add-ws-card">+ New workspace</div>` : "");
+    grid.querySelector("#add-ws-card")?.addEventListener("click", () => _showCreateWorkspaceModal(() => _renderWorkspaceList(container)));
     grid.querySelectorAll(".ws-card").forEach(el => {
       el.addEventListener("click", () => window.swNav(`org/ws/${el.dataset.id}`));
     });
@@ -82,8 +83,8 @@ async function _renderWorkspaceDetail(container, wsId) {
             <div class="page-sub" id="ws-desc"></div>
           </div>
           <div class="flex-row">
-            <button class="btn btn-secondary btn-sm" id="btn-edit-ws">Edit</button>
-            <button class="btn btn-danger btn-sm" id="btn-del-ws">Delete</button>
+            ${canDo("can_edit_workspace") ? `<button class="btn btn-secondary btn-sm" id="btn-edit-ws">Edit</button>` : ""}
+            ${canDo("can_delete_workspace") ? `<button class="btn btn-danger btn-sm" id="btn-del-ws">Delete</button>` : ""}
           </div>
         </div>
         <div class="sec-header">Swarms</div>
@@ -104,11 +105,11 @@ async function _renderWorkspaceDetail(container, wsId) {
     container.querySelector("#ws-desc").textContent = ws.description || "";
 
     // Edit workspace
-    container.querySelector("#btn-edit-ws").addEventListener("click", () =>
+    container.querySelector("#btn-edit-ws")?.addEventListener("click", () =>
       _showEditWorkspaceModal(ws, () => _renderWorkspaceDetail(container, wsId)));
 
     // Delete workspace — use modal, not confirm()
-    container.querySelector("#btn-del-ws").addEventListener("click", () => {
+    container.querySelector("#btn-del-ws")?.addEventListener("click", () => {
       _showModal(
         "Delete workspace",
         `<p style="margin:0;color:var(--color-ink-soft)">Delete <b>${_esc(ws.display_name)}</b>? All swarms inside must be deleted first. This cannot be undone.</p>`,
@@ -129,9 +130,9 @@ async function _renderWorkspaceDetail(container, wsId) {
     const _refreshGrid = () => _renderWorkspaceDetail(container, wsId);
 
     grid.innerHTML = swarms.map(s => _swarmCard(s)).join("") +
-      `<div class="card card-add" id="add-swarm-card">+ New swarm</div>`;
+      (canDo("can_create_swarm") ? `<div class="card card-add" id="add-swarm-card">+ New swarm</div>` : "");
 
-    grid.querySelector("#add-swarm-card").addEventListener("click", () =>
+    grid.querySelector("#add-swarm-card")?.addEventListener("click", () =>
       _showCreateSwarmModal(wsId, _refreshGrid));
 
     // Navigate into swarm on card click
@@ -274,16 +275,11 @@ function _swarmCard(s) {
       <div class="card-foot" style="align-items:center">
         <span style="color:var(--color-ink-faint);font-size:11px">${lastRun}</span>
         <div class="flex-row" style="gap:4px">
-          <button class="btn btn-ghost btn-sm swarm-fire-btn" data-id="${s.id}" data-name="${_esc(s.display_name)}"
-            style="padding:2px 8px;font-size:11px" title="Fire event">▶</button>
-          <button class="btn btn-ghost btn-sm swarm-toggle-btn" data-id="${s.id}" data-enabled="${enabled}"
-            style="padding:2px 8px;font-size:11px;${toggleStyle}">${toggleLabel}</button>
-          <button class="btn btn-ghost btn-sm swarm-edit-btn" data-id="${s.id}" data-name="${_esc(s.display_name)}" data-desc="${_esc(s.description || '')}"
-            style="padding:2px 8px;font-size:11px">Edit</button>
-          <button class="btn btn-ghost btn-sm swarm-transfer-btn" data-id="${s.id}" data-name="${_esc(s.display_name)}" data-wsid="${_esc(s.workspace_id || '')}"
-            style="padding:2px 8px;font-size:11px">Transfer</button>
-          <button class="btn btn-ghost btn-sm swarm-del-btn" data-id="${s.id}" data-name="${_esc(s.display_name)}"
-            style="padding:2px 8px;font-size:11px;color:var(--color-danger)">Delete</button>
+          ${canDo("can_start_run") ? `<button class="btn btn-ghost btn-sm swarm-fire-btn" data-id="${s.id}" data-name="${_esc(s.display_name)}" style="padding:2px 8px;font-size:11px" title="Fire event">▶</button>` : ""}
+          ${canDo("can_edit_swarm") ? `<button class="btn btn-ghost btn-sm swarm-toggle-btn" data-id="${s.id}" data-enabled="${enabled}" style="padding:2px 8px;font-size:11px;${toggleStyle}">${toggleLabel}</button>` : ""}
+          ${canDo("can_edit_swarm") ? `<button class="btn btn-ghost btn-sm swarm-edit-btn" data-id="${s.id}" data-name="${_esc(s.display_name)}" data-desc="${_esc(s.description || '')}" style="padding:2px 8px;font-size:11px">Edit</button>` : ""}
+          ${canDo("can_edit_swarm") ? `<button class="btn btn-ghost btn-sm swarm-transfer-btn" data-id="${s.id}" data-name="${_esc(s.display_name)}" data-wsid="${_esc(s.workspace_id || '')}" style="padding:2px 8px;font-size:11px">Transfer</button>` : ""}
+          ${canDo("can_delete_swarm") ? `<button class="btn btn-ghost btn-sm swarm-del-btn" data-id="${s.id}" data-name="${_esc(s.display_name)}" style="padding:2px 8px;font-size:11px;color:var(--color-danger)">Delete</button>` : ""}
         </div>
       </div>
     </div>`;
