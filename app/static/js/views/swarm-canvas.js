@@ -29,6 +29,7 @@ export function renderSwarmCanvas(container, swarmId) {
       <div class="flex-row">
         <button class="btn btn-ghost btn-sm" id="btn-fit">⊡ Fit</button>
         <button class="btn btn-ghost btn-sm" id="btn-layout">⟳ Re-layout</button>
+        ${canDo("can_start_run") ? `<button class="btn btn-primary btn-sm" id="btn-run-swarm">▶ Run</button>` : ""}
       </div>
     </div>
     <div class="canvas-shell" style="flex:1;overflow:hidden">
@@ -77,6 +78,7 @@ export function renderSwarmCanvas(container, swarmId) {
 
   container.querySelector("#btn-fit").addEventListener("click", () => _cy?.fit(undefined, 40));
   container.querySelector("#btn-layout").addEventListener("click", () => _cy && _runLayout(_cy));
+  container.querySelector("#btn-run-swarm")?.addEventListener("click", () => _runSwarmFromToolbar(container, swarmId));
 
   // Esc cancels connect-mode; cleaned up on view teardown.
   const onKey = (e) => { if (e.key === "Escape" && _connectSource) _exitConnectMode(container); };
@@ -1169,6 +1171,28 @@ function _showNodeInspector(container, node, swarmId, hierarchy, reload) {
   const triggerTarget = isTrigger ? (d.trigger_config?.target_agent || null) : null;
 
   insp.innerHTML = `
+    ${isAgent ? `
+      <div class="insp-btn-row" style="flex-direction:column;gap:6px;padding-bottom:12px">
+        ${canDo("can_edit_constitution") ? `<button class="btn btn-primary btn-sm" id="insp-edit-const" ${d.agent_id ? "" : "disabled title='Agent not yet registered'"}>Edit constitution</button>` : ""}
+        ${canDo("can_edit_constitution") ? `<button class="btn btn-secondary btn-sm" id="insp-connect">Connect to…</button>` : ""}
+        ${canDo("can_edit_constitution") ? `<button class="btn btn-secondary btn-sm" id="insp-attach-skill">Attach skill…</button>` : ""}
+        ${canDo("can_edit_constitution") ? `<button class="btn btn-ghost btn-sm" id="insp-del-node">Remove from swarm</button>` : ""}
+      </div>` : isTrigger ? `
+      <div class="insp-btn-row" style="flex-direction:column;gap:6px;padding-bottom:12px">
+        ${d.trigger_kind === "invocation" && canDo("can_start_run") ? `<button class="btn btn-primary btn-sm" id="insp-invoke-trigger">Fire now…</button>` : ""}
+        ${canDo("can_manage_triggers") ? `<button class="btn btn-secondary btn-sm" id="insp-edit-trigger">Edit target / config…</button>` : ""}
+        ${canDo("can_manage_triggers") ? `<button class="btn btn-ghost btn-sm" id="insp-del-node">Delete trigger</button>` : ""}
+      </div>` : (isCaller || isInformer) ? `
+      <div class="insp-btn-row" style="flex-direction:column;gap:6px;padding-bottom:12px">
+        ${canDo("can_edit_constitution") ? `<button class="btn btn-ghost btn-sm" id="insp-del-node">Disconnect from swarm</button>` : ""}
+      </div>` : isSwarmNode ? `
+      <div class="insp-btn-row" style="flex-direction:column;gap:6px;padding-bottom:12px">
+        <button class="btn btn-secondary btn-sm" onclick="swNav('swarm/${_esc(d.swarm_id)}')">Open swarm</button>
+        ${canDo("can_edit_swarm") ? `<button class="btn btn-ghost btn-sm" id="insp-del-node">Remove from canvas</button>` : ""}
+      </div>` : `
+      <div class="insp-btn-row">
+        ${canDo("can_edit_constitution") ? `<button class="btn btn-ghost btn-sm" id="insp-del-node">Remove</button>` : ""}
+      </div>`}
     <div class="insp-label">Selected</div>
     <div class="insp-node-name">${_esc(d.name)}</div>
     <div class="insp-node-layer">${d.type}${d.layer ? ` · ${d.layer}` : ""}${isTrigger && d.trigger_kind ? ` · ${d.trigger_kind}` : ""}</div>
@@ -1186,40 +1210,16 @@ function _showNodeInspector(container, node, swarmId, hierarchy, reload) {
         <div class="insp-label">Config</div>
         <pre style="font-family:var(--font-mono);font-size:10px;background:var(--color-card);border:1px solid var(--color-cream-line);border-radius:4px;padding:6px 8px;white-space:pre-wrap;color:var(--color-ink)">${_esc(triggerCfgStr)}</pre>
       </div>` : ""}
-    ${outgoing.length ? `<div style="margin-top:10px"><div class="insp-label">Outgoing</div>${connList(outgoing.toArray(), "out")}</div>` : ""}
-    ${incoming.length ? `<div style="margin-top:10px"><div class="insp-label">Incoming</div>${connList(incoming.toArray(), "in")}</div>` : ""}
-    ${isAgent ? `
-      <div class="insp-btn-row" style="flex-direction:column;gap:6px;padding-top:12px">
-        ${canDo("can_edit_constitution") ? `<button class="btn btn-primary btn-sm" id="insp-edit-const" ${d.agent_id ? "" : "disabled title='Agent not yet registered'"}>Edit constitution</button>` : ""}
-        ${canDo("can_edit_constitution") ? `<button class="btn btn-secondary btn-sm" id="insp-connect">Connect to…</button>` : ""}
-        ${canDo("can_edit_constitution") ? `<button class="btn btn-secondary btn-sm" id="insp-attach-skill">Attach skill…</button>` : ""}
-        ${canDo("can_edit_constitution") ? `<button class="btn btn-ghost btn-sm" id="insp-del-node">Remove from swarm</button>` : ""}
-      </div>` : isTrigger ? `
-      <div class="insp-btn-row" style="flex-direction:column;gap:6px;padding-top:12px">
-        ${d.trigger_kind === "invocation" && canDo("can_start_run") ? `<button class="btn btn-primary btn-sm" id="insp-invoke-trigger">Fire now…</button>` : ""}
-        ${canDo("can_manage_triggers") ? `<button class="btn btn-secondary btn-sm" id="insp-edit-trigger">Edit target / config…</button>` : ""}
-        ${canDo("can_manage_triggers") ? `<button class="btn btn-ghost btn-sm" id="insp-del-node">Delete trigger</button>` : ""}
-      </div>` : (isCaller || isInformer) ? `
-      <div class="insp-btn-row" style="flex-direction:column;gap:6px;padding-top:12px">
-        <div style="font-size:11px;color:var(--color-ink-faint);font-family:var(--font-mono)">
-          Connect via an agent node: select the agent, then click "Connect to…"
-        </div>
-        ${canDo("can_edit_constitution") ? `<button class="btn btn-ghost btn-sm" id="insp-del-node">Disconnect from swarm</button>` : ""}
-      </div>` : isSwarmNode ? `
-      ${d.is_cross_workspace ? `
+    ${isSwarmNode && d.is_cross_workspace ? `
       <div style="margin-top:10px;padding:7px 9px;background:#fff8e6;border:1.5px solid var(--color-warn);border-radius:4px;font-size:10px;color:var(--color-ink-soft);font-family:var(--font-mono);line-height:1.5">
         ↗ <b>Cross-workspace</b> — this swarm lives in a different workspace. Ensure it is enabled and its entry point is configured.
       </div>` : ""}
-      <div class="insp-btn-row" style="flex-direction:column;gap:6px;padding-top:12px">
-        <div style="font-size:11px;color:var(--color-ink-faint);font-family:var(--font-mono)">
-          Connect via an agent node: select the agent, then click "Connect to…"
-        </div>
-        <button class="btn btn-secondary btn-sm" onclick="swNav('swarm/${_esc(d.swarm_id)}')">Open swarm</button>
-        ${canDo("can_edit_swarm") ? `<button class="btn btn-ghost btn-sm" id="insp-del-node">Remove from canvas</button>` : ""}
-      </div>` : `
-      <div class="insp-btn-row">
-        ${canDo("can_edit_constitution") ? `<button class="btn btn-ghost btn-sm" id="insp-del-node">Remove</button>` : ""}
-      </div>`}`;
+    ${(isCaller || isInformer || isSwarmNode) ? `
+      <div style="margin-top:10px;font-size:11px;color:var(--color-ink-faint);font-family:var(--font-mono)">
+        Connect via an agent node: select the agent, then click "Connect to…"
+      </div>` : ""}
+    ${outgoing.length ? `<div style="margin-top:10px"><div class="insp-label">Outgoing</div>${connList(outgoing.toArray(), "out")}</div>` : ""}
+    ${incoming.length ? `<div style="margin-top:10px"><div class="insp-label">Incoming</div>${connList(incoming.toArray(), "in")}</div>` : ""}`;
 
   if (isAgent && d.agent_id) {
     insp.querySelector("#insp-edit-const")?.addEventListener("click", () => window.swNav(`constitution/${d.agent_id}`));
@@ -2141,6 +2141,40 @@ async function _showEditTriggerModal(swarmId, d, onDone) {
   }, 50);
 }
 
+
+function _runSwarmFromToolbar(container, swarmId) {
+  if (!_cy) return;
+  const invocationTriggers = _cy.nodes()
+    .filter(n => n.data("type") === "trigger" && n.data("trigger_kind") === "invocation")
+    .toArray();
+
+  if (!invocationTriggers.length) {
+    toast("No invocation trigger on this swarm — add one from the palette first.", "warn");
+    return;
+  }
+
+  const reload = () => _loadCanvas(container, swarmId);
+
+  if (invocationTriggers.length === 1) {
+    _showInvokeTriggerModal(invocationTriggers[0].data(), reload);
+    return;
+  }
+
+  // Multiple invocation triggers — let the user pick one
+  const opts = invocationTriggers.map((n, i) =>
+    `<button class="btn btn-secondary btn-sm" data-i="${i}">${_esc(n.data("name"))}</button>`
+  ).join("");
+  const { close } = _showModal("Choose trigger",
+    `<p style="font-size:13px;color:var(--color-ink-soft);margin-bottom:12px">This swarm has multiple invocation triggers. Which one do you want to fire?</p>
+     <div style="display:flex;flex-direction:column;gap:8px">${opts}</div>`,
+    null);
+  document.querySelectorAll(".modal-veil [data-i]").forEach(btn => {
+    btn.addEventListener("click", () => {
+      close();
+      _showInvokeTriggerModal(invocationTriggers[+btn.dataset.i].data(), reload);
+    });
+  });
+}
 
 function _showInvokeTriggerModal(d, onDone) {
   const cfg = d.trigger_config || {};
