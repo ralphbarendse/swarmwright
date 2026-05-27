@@ -11,9 +11,67 @@ let _connectCleanup = null; // resets connect-mode visuals
 
 // ── Main entry ────────────────────────────────────────────────────────────
 
+async function _renderSwarmPicker(container) {
+  container.style.cssText = "overflow-y:auto;height:100%;padding:32px 40px;box-sizing:border-box;";
+  container.innerHTML = `
+    <div style="max-width:680px;margin:0 auto">
+      <div class="sec-header" style="margin-bottom:20px">Select a Swarm</div>
+      <div id="swarm-picker-body"><div class="text-muted" style="font-size:var(--text-sm)">Loading…</div></div>
+    </div>`;
+  const body = container.querySelector("#swarm-picker-body");
+  try {
+    const workspaces = await api.listWorkspaces();
+    if (!workspaces.length) {
+      body.innerHTML = `<div class="text-muted" style="font-size:var(--text-sm)">No workspaces yet. Create one in the Org view.</div>`;
+      return;
+    }
+    const sections = await Promise.all(workspaces.map(async ws => {
+      try {
+        const swarms = await api.listSwarms(ws.id);
+        return { ws, swarms };
+      } catch { return { ws, swarms: [] }; }
+    }));
+    body.innerHTML = "";
+    let anySwarms = false;
+    for (const { ws, swarms } of sections) {
+      if (!swarms.length) continue;
+      anySwarms = true;
+      const sec = document.createElement("div");
+      sec.style.cssText = "margin-bottom:28px";
+      sec.innerHTML = `<div style="font-size:var(--text-xs);font-family:var(--font-mono);text-transform:uppercase;letter-spacing:.08em;color:var(--color-ink-soft);margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--color-cream-line)">${_escHtml(ws.display_name || ws.name)}</div>`;
+      for (const sw of swarms) {
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:6px;cursor:pointer;transition:background .12s";
+        row.innerHTML = `
+          <span style="font-size:18px">${_escHtml(sw.icon || "🤖")}</span>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:var(--text-sm);font-weight:500;color:var(--color-ink)">${_escHtml(sw.display_name || sw.name)}</div>
+            ${sw.description ? `<div style="font-size:11px;color:var(--color-ink-soft);font-family:var(--font-mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_escHtml(sw.description)}</div>` : ""}
+          </div>
+          <span style="font-size:16px;color:var(--color-ink-soft)">›</span>`;
+        row.addEventListener("mouseenter", () => row.style.background = "var(--color-cream-hover)");
+        row.addEventListener("mouseleave", () => row.style.background = "");
+        row.addEventListener("click", () => window.swNav(`swarm/${sw.id}`));
+        sec.appendChild(row);
+      }
+      body.appendChild(sec);
+    }
+    if (!anySwarms) {
+      body.innerHTML = `<div class="text-muted" style="font-size:var(--text-sm)">No swarms yet. Create one in the Org view.</div>`;
+    }
+  } catch (e) {
+    body.innerHTML = `<div class="text-muted" style="font-size:var(--text-sm)">Failed to load swarms.</div>`;
+  }
+}
+
+function _escHtml(s) {
+  return String(s).replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+}
+
 export function renderSwarmCanvas(container, swarmId) {
   if (!swarmId) {
-    container.innerHTML = `<div class="empty-state"><div class="empty-state-title">No swarm selected</div><div class="empty-state-sub">Choose a swarm from the Org view.</div></div>`;
+    _renderSwarmPicker(container);
     return null;
   }
   setLastSwarm(swarmId);
@@ -42,25 +100,37 @@ export function renderSwarmCanvas(container, swarmId) {
             <div class="text-muted" style="font-size:var(--text-xs)">Click a node or edge to inspect it.</div>
           </div>
         </div>
-        <div class="canvas-files-panel" id="canvas-files-panel">
+        ${canDo("can_read_files") ? `<div class="canvas-files-panel" id="canvas-files-panel">
           <div class="canvas-files-header">
             <span style="font-family:var(--font-mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--color-ink-soft);font-weight:600">Files</span>
             <span id="canvas-files-count" style="font-family:var(--font-mono);font-size:10px;color:var(--color-ink-soft)"></span>
             <div style="flex:1"></div>
+            ${canDo("can_write_files") ? `
             <button id="canvas-files-mkdir" class="btn btn-ghost btn-sm" style="padding:2px 7px;font-size:11px" title="New folder">+ Folder</button>
             <label style="cursor:pointer" title="Upload file">
               <span class="btn btn-ghost btn-sm" style="padding:2px 7px;font-size:11px">↑ Upload</span>
               <input id="canvas-files-input" type="file" multiple style="display:none">
-            </label>
+            </label>` : ""}
           </div>
           <div class="canvas-files-list" id="canvas-files-list">
             <div style="padding:10px 14px;font-family:var(--font-mono);font-size:11px;color:var(--color-ink-soft)">Loading…</div>
           </div>
-        </div>
+        </div>` : ""}
       </aside>
     </div>`;
 
   _buildPalette(container.querySelector("#canvas-palette"), swarmId);
+
+  // Collapse palette column when user has no addable items.
+  // Do NOT use display:none — that removes the element from grid flow and shifts
+  // #cy-container into the 0-width column 1, making the canvas invisible.
+  if (!canDo("can_edit_constitution") && !canDo("can_manage_triggers") && !canDo("can_edit_swarm")) {
+    const shell = container.querySelector(".canvas-shell");
+    const pal   = container.querySelector("#canvas-palette");
+    if (shell) shell.style.gridTemplateColumns = "0 1fr var(--inspector-w)";
+    if (pal)   { pal.style.overflow = "hidden"; pal.style.padding = "0"; pal.style.borderRight = "none"; }
+  }
+
   _initFilePanel(container, swarmId);
 
   const sseHandler = (msg) => {
@@ -152,7 +222,8 @@ async function _loadCanvas(container, swarmId) {
           <span class="crumb-link" id="canvas-crumb-ws-link"></span>
           <span class="crumb-sep">›</span>
         </span>
-        <span class="crumb-here">${_esc(swarm.display_name)}</span>`;
+        <span class="crumb-here">${_esc(swarm.display_name)}</span>
+        <button onclick="swCopy('${swarmId}',this)" style="background:none;border:none;cursor:pointer;font-size:10px;color:var(--color-ink-faint);padding:1px 4px;margin-left:4px;line-height:1" title="Copy swarm ID">⎘</button>`;
       if (swarm.workspace_id) {
         api.getWorkspace(swarm.workspace_id).then(ws => {
           const wrap = crumbs.querySelector("#canvas-crumb-ws");
@@ -228,9 +299,16 @@ async function _loadCanvas(container, swarmId) {
     // hover-handles, no edgehandles plugin — just clicks.
     _exitConnectMode(container);
 
-    // Always re-layout on every mount — positions are ephemeral within a
-    // session (dragging a node still moves it; refreshing resets the graph).
-    _runLayout(_cy);
+    // Use saved positions when available (persisted in meta.yaml via save_positions).
+    // Only fall back to dagre when fewer than half the agent nodes have a saved position.
+    const agentNames = hierarchy.agents || [];
+    const savedCount = agentNames.filter(n => positions[n]?.x).length;
+    if (agentNames.length === 0 || savedCount < Math.ceil(agentNames.length * 0.5)) {
+      _runLayout(_cy);
+    } else {
+      // Positions already baked into elements — just fit the viewport.
+      setTimeout(() => _cy.fit(undefined, 40), 80);
+    }
 
     // Belt-and-suspenders: also set the sketchify filter inline on every
     // canvas Cytoscape mounted. The CSS rule should already do this, but
@@ -303,10 +381,22 @@ async function _loadCanvas(container, swarmId) {
       if (d.agent_id) window.swNav(`constitution/${d.agent_id}`);
     });
 
-    // Positions are ephemeral — drags persist for the session but the next
-    // canvas mount re-runs dagre. (`_savePositions` and the `save_positions`
-    // topology op are kept dormant in case we want pinning back later.)
+    // Right-click context menu
+    _cy.on("cxttap", "node", e => {
+      _showContextMenu(container, e.target, swarmId, hierarchy, () => _loadCanvas(container, swarmId));
+    });
 
+    // Persist positions: save after any drag and after every layout.
+    // Debounced so rapid drags don't spam the API.
+    let _posTimer = null;
+    const _schedSave = () => {
+      clearTimeout(_posTimer);
+      _posTimer = setTimeout(() => _savePositions(swarmId, _cy), 700);
+    };
+    _cy.on("dragfree", "node", _schedSave);
+    _cy.on("layoutstop", _schedSave);
+
+    _mountMinimap(container);
     _showSwarmInspector(container, swarm, swarmId, hierarchy, () => _loadCanvas(container, swarmId));
 
   } catch (err) { toastError(err); }
@@ -901,8 +991,8 @@ function _buildSwarmNodeCard(data) {
 function _buildAgentCard(data) {
   const layer = data.layer || "executioner";
 
-  const starHtml = data.is_entry_point
-    ? `<span class="cy-card-entry-star" title="Swarm entry point">★</span>`
+  const entryBadge = data.is_entry_point
+    ? `<span class="cy-card-entry-badge" title="Swarm entry point">Entry</span>`
     : "";
 
   const taglineHtml = data.tagline
@@ -913,18 +1003,22 @@ function _buildAgentCard(data) {
     ? `<hr class="cy-card-sep"><div class="cy-card-preview">${_esc(data.constitution_preview)}</div>`
     : "";
 
-  const modelHtml = data.model
-    ? `<div class="cy-card-footer"><span class="cy-card-model-pill">${_esc(_shortModel(data.model))}</span></div>`
-    : "";
+  const LAYER_LABEL = { policy: "Policy", orchestrator: "Orchestrator", executioner: "Executioner", perceptionist: "Perceptionist" };
+  const layerLabel = LAYER_LABEL[layer] || layer;
+
+  const footerParts = [];
+  if (data.model) footerParts.push(`<span class="cy-card-model-pill">${_esc(_shortModel(data.model))}</span>`);
+  footerParts.push(`<span class="cy-card-layer-badge cy-card-layer-badge-${_esc(layer)}">${layerLabel}</span>`);
+  const modelHtml = `<div class="cy-card-footer">${footerParts.join("")}</div>`;
 
   return `
-    <div class="cy-card cy-card-layer-${_esc(layer)}">
+    <div class="cy-card cy-card-layer-${_esc(layer)}${data.is_entry_point ? " cy-card-entry" : ""}">
       <div class="cy-card-accent"></div>
       <div class="cy-card-inner">
         <div class="cy-card-header">
           <div class="cy-card-dot"></div>
           <span class="cy-card-name">${_esc(data.name || "")}</span>
-          ${starHtml}
+          ${entryBadge}
         </div>
         ${taglineHtml}
         ${previewHtml}
@@ -1128,7 +1222,12 @@ function _showSwarmInspector(container, swarm, swarmId, hierarchy, reload) {
     </div>`;
 
   insp.querySelector("#insp-del-swarm")?.addEventListener("click", async () => {
-    if (!confirm(`Delete swarm "${swarm.display_name}"? This cannot be undone.`)) return;
+    const ok = await _confirmDialog(
+      "Delete swarm",
+      `Delete <b>${_esc(swarm.display_name)}</b>? All agents, runs, and files will be permanently removed.`,
+      "Delete", true
+    );
+    if (!ok) return;
     try {
       await api.deleteSwarm(swarmId);
       toastSuccess("Swarm deleted");
@@ -1173,7 +1272,11 @@ function _showNodeInspector(container, node, swarmId, hierarchy, reload) {
   insp.innerHTML = `
     ${isAgent ? `
       <div class="insp-btn-row" style="flex-direction:column;gap:6px;padding-bottom:12px">
-        ${canDo("can_edit_constitution") ? `<button class="btn btn-primary btn-sm" id="insp-edit-const" ${d.agent_id ? "" : "disabled title='Agent not yet registered'"}>Edit constitution</button>` : ""}
+        ${d.agent_id
+          ? `<button class="btn ${canDo("can_edit_constitution") ? "btn-primary" : "btn-secondary"} btn-sm" id="insp-edit-const">
+               ${canDo("can_edit_constitution") ? "Edit" : "View"} constitution
+             </button>`
+          : `<button class="btn btn-secondary btn-sm" disabled title="Agent not yet registered">View constitution</button>`}
         ${canDo("can_edit_constitution") ? `<button class="btn btn-secondary btn-sm" id="insp-connect">Connect to…</button>` : ""}
         ${canDo("can_edit_constitution") ? `<button class="btn btn-secondary btn-sm" id="insp-attach-skill">Attach skill…</button>` : ""}
         ${canDo("can_edit_constitution") ? `<button class="btn btn-ghost btn-sm" id="insp-del-node">Remove from swarm</button>` : ""}
@@ -1195,7 +1298,10 @@ function _showNodeInspector(container, node, swarmId, hierarchy, reload) {
       </div>`}
     <div class="insp-label">Selected</div>
     <div class="insp-node-name">${_esc(d.name)}</div>
-    <div class="insp-node-layer">${d.type}${d.layer ? ` · ${d.layer}` : ""}${isTrigger && d.trigger_kind ? ` · ${d.trigger_kind}` : ""}</div>
+    <div class="insp-node-layer" style="display:flex;align-items:center;gap:6px">
+      <span>${d.type}${d.layer ? ` · ${d.layer}` : ""}${isTrigger && d.trigger_kind ? ` · ${d.trigger_kind}` : ""}</span>
+      ${d.agent_id ? `<button onclick="swCopy('${d.agent_id}',this)" style="background:none;border:none;cursor:pointer;font-size:10px;color:var(--color-ink-faint);padding:1px 3px;line-height:1" title="Copy agent ID">⎘</button>` : ""}
+    </div>
     ${isTrigger ? `
       <div style="margin-top:10px">
         <div class="insp-label">Fires into</div>
@@ -1214,7 +1320,7 @@ function _showNodeInspector(container, node, swarmId, hierarchy, reload) {
       <div style="margin-top:10px;padding:7px 9px;background:#fff8e6;border:1.5px solid var(--color-warn);border-radius:4px;font-size:10px;color:var(--color-ink-soft);font-family:var(--font-mono);line-height:1.5">
         ↗ <b>Cross-workspace</b> — this swarm lives in a different workspace. Ensure it is enabled and its entry point is configured.
       </div>` : ""}
-    ${(isCaller || isInformer || isSwarmNode) ? `
+    ${(isCaller || isInformer || isSwarmNode) && canDo("can_edit_constitution") ? `
       <div style="margin-top:10px;font-size:11px;color:var(--color-ink-faint);font-family:var(--font-mono)">
         Connect via an agent node: select the agent, then click "Connect to…"
       </div>` : ""}
@@ -1242,12 +1348,27 @@ function _showNodeInspector(container, node, swarmId, hierarchy, reload) {
   }
 
   insp.querySelector("#insp-del-node")?.addEventListener("click", async () => {
-    const confirmMsg = isAgent ? `Remove agent "${d.name}" from topology?`
-      : isTrigger ? `Delete trigger "${d.name}"?`
-      : (isCaller || isInformer) ? `Disconnect "${d.name}" from this swarm? This removes all connections to it.`
-      : isSwarmNode ? `Remove swarm "${d.display_name}" from canvas? This removes all call connections to it.`
-      : `Remove "${d.name}"?`;
-    if (!confirm(confirmMsg)) return;
+    const confirmTitle = isAgent ? "Remove agent"
+      : isTrigger ? "Delete trigger"
+      : (isCaller || isInformer) ? "Disconnect"
+      : isSwarmNode ? "Remove swarm"
+      : "Remove";
+    const confirmMsg = isAgent
+      ? `Remove <b>${_esc(d.name)}</b> from the topology? The constitution file will be deleted.`
+      : isTrigger
+        ? `Delete trigger <b>${_esc(d.name)}</b>? This cannot be undone.`
+        : (isCaller || isInformer)
+          ? `Disconnect <b>${_esc(d.name)}</b> from this swarm? All connections to it will be removed.`
+          : isSwarmNode
+            ? `Remove <b>${_esc(d.display_name)}</b> from the canvas? All call connections to it will be removed.`
+            : `Remove <b>${_esc(d.name)}</b>?`;
+    const confirmLabel = isAgent ? "Remove"
+      : isTrigger ? "Delete"
+      : (isCaller || isInformer) ? "Disconnect"
+      : isSwarmNode ? "Remove"
+      : "Remove";
+    const ok = await _confirmDialog(confirmTitle, confirmMsg, confirmLabel, true);
+    if (!ok) return;
     try {
       if (isAgent) {
         await api.patchTopology(swarmId, "remove_agent", { name: d.name });
@@ -1305,7 +1426,12 @@ function _showEdgeInspector(container, edge, swarmId, hierarchy, reload) {
     _showEditPurposeModal(swarmId, d, reload);
   });
   insp.querySelector("#insp-del-edge").addEventListener("click", async () => {
-    if (!confirm("Delete this edge?")) return;
+    const ok = await _confirmDialog(
+      "Delete connection",
+      `Remove the <b>${_esc(d.kind)}</b> connection from <b>${_esc(d.source)}</b> to <b>${_esc(targetLabel)}</b>? This cannot be undone.`,
+      "Delete", true
+    );
+    if (!ok) return;
     try {
       const op = d.kind === "consult"     ? "remove_consultation" :
         d.kind === "skill"                ? "remove_skill_connection" :
@@ -1411,13 +1537,13 @@ function _buildPalette(pal, swarmId) {
     item.addEventListener("click", () => _showAddTriggerModal(swarmId, item.dataset.triggerKind, reload));
   });
 
-  pal.querySelector("#pal-add-caller").addEventListener("click", () =>
+  pal.querySelector("#pal-add-caller")?.addEventListener("click", () =>
     _showAddCallerModal(swarmId, reload));
 
-  pal.querySelector("#pal-add-informer").addEventListener("click", () =>
+  pal.querySelector("#pal-add-informer")?.addEventListener("click", () =>
     _showAddInformerModal(swarmId, reload));
 
-  pal.querySelector("#pal-add-swarm").addEventListener("click", () =>
+  pal.querySelector("#pal-add-swarm")?.addEventListener("click", () =>
     _showAddSwarmNodeModal(swarmId, reload));
 }
 
@@ -2471,6 +2597,7 @@ function _pulseNode(name) {
 // ── Inline file panel ─────────────────────────────────────────────────────
 
 function _initFilePanel(container, swarmId) {
+  if (!canDo("can_read_files")) return;
   const list   = container.querySelector("#canvas-files-list");
   const count  = container.querySelector("#canvas-files-count");
   const input  = container.querySelector("#canvas-files-input");
@@ -2505,7 +2632,7 @@ function _initFilePanel(container, swarmId) {
             ${subdir ? `<div style="font-family:var(--font-mono);font-size:9px;color:var(--color-ink-soft)">${_esc(subdir)}</div>` : ""}
           </div>
           <button class="btn btn-ghost btn-sm cf-dl" data-path="${_esc(f.path)}" title="Download" style="padding:2px 5px;font-size:11px;flex-shrink:0">↓</button>
-          <button class="btn btn-ghost btn-sm cf-del" data-path="${_esc(f.path)}" title="Delete" style="padding:2px 5px;font-size:11px;flex-shrink:0;color:var(--color-danger,#c0392b)">✕</button>
+          ${canDo("can_write_files") ? `<button class="btn btn-ghost btn-sm cf-del" data-path="${_esc(f.path)}" title="Delete" style="padding:2px 5px;font-size:11px;flex-shrink:0;color:var(--color-danger,#c0392b)">✕</button>` : ""}
         </div>`;
       }).join("");
 
@@ -2518,7 +2645,12 @@ function _initFilePanel(container, swarmId) {
       list.querySelectorAll(".cf-del").forEach(btn => {
         btn.addEventListener("click", async e => {
           e.stopPropagation();
-          if (!confirm(`Delete "${btn.dataset.path}"?`)) return;
+          const ok = await _confirmDialog(
+            "Delete file",
+            `Delete <b>${_esc(btn.dataset.path)}</b>? This cannot be undone.`,
+            "Delete", true
+          );
+          if (!ok) return;
           try {
             await api.deleteSwarmFile(swarmId, btn.dataset.path);
             reload();
@@ -2538,7 +2670,12 @@ function _initFilePanel(container, swarmId) {
         await api.uploadSwarmFile(swarmId, file, file.name);
       } catch (err) {
         if (err.code === "conflict") {
-          if (!confirm(`"${file.name}" already exists. Overwrite?`)) continue;
+          const overwrite = await _confirmDialog(
+            "File already exists",
+            `<b>${_esc(file.name)}</b> already exists in this swarm. Overwrite it?`,
+            "Overwrite"
+          );
+          if (!overwrite) continue;
           try { await api.uploadSwarmFile(swarmId, file, file.name, true); } catch (e2) { toastError(e2.message || "Upload failed"); continue; }
         } else {
           toastError(err.message || "Upload failed");
@@ -2549,15 +2686,15 @@ function _initFilePanel(container, swarmId) {
     reload();
   }
 
-  input.addEventListener("change", () => {
+  input?.addEventListener("change", () => {
     if (input.files.length) upload(input.files);
     input.value = "";
   });
 
-  mkdir.addEventListener("click", async () => {
-    const name = prompt("Folder name (e.g. reports or reports/2024):");
-    if (!name || !name.trim()) return;
-    const folderPath = name.trim().replace(/\\/g, "/").replace(/\/+$/, "");
+  mkdir?.addEventListener("click", async () => {
+    const name = await _promptDialog("New folder", "Folder name", "e.g. reports or reports/2024");
+    if (!name) return;
+    const folderPath = name.replace(/\\/g, "/").replace(/\/+$/, "");
     const keepPath = folderPath + "/.keep";
     const keepFile = new File([""], ".keep", { type: "text/plain" });
     try {
@@ -2568,15 +2705,17 @@ function _initFilePanel(container, swarmId) {
     }
   });
 
-  // Drop files directly onto the file panel
-  const panel = container.querySelector("#canvas-files-panel");
-  panel.addEventListener("dragover", e => { e.preventDefault(); panel.style.background = "var(--color-parchment)"; });
-  panel.addEventListener("dragleave", () => { panel.style.background = ""; });
-  panel.addEventListener("drop", e => {
-    e.preventDefault();
-    panel.style.background = "";
-    if (e.dataTransfer.files.length) upload(e.dataTransfer.files);
-  });
+  // Drop files directly onto the file panel (writers only)
+  if (canDo("can_write_files")) {
+    const panel = container.querySelector("#canvas-files-panel");
+    panel.addEventListener("dragover", e => { e.preventDefault(); panel.style.background = "var(--color-parchment)"; });
+    panel.addEventListener("dragleave", () => { panel.style.background = ""; });
+    panel.addEventListener("drop", e => {
+      e.preventDefault();
+      panel.style.background = "";
+      if (e.dataTransfer.files.length) upload(e.dataTransfer.files);
+    });
+  }
 
   reload();
 }
@@ -2634,4 +2773,294 @@ function _cronHuman(expr) {
   }
 
   return "";
+}
+
+// ── In-app confirm / prompt dialogs ──────────────────────────────────────────
+//
+// Promise-based replacements for window.confirm() and window.prompt() so that
+// destructive actions use the app's own modal chrome instead of browser dialogs.
+
+/**
+ * Show a confirmation modal. Returns a Promise<boolean>.
+ * @param {string} title
+ * @param {string} message  May contain safe HTML (e.g. <b>name</b>). Escape user values with _esc().
+ * @param {string} [confirmLabel]
+ * @param {boolean} [danger]  Whether to style the confirm button as destructive.
+ */
+function _confirmDialog(title, message, confirmLabel = "Confirm", danger = false) {
+  return new Promise(resolve => {
+    const veil = document.createElement("div");
+    veil.className = "modal-veil";
+    const btnCls = danger ? "btn btn-danger" : "btn btn-primary";
+    veil.innerHTML = `
+      <div class="modal" role="dialog" aria-modal="true">
+        <div class="modal-header">
+          <span>${title}</span>
+          <button class="modal-close" id="cdlg-x">✕</button>
+        </div>
+        <div class="modal-body">
+          <p style="margin:0;color:var(--color-ink-soft);line-height:1.55">${message}</p>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-ghost" id="cdlg-cancel">Cancel</button>
+          <button class="${btnCls}" id="cdlg-confirm">${_esc(confirmLabel)}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(veil);
+    const finish = val => { veil.remove(); resolve(val); };
+    veil.querySelector("#cdlg-x").addEventListener("click",       () => finish(false));
+    veil.querySelector("#cdlg-cancel").addEventListener("click",  () => finish(false));
+    veil.querySelector("#cdlg-confirm").addEventListener("click", () => finish(true));
+    veil.addEventListener("click", e => { if (e.target === veil) finish(false); });
+    // Focus the cancel button by default so Enter doesn't accidentally confirm
+    setTimeout(() => veil.querySelector("#cdlg-cancel")?.focus(), 30);
+  });
+}
+
+/**
+ * Show a single-input prompt modal. Returns Promise<string|null>.
+ * Resolves null when the user cancels.
+ */
+function _promptDialog(title, label, placeholder = "") {
+  return new Promise(resolve => {
+    const veil = document.createElement("div");
+    veil.className = "modal-veil";
+    veil.innerHTML = `
+      <div class="modal" role="dialog" aria-modal="true">
+        <div class="modal-header">
+          <span>${title}</span>
+          <button class="modal-close" id="pdlg-x">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group" style="margin-bottom:0">
+            <label class="form-label">${label}</label>
+            <input class="form-input" id="pdlg-input" placeholder="${_esc(placeholder)}" autocomplete="off">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-ghost" id="pdlg-cancel">Cancel</button>
+          <button class="btn btn-primary" id="pdlg-ok">OK</button>
+        </div>
+      </div>`;
+    document.body.appendChild(veil);
+    const input = veil.querySelector("#pdlg-input");
+    const finish = val => { veil.remove(); resolve(val); };
+    veil.querySelector("#pdlg-x").addEventListener("click",      () => finish(null));
+    veil.querySelector("#pdlg-cancel").addEventListener("click", () => finish(null));
+    veil.querySelector("#pdlg-ok").addEventListener("click",     () => finish(input.value.trim() || null));
+    veil.addEventListener("click", e => { if (e.target === veil) finish(null); });
+    input.addEventListener("keydown", e => {
+      if (e.key === "Enter") finish(input.value.trim() || null);
+      if (e.key === "Escape") finish(null);
+    });
+    setTimeout(() => input.focus(), 40);
+  });
+}
+
+// ── Right-click context menu ─────────────────────────────────────────────────
+
+function _showContextMenu(container, node, swarmId, hierarchy, reload) {
+  document.getElementById("cy-ctx-menu")?.remove();
+
+  const d = node.data();
+  const isAgent = d.type === "agent";
+  const isTrigger = d.type === "trigger";
+  const canEdit   = canDo("can_edit_swarm");
+  const canDelete = canDo("can_edit_swarm");
+  const canRun    = canDo("can_start_run");
+
+  const items = [];
+  if (isAgent) {
+    if (d.agent_id) items.push({ label: "Open constitution", icon: "📄", action: () => window.swNav(`constitution/${d.agent_id}`) });
+    if (canRun)    items.push({ label: "Run from here",      icon: "▶",  action: () => _promptRunFromNode(swarmId, d.name, reload) });
+    if (canEdit)   items.push({ label: "Rename agent",       icon: "✏",  action: () => _promptRenameNode(node, swarmId, hierarchy, reload) });
+    if (canDelete) items.push({ label: "Delete agent",       icon: "🗑",  action: () => _confirmDeleteNode(node, swarmId, hierarchy, reload), danger: true });
+  } else if (isTrigger) {
+    if (canDelete) items.push({ label: "Delete trigger",     icon: "🗑",  action: () => _confirmDeleteNode(node, swarmId, hierarchy, reload), danger: true });
+  } else {
+    items.push({ label: "Inspect",                          icon: "🔍", action: () => _showNodeInspector(container, node, swarmId, hierarchy, reload) });
+  }
+
+  if (!items.length) return;
+
+  const rp = node.renderedPosition();
+  const cyEl = container.querySelector("#cy-container");
+  const cyRect = cyEl.getBoundingClientRect();
+
+  const menu = document.createElement("div");
+  menu.id = "cy-ctx-menu";
+  menu.style.cssText = `
+    position:fixed;z-index:10000;
+    background:var(--color-surface);
+    border:1px solid var(--color-cream-line);
+    border-radius:6px;
+    box-shadow:0 4px 16px rgba(0,0,0,.18);
+    padding:4px 0;
+    min-width:180px;
+    font-family:var(--font-mono);
+    font-size:12px;
+  `;
+
+  items.forEach(item => {
+    const btn = document.createElement("div");
+    btn.style.cssText = `
+      padding:7px 14px;cursor:pointer;display:flex;align-items:center;gap:9px;
+      color:${item.danger ? "var(--color-danger)" : "var(--color-ink)"};
+    `;
+    btn.innerHTML = `<span style="font-size:13px">${item.icon}</span><span>${item.label}</span>`;
+    btn.addEventListener("mouseenter", () => btn.style.background = "var(--color-cream-hover)");
+    btn.addEventListener("mouseleave", () => btn.style.background = "");
+    btn.addEventListener("click", () => { menu.remove(); item.action(); });
+    menu.appendChild(btn);
+  });
+
+  const x = cyRect.left + rp.x;
+  const y = cyRect.top  + rp.y;
+  document.body.appendChild(menu);
+  const mw = menu.offsetWidth, mh = menu.offsetHeight;
+  menu.style.left = (x + mw > window.innerWidth  ? x - mw : x) + "px";
+  menu.style.top  = (y + mh > window.innerHeight ? y - mh : y) + "px";
+
+  const dismiss = e => { if (!menu.contains(e.target)) { menu.remove(); document.removeEventListener("mousedown", dismiss); } };
+  setTimeout(() => document.addEventListener("mousedown", dismiss), 0);
+}
+
+function _promptRunFromNode(swarmId, agentName, reload) {
+  _showModal(
+    `Run from "${agentName}"`,
+    `<p style="margin:0 0 12px;color:var(--color-ink-soft)">Fire an event routed directly to <b>${_esc(agentName)}</b> as the entry point.</p>
+     <div class="form-group"><label class="form-label">Event payload (JSON)</label>
+     <textarea class="form-input" id="ctx-run-input" rows="3" style="font-family:var(--font-mono);font-size:12px" placeholder='{"message":"…"}'>{
+  "message": "Hello"
+}</textarea></div>`,
+    async () => {
+      const raw = document.getElementById("ctx-run-input")?.value?.trim() || "{}";
+      let payload;
+      try { payload = JSON.parse(raw); } catch (e) { throw { message: `Invalid JSON: ${e.message}` }; }
+      await api.fireEvent(swarmId, { type: "manual", payload, source: "api", entry_point: agentName });
+      toastSuccess("Run triggered");
+      window.swNav("runs");
+    },
+    "Run"
+  );
+}
+
+function _promptRenameNode(node, swarmId, hierarchy, reload) {
+  const oldName = node.data("name");
+  _showModal(
+    "Rename agent",
+    `<div class="form-group"><label class="form-label">New name</label>
+     <input class="form-input" id="ctx-rename-input" value="${_esc(oldName)}" autocomplete="off"></div>`,
+    async () => {
+      const newName = document.getElementById("ctx-rename-input")?.value?.trim();
+      if (!newName || newName === oldName) return;
+      await api.patchTopology(swarmId, "rename_agent", { old_name: oldName, new_name: newName });
+      toastSuccess("Agent renamed");
+      reload();
+    },
+    "Rename"
+  );
+}
+
+function _confirmDeleteNode(node, swarmId, hierarchy, reload) {
+  const name = node.data("name");
+  const type = node.data("type");
+  _showModal(
+    `Delete ${type}`,
+    `<p style="margin:0;color:var(--color-ink-soft)">Delete <b>${_esc(name)}</b>? This cannot be undone.</p>`,
+    async () => {
+      if (type === "agent") {
+        await api.deleteAgent(node.data("agent_id"));
+      } else if (type === "trigger") {
+        await api.deleteTrigger(node.data("trigger_id"));
+      }
+      toastSuccess(`${type.charAt(0).toUpperCase() + type.slice(1)} deleted`);
+      reload();
+    },
+    "Delete",
+    true
+  );
+}
+
+// ── Minimap ───────────────────────────────────────────────────────────────────
+
+function _mountMinimap(container) {
+  const cyEl = container.querySelector("#cy-container");
+  if (!cyEl || !_cy) return;
+
+  const existing = cyEl.querySelector("#cy-minimap");
+  if (existing) existing.remove();
+
+  const SIZE = 140;
+  const canvas = document.createElement("canvas");
+  canvas.id = "cy-minimap";
+  canvas.width  = SIZE;
+  canvas.height = SIZE;
+  canvas.style.cssText = `
+    position:absolute;bottom:12px;right:12px;
+    width:${SIZE}px;height:${SIZE}px;
+    border:1px solid var(--color-cream-line);
+    border-radius:4px;
+    background:rgba(250,247,242,.88);
+    backdrop-filter:blur(3px);
+    z-index:10;pointer-events:none;
+  `;
+  cyEl.appendChild(canvas);
+
+  const LAYER_COLOR = {
+    policy:        "#1e3a5f",
+    orchestrator:  "#2a6b6b",
+    executioner:   "#3d4f7c",
+    perceptionist: "#c97c2a",
+  };
+
+  const draw = () => {
+    const ctx = canvas.getContext("2d");
+    ctx.clearRect(0, 0, SIZE, SIZE);
+
+    const bb = _cy.elements().boundingBox();
+    if (!bb || bb.w === 0) return;
+
+    const PAD = 8;
+    const scaleX = (SIZE - PAD * 2) / bb.w;
+    const scaleY = (SIZE - PAD * 2) / bb.h;
+    const scale  = Math.min(scaleX, scaleY, 0.3);
+
+    const toMx = x => PAD + (x - bb.x1) * scale;
+    const toMy = y => PAD + (y - bb.y1) * scale;
+
+    // Draw edges
+    ctx.strokeStyle = "rgba(43,36,24,.2)";
+    ctx.lineWidth = 0.8;
+    _cy.edges().forEach(e => {
+      const sp = e.source().position(), tp = e.target().position();
+      ctx.beginPath();
+      ctx.moveTo(toMx(sp.x), toMy(sp.y));
+      ctx.lineTo(toMx(tp.x), toMy(tp.y));
+      ctx.stroke();
+    });
+
+    // Draw nodes
+    _cy.nodes().forEach(n => {
+      const p = n.position();
+      const d = n.data();
+      const color = LAYER_COLOR[d.layer] || (d.type === "trigger" ? "#c97c2a" : "#888");
+      ctx.fillStyle = color;
+      ctx.beginPath();
+      ctx.arc(toMx(p.x), toMy(p.y), d.type === "agent" ? 4 : 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    // Viewport rectangle
+    const ext  = _cy.extent();
+    const vx1 = toMx(ext.x1), vy1 = toMy(ext.y1);
+    const vw   = (ext.x2 - ext.x1) * scale;
+    const vh   = (ext.y2 - ext.y1) * scale;
+    ctx.strokeStyle = "rgba(201,124,42,.7)";
+    ctx.lineWidth = 1.2;
+    ctx.strokeRect(vx1, vy1, vw, vh);
+  };
+
+  _cy.on("pan zoom layoutstop position", draw);
+  setTimeout(draw, 120);
 }
