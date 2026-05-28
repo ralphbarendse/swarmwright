@@ -1,0 +1,23 @@
+name: draft_constitution
+description: Generate a starter constitution markdown file for a new agent.
+timeout_seconds: 60
+allowed_packages: []
+input_schema:
+  type: object
+  required: [agent_name, layer, role_description]
+  properties:
+    agent_name:
+      type: string
+    layer:
+      type: string
+      enum: [policy, orchestrator, executioner, perceptionist]
+    role_description:
+      type: string
+      description: Plain-language description of what this agent does.
+output_schema:
+  type: object
+  required: [constitution]
+  properties:
+    constitution:
+      type: string
+      description: Full constitution markdown including YAML frontmatter.

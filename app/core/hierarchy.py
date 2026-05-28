@@ -46,6 +46,24 @@ class ParsedHierarchy:
     def get_allowed_edges(self, agent_name: str) -> list[dict]:
         return [e for e in self.edges if e["from"] == agent_name]
 
+    def get_parent_agents(self, agent_name: str) -> list[str]:
+        """Agents that delegate directly to agent_name."""
+        return [e["from"] for e in self.edges if e["kind"] == "delegate" and e["to"] == agent_name]
+
+    def get_ancestor_agents(self, agent_name: str) -> list[str]:
+        """All agents above agent_name in the delegate chain, breadth-first."""
+        visited: list[str] = []
+        queue = self.get_parent_agents(agent_name)
+        seen: set[str] = set(queue)
+        while queue:
+            parent = queue.pop(0)
+            visited.append(parent)
+            for grandparent in self.get_parent_agents(parent):
+                if grandparent not in seen:
+                    seen.add(grandparent)
+                    queue.append(grandparent)
+        return visited
+
     def get_allowed_consultations(self, agent_name: str) -> list[dict]:
         return [c for c in self.consultations if c["agent"] == agent_name]
 

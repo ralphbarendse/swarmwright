@@ -1,0 +1,20 @@
+name: list_workspaces
+description: List all workspaces with their id, name, and display_name. Use this to resolve a workspace name to its id before calling create_swarm or other workspace-scoped skills.
+timeout_seconds: 15
+allowed_packages: []
+input_schema:
+  type: object
+  properties: {}
+output_schema:
+  type: object
+  required: [workspaces]
+  properties:
+    workspaces:
+      type: array
+      items:
+        type: object
+        properties:
+          id:           {type: string}
+          name:         {type: string}
+          display_name: {type: [string, 'null']}
+          description:  {type: [string, 'null']}

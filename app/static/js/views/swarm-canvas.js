@@ -300,9 +300,11 @@ async function _loadCanvas(container, swarmId) {
     _exitConnectMode(container);
 
     // Use saved positions when available (persisted in meta.yaml via save_positions).
-    // Only fall back to dagre when fewer than half the agent nodes have a saved position.
+    // Fall back to dagre when fewer than half the agent nodes have a saved position
+    // (handles first-load and the case where new agents were added since last save).
+    // Positions are keyed by node ID, which equals agent name for agent nodes.
     const agentNames = hierarchy.agents || [];
-    const savedCount = agentNames.filter(n => positions[n]?.x).length;
+    const savedCount = agentNames.filter(n => positions[n]?.x != null).length;
     if (agentNames.length === 0 || savedCount < Math.ceil(agentNames.length * 0.5)) {
       _runLayout(_cy);
     } else {
@@ -444,7 +446,7 @@ function _buildElements(h, positions, agentMap = {}, skillMap = {}) {
         constitution_preview: meta.constitution_preview || null,
         is_entry_point: name === h.entry_point,
       },
-      position: pos.x ? pos : undefined,
+      position: pos.x != null ? pos : undefined,
       classes: `agent layer-${layer}`,
     });
   }
@@ -472,7 +474,7 @@ function _buildElements(h, positions, agentMap = {}, skillMap = {}) {
         trigger_enabled: (typeof trigger === "object") ? trigger.enabled : true,
         trigger_config: (typeof trigger === "object") ? trigger.config : {},
       },
-      position: pos.x ? pos : undefined,
+      position: pos.x != null ? pos : undefined,
       classes: "trigger",
     });
     // Phase 6.1: each trigger may declare its own target_agent in config.
@@ -500,6 +502,7 @@ function _buildElements(h, positions, agentMap = {}, skillMap = {}) {
     const sid = `skill__${skill}`;
     const skillName = skill.split("/").pop();
     const meta = skillMap[skillName] || {};
+    const spos = positions[sid] || {};
     els.push({
       data: {
         id: sid, name: skill, label: skillName, type: "skill",
@@ -507,6 +510,7 @@ function _buildElements(h, positions, agentMap = {}, skillMap = {}) {
         input_schema: meta.input_schema || null,
         output_schema: meta.output_schema || null,
       },
+      position: spos.x != null ? spos : undefined,
       classes: "skill",
     });
   }
@@ -515,7 +519,8 @@ function _buildElements(h, positions, agentMap = {}, skillMap = {}) {
   const percs = new Set((h.consultations || []).map(c => c.perceptionist));
   for (const perc of percs) {
     const pid = `perc__${perc}`;
-    els.push({ data: { id: pid, name: perc, label: perc.split("/").pop(), type: "perceptionist" }, classes: "perceptionist" });
+    const ppos = positions[pid] || {};
+    els.push({ data: { id: pid, name: perc, label: perc.split("/").pop(), type: "perceptionist" }, position: ppos.x != null ? ppos : undefined, classes: "perceptionist" });
   }
 
   // Hierarchical edges
@@ -541,6 +546,7 @@ function _buildElements(h, positions, agentMap = {}, skillMap = {}) {
   ]);
   for (const caller of callers) {
     const cid = `caller__${caller}`;
+    const cpos = positions[cid] || {};
     els.push({
       data: {
         id: cid,
@@ -548,6 +554,7 @@ function _buildElements(h, positions, agentMap = {}, skillMap = {}) {
         label: `${CALLER_GLYPH}  ${caller.split("/").pop()}`,
         type: "caller",
       },
+      position: cpos.x != null ? cpos : undefined,
       classes: "caller",
     });
   }
@@ -574,6 +581,7 @@ function _buildElements(h, positions, agentMap = {}, skillMap = {}) {
   ]);
   for (const informer of informers) {
     const iid = `informer__${informer}`;
+    const ipos = positions[iid] || {};
     els.push({
       data: {
         id: iid,
@@ -581,6 +589,7 @@ function _buildElements(h, positions, agentMap = {}, skillMap = {}) {
         label: `${INFORMER_GLYPH}  ${informer.split("/").pop()}`,
         type: "informer",
       },
+      position: ipos.x != null ? ipos : undefined,
       classes: "informer",
     });
   }
@@ -608,6 +617,7 @@ function _buildElements(h, positions, agentMap = {}, skillMap = {}) {
   for (const sid of swarmNodes) {
     const nsid = `swarm__${sid}`;
     const meta = (h._swarm_map || {})[sid] || {};
+    const snpos = positions[nsid] || {};
     els.push({
       data: {
         id: nsid,
@@ -619,6 +629,7 @@ function _buildElements(h, positions, agentMap = {}, skillMap = {}) {
         is_cross_workspace: !!meta.is_cross_workspace,
         workspace_id: meta.workspace_id || null,
       },
+      position: snpos.x != null ? snpos : undefined,
       classes: "swarm-node",
     });
   }
@@ -1178,7 +1189,9 @@ async function _savePositions(swarmId, cy) {
   const positions = {};
   cy.nodes().forEach(n => {
     const p = n.position();
-    positions[n.data("name")] = { x: Math.round(p.x), y: Math.round(p.y) };
+    // Key by node ID (not name) — node IDs are the canonical lookup key used
+    // by _buildElements (e.g. "trigger__<uuid>", "caller__foo", or plain agent name).
+    positions[n.data("id")] = { x: Math.round(p.x), y: Math.round(p.y) };
   });
   try {
     await api.patchTopology(swarmId, "save_positions", { positions });

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import json
 import logging
 import os
@@ -130,6 +131,22 @@ def _notify(event_type: str, data: dict) -> None:
             logger.warning("SSE notify raised an exception", exc_info=True)
 
 
+def _notify_chat_step(ctx: "RunContext", phase: str, label: str, purpose: str | None = None) -> None:
+    """Broadcast a live progress step to the chat panel for this run's session.
+
+    No-op when the run isn't a chat session. `phase` is one of
+    skill | agent | perceptionist | swarm and drives the panel's chip label.
+    """
+    if not ctx.chat_session_id:
+        return
+    _notify("chat.step", {
+        "session_id": ctx.chat_session_id,
+        "phase": phase,
+        "label": label,
+        "purpose": purpose,
+    })
+
+
 def _output_snippet(output: object, max_len: int = 140) -> str | None:
     """Extract a short human-readable string from a step output dict."""
     if not isinstance(output, dict):
@@ -145,17 +162,47 @@ def _output_snippet(output: object, max_len: int = 140) -> str | None:
     except Exception:
         return None
 
-_RESPONSE_FORMAT = """
+_RESPONSE_FORMAT_BASE = """
 When you respond, output ONLY a JSON object — no prose before or after — with this structure:
 
-{
-  "action": "<one of: escalate | delegate | report | consult_perceptionist | consult_caller | inform_informer | skill_call | invoke_swarm | escalate_to_human | complete>",
+{{
+  "action": "<one of: {actions}>",
   "target": "<name of agent, perceptionist, skill, or caller being called — omit for complete/escalate_to_human>",
-  "purpose_match": "<exact purpose string from Allowed Actions below — omit for complete/escalate_to_human>",
-  "input": { <data to pass to the target, or your final output for complete> },
+  "purpose_match": "<optional: echo the declared purpose from Allowed Actions — used only for the audit trail>",
+  "input": {{ <data to pass to the target, or your final output for complete> }},
   "reasoning": "<free-text explanation of why you are taking this action>"
-}
+}}
+
+Rules:
+- "action" MUST be one of the listed values. Using any other string (including skill names) causes a topology violation.
+- To call a skill, set "action" to "skill_call" and "target" to the skill name. NEVER use a skill name as the "action" value.
+- `purpose_match` is optional — include it to label the audit trail, but the call is authorized by the target being declared in Allowed Actions, not by this field.
+- Use `complete` to return your final answer to the user when you are done. Put the response in "input".
+- Never invent a target name — only use names that appear in Allowed Actions below.
 """
+
+
+def _build_response_format(
+    has_escalations: bool,
+    has_delegations: bool,
+    has_reports: bool,
+    has_consultations: bool,
+    has_skills: bool,
+    has_calls: bool,
+    has_informs: bool,
+    has_swarm_calls: bool,
+) -> str:
+    actions = []
+    if has_escalations:  actions.append("escalate")
+    if has_delegations:  actions.append("delegate")
+    if has_reports:      actions.append("report")
+    if has_consultations: actions.append("consult_perceptionist")
+    if has_calls:        actions.append("consult_caller")
+    if has_informs:      actions.append("inform_informer")
+    if has_skills:       actions.append("skill_call")
+    if has_swarm_calls:  actions.append("invoke_swarm")
+    actions += ["escalate_to_human", "complete"]
+    return _RESPONSE_FORMAT_BASE.format(actions=" | ".join(actions))
 
 
 # ── Public exceptions ─────────────────────────────────────────────────────────
@@ -200,6 +247,7 @@ class RunContext:
     workspace_path: str
     data_dir: str
     hierarchy: ParsedHierarchy
+    chat_session_id: str | None = field(default=None)
 
     _sequence: int = field(default=0, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
@@ -227,12 +275,57 @@ class RunContext:
             workspace_path=workspace_path,
             data_dir=self.data_dir,
             hierarchy=hierarchy,
+            chat_session_id=self.chat_session_id,
         )
         child._next_seq_fn = self.next_sequence
         return child
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
+
+
+def _build_initial_messages(payload: dict) -> list[dict]:
+    """Convert a run payload into LLM message turns.
+
+    Chat payloads (those with a 'conversation_history' list and a 'message'
+    string) are expanded so each prior exchange becomes a real user/assistant
+    turn.  This lets the LLM see the conversation naturally instead of as a
+    nested JSON blob, which prevents it from anchoring on error strings in the
+    history and repeating the same broken action.
+
+    Non-chat payloads (no conversation_history) are serialised as before.
+    """
+    history = payload.get("conversation_history")
+    current = payload.get("message")
+    if not isinstance(history, list) or not isinstance(current, str):
+        return [{"role": "user", "content": json.dumps(payload)}]
+
+    meta = {k: v for k, v in payload.items() if k not in ("conversation_history", "message")}
+    meta_note = (
+        f"[context: session_id={meta.get('session_id')}, workspace_id={meta.get('workspace_id')}]\n\n"
+        if meta else ""
+    )
+
+    messages: list[dict] = []
+    for msg in history:
+        role = msg.get("role", "user")
+        content = msg.get("content", "")
+        if not (role in ("user", "assistant") and content):
+            continue
+        # The chat layer stores the extracted plain-text reply as the assistant
+        # message.  If we pass that raw back to the LLM it sees plain text in
+        # the history and ignores the JSON-only format instruction.  Re-wrap any
+        # non-JSON assistant turn so the model sees consistent JSON throughout.
+        if role == "assistant":
+            try:
+                json.loads(content)
+            except (json.JSONDecodeError, ValueError):
+                content = json.dumps({"action": "complete", "input": {"message": content}})
+        messages.append({"role": role, "content": content})
+
+    messages.append({"role": "user", "content": meta_note + current})
+    return messages
+
 
 def start_run(
     event_id: str,
@@ -243,6 +336,7 @@ def start_run(
     payload: dict,
     *,
     entry_point_override: str | None = None,
+    trigger_kind: str | None = None,
 ) -> Run:
     """Create a Run for the given event and execute the swarm's entry-point agent.
 
@@ -285,6 +379,7 @@ def start_run(
             swarm_id=swarm_id,
             status=STATUS_RUNNING,
             started_at=datetime.now(timezone.utc),
+            trigger_kind=trigger_kind,
         )
         session.add(run)
         session.commit()
@@ -293,6 +388,12 @@ def start_run(
 
     _notify("run.started", {"run_id": run_id, "swarm_id": swarm_id, "event_id": event_id})
 
+    chat_session_id = None
+    if trigger_kind == "chat" and isinstance(payload, dict):
+        sid = payload.get("session_id")
+        if sid is not None:
+            chat_session_id = str(sid)
+
     ctx = RunContext(
         run_id=run_id,
         swarm_id=swarm_id,
@@ -300,10 +401,11 @@ def start_run(
         workspace_path=workspace_path,
         data_dir=data_dir,
         hierarchy=hierarchy,
+        chat_session_id=chat_session_id,
     )
 
     try:
-        initial_messages = [{"role": "user", "content": json.dumps(payload)}]
+        initial_messages = _build_initial_messages(payload)
         _execute_agent_call(
             agent_name=effective_entry,
             messages=initial_messages,
@@ -580,11 +682,13 @@ def _run_agent_loop(
     web_search: bool = bool(post.get("web_search", False))
 
     knowledge_text = _load_knowledge(knowledge_refs, ctx)
+    inherited_directives = _load_inherited_directives(agent_name, ctx)
     system_prompt = _build_system_prompt(
         constitution_body=constitution_body,
         knowledge_text=knowledge_text,
         agent_name=agent_name,
         ctx=ctx,
+        inherited_directives=inherited_directives,
     )
 
     llm = get_llm_credentials(provider=provider, model=model)
@@ -597,13 +701,35 @@ def _run_agent_loop(
         llm_kwargs["tools"] = [{"type": "web_search_20250305", "name": "web_search"}]
 
     _max_turns = _get_max_agent_turns()
+    _json_failures = 0
     for turn in range(_max_turns):
         raw, usage = llm.complete_with_usage(system=system_prompt, messages=messages, **llm_kwargs)
         total_input_tokens += usage.get("input_tokens", 0)
         total_output_tokens += usage.get("output_tokens", 0)
         messages.append({"role": "assistant", "content": raw})
 
-        action_dict = _parse_action(raw, agent_name)
+        try:
+            action_dict = _parse_action(raw, agent_name)
+        except SwarmRuntimeError as exc:
+            _json_failures += 1
+            if _json_failures >= 3:
+                raise
+            logger.warning("Agent '%s' returned non-JSON on turn %d — retrying: %s", agent_name, turn, exc)
+            messages.append({
+                "role": "user",
+                "content": json.dumps({
+                    "action_result": {
+                        "error": (
+                            f"{exc} "
+                            "Respond with ONLY a single JSON object — no prose, no markdown fences. "
+                            "It must include an \"action\" field. Follow the format instructions exactly."
+                        ),
+                        "type": "format_error",
+                    }
+                }),
+            })
+            continue
+        _json_failures = 0
         action = action_dict.get("action", "")
 
         if action == "complete":
@@ -664,7 +790,6 @@ def _dispatch_sub_action(
     """
     action = action_dict.get("action", "")
     target = action_dict.get("target", "")
-    purpose_match = action_dict.get("purpose_match", "")
     input_data = action_dict.get("input") or {}
 
     # ── Agent edges (escalate / delegate / report) ────────────────────────────
@@ -676,15 +801,7 @@ def _dispatch_sub_action(
                 attempted=f"{action} → {target!r} — no such edge declared",
                 ctx=ctx,
             )
-        if edge["purpose"] != purpose_match:
-            return _record_topology_violation(
-                agent_name=agent_name,
-                attempted=(
-                    f"{action} → {target!r} with purpose_match {purpose_match!r}, "
-                    f"but declared purpose is {edge['purpose']!r}"
-                ),
-                ctx=ctx,
-            )
+        _notify_chat_step(ctx, "agent", target, edge["purpose"])
         return _execute_agent_call(
             agent_name=target,
             messages=[{"role": "user", "content": json.dumps(input_data)}],
@@ -703,15 +820,6 @@ def _dispatch_sub_action(
                 attempted=f"consult_perceptionist → {target!r} — not declared in consultations",
                 ctx=ctx,
             )
-        if consultation["purpose"] != purpose_match:
-            return _record_topology_violation(
-                agent_name=agent_name,
-                attempted=(
-                    f"consult_perceptionist → {target!r} with purpose_match {purpose_match!r}, "
-                    f"but declared purpose is {consultation['purpose']!r}"
-                ),
-                ctx=ctx,
-            )
         try:
             _, perc_path = resolve(
                 target,
@@ -727,6 +835,7 @@ def _dispatch_sub_action(
 
         # Use the unqualified name (basename without extension) for the step name
         perc_name = os.path.splitext(os.path.basename(perc_path))[0]
+        _notify_chat_step(ctx, "perceptionist", perc_name, consultation["purpose"])
         return _execute_agent_call(
             agent_name=perc_name,
             messages=[{"role": "user", "content": json.dumps(input_data)}],
@@ -746,15 +855,7 @@ def _dispatch_sub_action(
                 attempted=f"skill_call → {target!r} — not declared in skills",
                 ctx=ctx,
             )
-        if skill_entry["purpose"] != purpose_match:
-            return _record_topology_violation(
-                agent_name=agent_name,
-                attempted=(
-                    f"skill_call → {target!r} with purpose_match {purpose_match!r}, "
-                    f"but declared purpose is {skill_entry['purpose']!r}"
-                ),
-                ctx=ctx,
-            )
+        _notify_chat_step(ctx, "skill", target, skill_entry["purpose"])
         return _execute_skill_call(
             skill_ref=target,
             input_data=input_data,
@@ -772,16 +873,6 @@ def _dispatch_sub_action(
                 attempted=f"consult_caller → {target!r} — not declared in calls",
                 ctx=ctx,
             )
-        if call_entry["purpose"] != purpose_match:
-            return _record_topology_violation(
-                agent_name=agent_name,
-                attempted=(
-                    f"consult_caller → {target!r} with purpose_match {purpose_match!r}, "
-                    f"but declared purpose is {call_entry['purpose']!r}"
-                ),
-                ctx=ctx,
-            )
-
         # Resolve the caller's md_path for traceability + verify file exists.
         try:
             _, caller_path = resolve(
@@ -874,16 +965,6 @@ def _dispatch_sub_action(
                 attempted=f"inform_informer → {target!r} — not declared in informs",
                 ctx=ctx,
             )
-        if inform_entry["purpose"] != purpose_match:
-            return _record_topology_violation(
-                agent_name=agent_name,
-                attempted=(
-                    f"inform_informer → {target!r} with purpose_match {purpose_match!r}, "
-                    f"but declared purpose is {inform_entry['purpose']!r}"
-                ),
-                ctx=ctx,
-            )
-
         try:
             _, informer_path = resolve(
                 target,
@@ -960,15 +1041,7 @@ def _dispatch_sub_action(
                 attempted=f"invoke_swarm → alias {target!r} — not declared in swarm_calls",
                 ctx=ctx,
             )
-        if swarm_call_entry["purpose"] != purpose_match:
-            return _record_topology_violation(
-                agent_name=agent_name,
-                attempted=(
-                    f"invoke_swarm → alias {target!r} with purpose_match {purpose_match!r}, "
-                    f"but declared purpose is {swarm_call_entry['purpose']!r}"
-                ),
-                ctx=ctx,
-            )
+        _notify_chat_step(ctx, "swarm", target, swarm_call_entry["purpose"])
         return _execute_swarm_call(
             swarm_call_entry=swarm_call_entry,
             input_data=input_data,
@@ -1017,9 +1090,14 @@ def _execute_skill_call(
         except Exception as exc:
             logger.warning("Could not read skill config %s: %s", skill_yaml_path, exc)
 
-    # Validate input against declared schema before running
+    # Validate input against declared schema before running.
+    # Return an error dict so the agent can correct and retry rather than crashing the run.
     if input_schema:
-        validate_skill_input(input_data, input_schema)
+        try:
+            validate_skill_input(input_data, input_schema)
+        except SkillValidationError as exc:
+            logger.warning("Skill '%s' input validation failed: %s", skill_ref, exc)
+            return {"error": str(exc), "type": "validation_error", "skill": skill_ref}
 
     seq = ctx.next_sequence()
     started_at = datetime.now(timezone.utc)
@@ -1046,6 +1124,7 @@ def _execute_skill_call(
             "agent_name": agent_name,
             "swarm_id": ctx.swarm_id,
             "files_root": os.path.join(ctx.swarm_path, "files"),
+            "data_dir": ctx.data_dir,
         }
         output = run_skill(
             skill_py_path=skill_py_path,
@@ -1053,9 +1132,18 @@ def _execute_skill_call(
             context=skill_context,
             timeout_seconds=timeout_seconds,
         )
-        # Validate output against declared schema after running
+        # Validate output against declared schema after running.
+        # A schema mismatch must NEVER crash a run that already did its work —
+        # the skill's side effects have happened. Log it and pass the real
+        # output back to the agent so it can still use the result.
         if output_schema:
-            validate_skill_output(output, output_schema)
+            try:
+                validate_skill_output(output, output_schema)
+            except SkillValidationError as exc:
+                logger.warning(
+                    "Skill '%s' output failed schema validation (non-fatal): %s",
+                    skill_ref, exc,
+                )
         _update_step(step_id, output_json=json.dumps(output))
 
         # Keep swarm_files index in sync for builtin file skills
@@ -1066,6 +1154,11 @@ def _execute_skill_call(
             "step_name": skill_ref, "step_type": STEP_SKILL_CALL, "sequence": seq,
             "snippet": _output_snippet(output),
         })
+
+        # Broadcast when an unmet need is created so the operator panel updates
+        if skill_ref == "flag_unmet_need" and output.get("need_id"):
+            _notify("signal.new", {"need_id": output["need_id"]})
+
         return output
 
     except SkillError as exc:
@@ -1163,7 +1256,11 @@ def _record_topology_violation(
     attempted: str,
     ctx: RunContext,
 ) -> dict:
-    """Record a topology_violation run_step and raise TopologyViolationError."""
+    """Record a topology_violation run_step and return an error dict.
+
+    Returns an error result dict so the agent sees it in action_result and can
+    correct itself on the next turn, instead of crashing the run immediately.
+    """
     message = f"Topology violation by '{agent_name}': {attempted}"
     seq = ctx.next_sequence()
     now = datetime.now(timezone.utc)
@@ -1185,19 +1282,76 @@ def _record_topology_violation(
         session.commit()
 
     logger.warning(message)
-    raise TopologyViolationError(message)
+    return {"error": message, "type": "topology_violation"}
 
 
 # ── Prompt building ───────────────────────────────────────────────────────────
+
+def _load_inherited_directives(agent_name: str, ctx: RunContext) -> str:
+    """Collect `inheritable` frontmatter from all ancestor agents in the delegate chain."""
+    ancestors = ctx.hierarchy.get_ancestor_agents(agent_name)
+    parts: list[str] = []
+    for ancestor in ancestors:
+        md_path = os.path.join(ctx.swarm_path, "agents", f"{ancestor}.md")
+        if not os.path.isfile(md_path):
+            continue
+        try:
+            post = frontmatter.load(md_path)
+        except Exception:
+            continue
+        directive = (post.get("inheritable") or "").strip()
+        if directive:
+            parts.append(f"(from {ancestor})\n{directive}")
+    return "\n\n".join(parts)
+
+
+def _skill_schema_hint(skill_ref: str, ctx: "RunContext") -> str:
+    """Return a compact parameter hint for a skill, e.g. ' | required: a, b; optional: c'."""
+    try:
+        from app.core.resolver import resolve, ResolverError
+        _, skill_py_path = resolve(
+            skill_ref, "skill",
+            data_dir=ctx.data_dir,
+            swarm_path=ctx.swarm_path,
+            workspace_path=ctx.workspace_path,
+        )
+        yaml_path = os.path.splitext(skill_py_path)[0] + ".yaml"
+        if not os.path.isfile(yaml_path):
+            return ""
+        config = load_skill_config(yaml_path)
+        schema = config.get("input_schema") or {}
+        props = schema.get("properties") or {}
+        required = set(schema.get("required") or [])
+        if not props:
+            return ""
+        req_parts, opt_parts = [], []
+        for pname, pdef in props.items():
+            raw_desc = (pdef.get("description") or "").strip().replace("\n", " ")
+            desc = (raw_desc[:300] + "…") if len(raw_desc) > 300 else raw_desc
+            entry = f"{pname} ({desc})" if desc else pname
+            (req_parts if pname in required else opt_parts).append(entry)
+        hint = ""
+        if req_parts:
+            hint += " | required: " + ", ".join(req_parts)
+        if opt_parts:
+            hint += " | optional: " + ", ".join(opt_parts)
+        return hint
+    except Exception:
+        return ""
+
 
 def _build_system_prompt(
     constitution_body: str,
     knowledge_text: str,
     agent_name: str,
     ctx: RunContext,
+    inherited_directives: str = "",
 ) -> str:
     hierarchy = ctx.hierarchy
     parts: list[str] = [constitution_body.strip()]
+
+    if inherited_directives:
+        parts.append("\n\n# Inherited Directives\n\n" + inherited_directives)
 
     if knowledge_text:
         parts.append("\n\n# Reference Documents\n\n" + knowledge_text)
@@ -1236,9 +1390,16 @@ def _build_system_prompt(
 
     skills = hierarchy.get_allowed_skills(agent_name)
     if skills:
-        parts.append("You may invoke skills:")
+        first_skill = skills[0]["skill"]
+        parts.append(
+            "You may invoke skills. ALWAYS use action=\"skill_call\" and put the skill "
+            "name in \"target\" — NEVER use a skill name as the action value. Example:\n"
+            f'  {{"action": "skill_call", "target": "{first_skill}", "input": {{...}}}}\n'
+            "Available skills:"
+        )
         for s in skills:
-            parts.append(f"  - {s['skill']} — {s['purpose']}")
+            schema_hint = _skill_schema_hint(s["skill"], ctx)
+            parts.append(f"  - {s['skill']} — {s['purpose']}{schema_hint}")
         parts.append("")
 
     calls = hierarchy.get_allowed_calls(agent_name)
@@ -1279,7 +1440,16 @@ def _build_system_prompt(
     parts.append("  - escalate_to_human — signal that human judgment is required")
     parts.append("")
 
-    parts.append(_RESPONSE_FORMAT)
+    parts.append(_build_response_format(
+        has_escalations=bool(escalations),
+        has_delegations=bool(delegations),
+        has_reports=bool(reports),
+        has_consultations=bool(consultations),
+        has_skills=bool(skills),
+        has_calls=bool(calls),
+        has_informs=bool(informs),
+        has_swarm_calls=bool(swarm_calls),
+    ))
 
     return "\n".join(parts)
 
@@ -1307,29 +1477,90 @@ def _load_knowledge(refs: list[str], ctx: RunContext) -> str:
 
 # ── Action parsing ────────────────────────────────────────────────────────────
 
+def _extract_balanced_object(text: str, start: int) -> str | None:
+    """Return the substring spanning the first balanced {...} object from `start`.
+
+    Brace-counts while respecting string literals and escapes so that braces
+    inside string values don't throw off the balance. Returns None if no
+    balanced object is found.
+    """
+    depth = 0
+    in_str = False
+    escaped = False
+    quote = ""
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_str:
+            if escaped:
+                escaped = False
+            elif ch == "\\":
+                escaped = True
+            elif ch == quote:
+                in_str = False
+            continue
+        if ch in ("\"", "'"):
+            in_str = True
+            quote = ch
+        elif ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                return text[start:i + 1]
+    return None
+
+
 def _parse_action(raw: str, agent_name: str) -> dict:
     """Parse the LLM's raw text response as a JSON action dict.
 
-    Strips markdown code fences if present.
-    Raises RuntimeError if the response is not valid JSON.
+    Tolerant by design — the protocol is hand-rolled JSON across many providers,
+    so we accept several near-misses before giving up:
+      - markdown code fences around the object,
+      - a reasoning preamble before the object and/or trailing prose after it,
+      - Python-dict style output (single quotes, True/False/None) via literal_eval.
+
+    Raises SwarmRuntimeError (with a specific reason) if no valid action dict is found.
     """
     text = raw.strip()
     if text.startswith("```"):
         lines = text.splitlines()
         end = len(lines) - 1 if lines[-1].strip().startswith("```") else len(lines)
-        text = "\n".join(lines[1:end])
+        text = "\n".join(lines[1:end]).strip()
 
-    try:
-        obj = json.loads(text)
-    except json.JSONDecodeError as exc:
+    # Skip any preamble text before the first JSON object
+    start = 0 if text.startswith("{") else text.find("{")
+    if start == -1:
         raise SwarmRuntimeError(
-            f"Agent '{agent_name}' returned a non-JSON response: {exc}. "
+            f"Agent '{agent_name}' returned no JSON object. "
             f"Output (first 400 chars): {raw[:400]}"
-        ) from exc
+        )
+
+    obj = None
+    # 1. Standard JSON, tolerating trailing prose after the object.
+    try:
+        obj, _ = json.JSONDecoder().raw_decode(text, start)
+    except json.JSONDecodeError:
+        # 2. Fall back to a balanced-brace slice parsed as JSON, then as a
+        #    Python literal (handles single quotes and True/False/None).
+        snippet = _extract_balanced_object(text, start)
+        if snippet is not None:
+            try:
+                obj = json.loads(snippet)
+            except (json.JSONDecodeError, ValueError):
+                try:
+                    obj = ast.literal_eval(snippet)
+                except (ValueError, SyntaxError):
+                    obj = None
+
+    if not isinstance(obj, dict):
+        raise SwarmRuntimeError(
+            f"Agent '{agent_name}' returned a response that is not a JSON object. "
+            f"Output (first 400 chars): {raw[:400]}"
+        )
 
     if "action" not in obj:
         raise SwarmRuntimeError(
-            f"Agent '{agent_name}' response missing required 'action' field. Got: {obj}"
+            f"Agent '{agent_name}' response is missing the required 'action' field. Got: {obj}"
         )
     return obj
 

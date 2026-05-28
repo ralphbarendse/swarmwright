@@ -1,0 +1,5 @@
+builtin: true
+scope: workspace
+display_name: Concierge
+description: Workspace-level conversational assistant. Routes user requests to the right swarm and surfaces unmet needs when no swarm can help.
+icon: 💬

@@ -15,15 +15,15 @@ logger = logging.getLogger(__name__)
 
 
 class SkillError(Exception):
-    """Raised when a skill fails to execute or validate."""
+    """Raised when a skill fails in a way the runner cannot recover from."""
 
 
 class SkillTimeoutError(SkillError):
-    """Raised when a skill exceeds its configured timeout."""
+    """Kept for backwards compatibility — run_skill no longer raises this."""
 
 
 class SkillValidationError(SkillError):
-    """Raised when a skill's input or output fails schema validation."""
+    """Raised when a skill's input fails schema validation."""
 
 
 def load_skill_config(skill_yaml_path: str) -> dict:
@@ -50,9 +50,15 @@ def validate_skill_input(input_data: dict, schema: dict) -> None:
 def validate_skill_output(output_data: dict, schema: dict) -> None:
     """Validate skill output against the declared output_schema.
 
+    Error-shaped outputs (ok: false) bypass required-field checks — the agent
+    receives the error dict and decides how to handle it.
+
     Raises:
-        SkillValidationError: If the output does not conform to the schema.
+        SkillValidationError: If a *successful* output does not conform to the schema.
     """
+    # Error shape — skip validation so the agent can see and handle the error.
+    if output_data.get("ok") is False:
+        return
     try:
         import jsonschema  # noqa: PLC0415
         jsonschema.validate(instance=output_data, schema=schema)
@@ -103,6 +109,16 @@ def validate_allowed_packages(skill_py_path: str, allowed_packages: list[str]) -
         )
 
 
+def _parse_error_from_stderr(stderr: str) -> str:
+    """Return the most useful single-line summary from a Python traceback."""
+    lines = [l.rstrip() for l in stderr.splitlines() if l.strip()]
+    if not lines:
+        return ""
+    # Last line is typically the exception class + message, which is the
+    # most useful thing for the agent to relay to the user.
+    return lines[-1]
+
+
 def run_skill(
     skill_py_path: str,
     input_data: dict,
@@ -112,22 +128,17 @@ def run_skill(
 ) -> dict:
     """Execute a skill script in a sandboxed subprocess.
 
-    The skill receives {"input": ..., "context": ...} as a JSON string in argv[1].
-    It must print a single JSON object to stdout and exit 0 on success.
+    Always returns a dict.  On success the dict is whatever the skill printed.
+    On any failure (timeout, crash, bad output) the dict is:
 
-    Args:
-        skill_py_path:   Absolute path to the skill .py file.
-        input_data:      Validated input dict for the skill.
-        context:         Read-only metadata (run_id, agent_name, etc.).
-        timeout_seconds: Hard kill timeout.
+        {"ok": false, "error": "<code>", "message": "<human-readable>"}
 
-    Returns:
-        The skill's parsed JSON output dict.
+    so the calling agent can reason about the error rather than crashing the run.
 
     Raises:
-        SkillTimeoutError:    If the skill exceeds its timeout.
-        SkillError:           If the skill exits non-zero or stdout is not valid JSON.
+        SkillError: Only for truly unrecoverable runner-level bugs (should be rare).
     """
+    skill_name = os.path.basename(skill_py_path)
     payload = json.dumps({"input": input_data, "context": context})
 
     with tempfile.TemporaryDirectory(prefix="swarm-skill-") as workdir:
@@ -139,31 +150,61 @@ def run_skill(
                 timeout=timeout_seconds,
                 cwd=workdir,
             )
-        except subprocess.TimeoutExpired as exc:
-            raise SkillTimeoutError(
-                f"Skill '{os.path.basename(skill_py_path)}' exceeded timeout of {timeout_seconds}s"
-            ) from exc
+        except subprocess.TimeoutExpired:
+            logger.warning("Skill '%s' timed out after %ss", skill_name, timeout_seconds)
+            return {
+                "ok": False,
+                "error": "timeout",
+                "message": (
+                    f"Skill '{skill_name}' exceeded its timeout of {timeout_seconds}s. "
+                    "Consider increasing timeout_seconds in the skill YAML, or simplifying the operation."
+                ),
+            }
 
     if result.returncode != 0:
-        stderr = result.stderr.strip()[:500]
-        raise SkillError(
-            f"Skill '{os.path.basename(skill_py_path)}' exited with code {result.returncode}. "
-            f"stderr: {stderr}"
-        )
+        stderr = result.stderr.strip()
+        stdout = result.stdout.strip()
+
+        # If the skill wrote valid JSON to stdout despite a non-zero exit, use it.
+        # A skill may exit 1 after printing a structured error.
+        if stdout:
+            try:
+                parsed = json.loads(stdout)
+                if isinstance(parsed, dict):
+                    if "ok" not in parsed:
+                        parsed["ok"] = False
+                    return parsed
+            except (json.JSONDecodeError, ValueError):
+                pass
+
+        summary = _parse_error_from_stderr(stderr) if stderr else f"exited with code {result.returncode}"
+        logger.warning("Skill '%s' crashed: %s", skill_name, summary)
+        return {
+            "ok": False,
+            "error": "skill_crash",
+            "message": summary,
+            "detail": stderr[:2000] if stderr else "",
+        }
 
     stdout = result.stdout.strip()
     if not stdout:
-        raise SkillError(
-            f"Skill '{os.path.basename(skill_py_path)}' produced no output on stdout."
-        )
+        logger.warning("Skill '%s' produced no stdout", skill_name)
+        return {
+            "ok": False,
+            "error": "no_output",
+            "message": f"Skill '{skill_name}' ran successfully but printed nothing to stdout.",
+        }
 
     try:
         return json.loads(stdout)
-    except json.JSONDecodeError as exc:
-        raise SkillError(
-            f"Skill '{os.path.basename(skill_py_path)}' stdout is not valid JSON: {exc}. "
-            f"Output was: {stdout[:200]}"
-        ) from exc
+    except json.JSONDecodeError:
+        logger.warning("Skill '%s' stdout is not valid JSON: %s", skill_name, stdout[:200])
+        return {
+            "ok": False,
+            "error": "invalid_json_output",
+            "message": f"Skill '{skill_name}' did not return valid JSON.",
+            "detail": stdout[:500],
+        }
 
 
 def _stdlib_modules() -> set[str]:

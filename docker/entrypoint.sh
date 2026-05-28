@@ -1,6 +1,11 @@
 #!/bin/bash
 set -e
 
+# Generate a stable internal token if not provided via environment
+if [ -z "$INTERNAL_TOKEN" ]; then
+    export INTERNAL_TOKEN=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+fi
+
 echo "Running Alembic migrations..."
 alembic upgrade head
 

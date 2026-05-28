@@ -1,0 +1,33 @@
+name: patch_topology
+description: Apply a structural patch to a swarm's hierarchy.json.
+timeout_seconds: 30
+allowed_packages: []
+input_schema:
+  type: object
+  required: [swarm_id, operation, payload]
+  properties:
+    swarm_id:
+      type: string
+    operation:
+      type: string
+      description: >
+        Topology patch operation. Supported values:
+        add_agent (params: name, layer, model?, constitution?),
+        set_entry_point (params: name),
+        add_edge (params: from, to, kind, purpose) — valid kinds are ONLY "escalate", "delegate", or "report". Never use "call", "invoke", or any other value,
+        remove_edge (params: from, to, kind),
+        add_skill_connection (params: agent, skill, purpose) — use this to attach a skill to an agent, NOT add_edge,
+        remove_skill_connection (params: agent, skill),
+        remove_agent (params: name).
+    payload:
+      type: object
+      description: >
+        Parameters for the operation. Keys depend on the operation — see the operation
+        description above. Passed as a nested object, not spread.
+output_schema:
+  type: object
+  required: [ok]
+  properties:
+    ok:      {type: boolean}
+    error:   {type: string}
+    message: {type: string}

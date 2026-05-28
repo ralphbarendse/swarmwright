@@ -1,0 +1,51 @@
+name: setup_swarm
+description: >
+  Create a swarm and add its first agent in one call — equivalent to
+  create_swarm + add_agent_to_swarm combined. Use this to go from nothing
+  to a fully functional swarm in a single step.
+timeout_seconds: 60
+allowed_packages: []
+input_schema:
+  type: object
+  required: [swarm_name, agent_name]
+  properties:
+    workspace_id:
+      type: string
+      description: ID of the workspace. Provide either this or workspace_name.
+    workspace_name:
+      type: string
+      description: Display name or slug of the workspace (case-insensitive).
+    swarm_name:
+      type: string
+      description: Display name for the new swarm.
+    description:
+      type: string
+      description: Short description of what the swarm does.
+    agent_name:
+      type: string
+      description: Name of the first agent (lowercase, no spaces).
+    layer:
+      type: string
+      description: "Agent layer: orchestrator, executioner, policy, or perceptionist. Defaults to orchestrator."
+    constitution:
+      type: string
+      description: Full constitution markdown. If omitted, a minimal placeholder is used.
+    skills:
+      type: array
+      description: Skills to attach to the agent. Each item needs skill_name and purpose.
+      items:
+        type: object
+        properties:
+          skill_name: {type: string}
+          purpose:    {type: string}
+output_schema:
+  type: object
+  required: [ok]
+  properties:
+    swarm_id:        {type: string}
+    swarm_name:      {type: string}
+    agent_name:      {type: string}
+    skills_attached: {type: integer}
+    ok:              {type: boolean}
+    error:           {type: string}
+    message:         {type: string}

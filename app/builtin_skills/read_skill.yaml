@@ -1,0 +1,40 @@
+name: read_skill
+description: >
+  Read the source code (Python and YAML) of an existing skill.
+  Use this before editing or recreating a skill so you can see the current
+  implementation and fix only what needs fixing — not rewrite from scratch.
+timeout_seconds: 15
+allowed_packages: []
+input_schema:
+  type: object
+  required: [name]
+  properties:
+    name:
+      type: string
+      description: Skill name (e.g. "get-btc-price"). Underscores are converted to hyphens automatically.
+    scope:
+      type: string
+      description: "Where the skill lives: 'company' (default), 'workspace', or 'swarm'"
+    workspace_id:
+      type: string
+      description: Required when scope is 'workspace' or 'swarm'
+    workspace_name:
+      type: string
+      description: Workspace name (alternative to workspace_id)
+    swarm_id:
+      type: string
+      description: Required when scope is 'swarm'
+output_schema:
+  type: object
+  properties:
+    success:      {type: boolean}
+    name:         {type: string}
+    scope:        {type: string}
+    py_content:   {type: string}
+    yaml_content: {type: string}
+    description:  {type: string}
+    allowed_packages:
+      type: array
+      items: {type: string}
+    error:        {type: string}
+    message:      {type: string}

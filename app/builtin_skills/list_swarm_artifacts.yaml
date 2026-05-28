@@ -1,0 +1,27 @@
+name: list_swarm_artifacts
+description: List the files a swarm has written to its files/ directory, with size and mod/time. Use this to confirm whether a run actually produced a file and tell the user where it lives. Works across any swarm — pass the swarm's name or ID.
+timeout_seconds: 15
+allowed_packages: []
+input_schema:
+  type: object
+  required: [swarm]
+  properties:
+    swarm:
+      type: string
+      description: The target swarm's name or UUID (UUID prefix also accepted).
+    prefix:
+      type: string
+      description: Optional. Only return files whose relative path starts with this prefix.
+output_schema:
+  type: object
+  required: [files]
+  properties:
+    files:
+      type: array
+      items:
+        type: object
+        properties:
+          path:         {type: string}
+          filename:     {type: string}
+          size_bytes:   {type: integer}
+          modified_at:  {type: number}

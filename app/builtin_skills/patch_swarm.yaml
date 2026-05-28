@@ -1,0 +1,31 @@
+name: patch_swarm
+description: Enable or disable a swarm, or update its display name and description. Use list_swarms first to get the swarm_id.
+timeout_seconds: 20
+allowed_packages: []
+input_schema:
+  type: object
+  required: [swarm_id]
+  properties:
+    swarm_id:
+      type: string
+      description: The UUID of the swarm to update (from list_swarms).
+    enabled:
+      type: boolean
+      description: Set to true to enable the swarm, false to disable it.
+    display_name:
+      type: string
+      description: Optional new display name.
+    description:
+      type: string
+      description: Optional new description.
+output_schema:
+  type: object
+  required: [ok]
+  properties:
+    ok:          {type: boolean}
+    swarm_id:    {type: string}
+    name:        {type: string}
+    display_name: {type: string}
+    enabled:     {type: boolean}
+    error:   {type: string}
+    message: {type: string}

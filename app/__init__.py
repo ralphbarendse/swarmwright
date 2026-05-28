@@ -72,17 +72,23 @@ def _seed_default_models() -> None:
 
 
 def _seed_platform_workspace(data_dir: str) -> None:
-    """Copy the bundled Platform workspace into data_dir on first boot."""
-    dst = os.path.join(data_dir, "workspaces", "platform")
-    if os.path.isdir(dst):
-        return
-    src = os.path.join(os.path.dirname(__file__), "platform_defaults", "platform")
-    if not os.path.isdir(src):
-        logger.warning("Platform defaults bundle not found at %s — skipping seed", src)
-        return
+    """Ensure the platform workspace non-swarm scaffolding exists, then run built-in reconciliation."""
     import shutil
-    shutil.copytree(src, dst)
-    logger.info("Seeded platform workspace from bundle into %s", dst)
+    dst = os.path.join(data_dir, "workspaces", "platform")
+    if not os.path.isdir(dst):
+        src = os.path.join(os.path.dirname(__file__), "platform_defaults", "platform")
+        if not os.path.isdir(src):
+            logger.warning("Platform defaults bundle not found at %s — skipping seed", src)
+        else:
+            shutil.copytree(src, dst)
+            logger.info("Seeded platform workspace scaffold into %s", dst)
+
+    # Reconcile built-in swarms on every boot (not just first boot)
+    from app.core.builtin_swarms import reconcile
+    try:
+        reconcile(data_dir)
+    except Exception:
+        logger.exception("Built-in swarm reconciliation failed")
 
 
 def _get_event_bus_workers() -> int:
@@ -187,6 +193,19 @@ def create_app(config: Config | None = None) -> Flask:
             return
         if request.path in _PUBLIC_API_PATHS:
             return
+        # Internal skill calls carry X-Internal-Token matching INTERNAL_TOKEN env var
+        internal_token = os.environ.get("INTERNAL_TOKEN", "")
+        if internal_token and request.headers.get("X-Internal-Token") == internal_token:
+            from app.models.user import User
+            from app.db import get_session
+            from sqlalchemy import select
+            with get_session() as session:
+                admin = session.execute(
+                    select(User).where(User.is_admin == True, User.is_active == True)
+                ).scalars().first()
+            if admin:
+                g.current_user = admin
+            return
         if g.get("current_user") is None:
             return jsonify({"error": {"code": "unauthorized", "message": "Login required"}}), 401
 
@@ -207,6 +226,7 @@ def create_app(config: Config | None = None) -> Flask:
     from app.api.settings import bp as settings_bp
     from app.api.callers import bp as callers_bp
     from app.api.files import bp as files_bp
+    from app.api.chat import bp as chat_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(users_bp)
@@ -224,6 +244,7 @@ def create_app(config: Config | None = None) -> Flask:
     app.register_blueprint(settings_bp)
     app.register_blueprint(callers_bp)
     app.register_blueprint(files_bp)
+    app.register_blueprint(chat_bp)
 
     # ── SSE bus ───────────────────────────────────────────────────────────────
     from app.core.sse_bus import SseBus
@@ -268,7 +289,13 @@ def create_app(config: Config | None = None) -> Flask:
             count = db.execute(select(func.count(User.id))).scalar() or 0
         if count == 0:
             return redirect("/setup")
-        if not session.get("user_id"):
+        user_id = session.get("user_id")
+        if not user_id:
+            return redirect("/login")
+        with get_session() as db:
+            user = db.get(User, user_id)
+        if not user or not user.is_active:
+            session.clear()
             return redirect("/login")
         return app.send_static_file("index.html")
 
@@ -280,8 +307,13 @@ def create_app(config: Config | None = None) -> Flask:
             count = db.execute(select(func.count(User.id))).scalar() or 0
         if count == 0:
             return redirect("/setup")
-        if session.get("user_id"):
-            return redirect("/")
+        user_id = session.get("user_id")
+        if user_id:
+            with get_session() as db:
+                user = db.get(User, user_id)
+            if user and user.is_active:
+                return redirect("/")
+            session.clear()
         return app.send_static_file("login.html")
 
     @app.route("/setup")

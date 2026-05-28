@@ -126,6 +126,29 @@
   box-shadow: 3px 3px 0 var(--color-perceptionist);
 }
 
+/* Entry-point agent: amber ring so it reads immediately in a dense graph */
+#cy-container .cy-card.cy-card-entry {
+  border-color: var(--color-amber);
+  box-shadow: 3px 3px 0 var(--color-amber);
+}
+#cy-container .cy-label-agent.is-selected .cy-card.cy-card-entry {
+  border-color: var(--color-perceptionist);
+  box-shadow: 3px 3px 0 var(--color-perceptionist);
+}
+#cy-container .cy-card-entry-badge {
+  font-family: var(--font-mono);
+  font-size: 0.46em;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: var(--color-amber);
+  color: #fff;
+  padding: 0.12em 0.55em;
+  border-radius: 0;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
 #cy-container .cy-card-accent {
   height: 0.28em;
   width: 100%;
@@ -214,6 +237,7 @@
 #cy-container .cy-card-footer {
   display: flex;
   align-items: center;
+  gap: 0.4em;
   border-top: 1px dashed var(--color-cream-line);
   padding-top: 0.3em;
   margin-top: 0.15em;
@@ -234,6 +258,23 @@
   max-width: 100%;
   border-radius: 0;
 }
+/* Layer badge — compact label in card footer showing role */
+#cy-container .cy-card-layer-badge {
+  font-family: var(--font-mono);
+  font-size: 0.46em;
+  padding: 0.15em 0.55em;
+  border-radius: 0;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+#cy-container .cy-card-layer-badge-policy        { background: var(--color-policy);        color: #fff; }
+#cy-container .cy-card-layer-badge-orchestrator  { background: var(--color-orchestrator);  color: #fff; }
+#cy-container .cy-card-layer-badge-executioner   { background: var(--color-executioner);   color: #fff; }
+#cy-container .cy-card-layer-badge-perceptionist { background: var(--color-perceptionist); color: #fff; }
+
 /* ── Skill node cards ────────────────────────────────────────────────────── */
 #cy-container .cy-label-skill {
   text-align: left;

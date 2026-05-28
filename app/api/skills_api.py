@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import logging
 import os
 import re
@@ -13,6 +14,7 @@ from sqlalchemy import select
 
 from app.core.skill_runner import (
     SkillValidationError,
+    run_skill,
     validate_allowed_packages,
 )
 from app.core.auth import require_permission
@@ -215,6 +217,37 @@ output_schema:
 '''
 
 
+def _validate_main_block(py_src: str) -> str | None:
+    """Return an error message if the skill is missing the required __main__ block."""
+    try:
+        tree = ast.parse(py_src)
+    except SyntaxError as exc:
+        return f"Syntax error: {exc}"
+    for node in tree.body:
+        if not isinstance(node, ast.If):
+            continue
+        test = node.test
+        if (
+            isinstance(test, ast.Compare)
+            and isinstance(test.left, ast.Name)
+            and test.left.id == "__name__"
+            and len(test.ops) == 1
+            and isinstance(test.ops[0], ast.Eq)
+            and len(test.comparators) == 1
+            and isinstance(test.comparators[0], ast.Constant)
+            and test.comparators[0].value == "__main__"
+        ):
+            return None
+    return (
+        'Skill is missing the required `if __name__ == "__main__":` block. '
+        "Skills run as subprocesses — without it, run() is never called and stdout is empty. "
+        "Add this at the bottom of your .py file:\n\n"
+        'if __name__ == "__main__":\n'
+        "    payload = json.loads(sys.argv[1])\n"
+        '    print(json.dumps(run(payload["input"], payload["context"])))'
+    )
+
+
 def _write_skill_files(folder: str, name: str, py_content: str, yaml_content: str) -> tuple[str, str]:
     os.makedirs(folder, exist_ok=True)
     py_path = os.path.join(folder, f"{name}.py")
@@ -262,6 +295,10 @@ def create_skill():
 
     py_src = body.py_content or _DEFAULT_PY.replace("<NAME>", body.name)
     yaml_src = body.yaml_content or _DEFAULT_YAML
+
+    main_err = _validate_main_block(py_src)
+    if main_err:
+        return jsonify({"error": {"code": "missing_main_block", "message": main_err}}), 422
 
     cfg = _parse_yaml_or_400(yaml_src)
     if isinstance(cfg, tuple):
@@ -318,6 +355,10 @@ def update_skill(skill_name: str):
     yaml_path = os.path.join(folder, f"{skill_name}.yaml")
     if not (os.path.isfile(py_path) or os.path.isfile(yaml_path)):
         return jsonify({"error": {"code": "not_found", "message": "Skill not found"}}), 404
+
+    main_err = _validate_main_block(body.py_content)
+    if main_err:
+        return jsonify({"error": {"code": "missing_main_block", "message": main_err}}), 422
 
     cfg = _parse_yaml_or_400(body.yaml_content)
     if isinstance(cfg, tuple):
@@ -412,6 +453,11 @@ Rules you MUST follow:
    - run_id: the current run's UUID
    - agent_name: name of the agent that called this skill
    - swarm_id: UUID of the swarm
+   - files_root: absolute path to the swarm's files directory (e.g. .../workspaces/my-workspace/swarms/my-swarm/files)
+   - data_dir: absolute path to the platform data root (rarely needed)
+10. If the skill reads or writes files, ALWAYS use context["files_root"] as the base directory.
+    Never hardcode paths, use os.getcwd(), or write outside files_root.
+    Example: open(os.path.join(context["files_root"], "report.csv"), "w")
 
 Stdlib always available (no need to list in allowed_packages):
 {stdlib_list}
@@ -501,10 +547,19 @@ def skills_runtime_info():
         "collections", "itertools", "functools", "dataclasses", "typing",
     ]
 
+    context_keys = [
+        {"key": "files_root",  "description": "Absolute path to the swarm's files/ directory. Use this as the base for all file I/O — e.g. open(os.path.join(context['files_root'], 'report.csv'), 'w')."},
+        {"key": "run_id",      "description": "UUID of the current run."},
+        {"key": "agent_name",  "description": "Name of the agent that invoked this skill."},
+        {"key": "swarm_id",    "description": "UUID of the swarm."},
+        {"key": "data_dir",    "description": "Absolute path to the platform data root (rarely needed)."},
+    ]
+
     return jsonify({
         "python_version": sys.version.split()[0],
         "stdlib_highlights": stdlib_highlights,
         "third_party": third_party,
+        "context_keys": context_keys,
     })
 
 
@@ -594,3 +649,47 @@ def delete_skill(skill_name: str):
     if not removed:
         return jsonify({"error": {"code": "not_found", "message": "Skill not found"}}), 404
     return "", 204
+
+
+@bp.post("/skills/<skill_name>/test")
+@require_permission("can_manage_skills")
+def test_skill(skill_name: str):
+    scope = request.args.get("scope", "company")
+    workspace_id = request.args.get("workspace_id")
+    swarm_id = request.args.get("swarm_id")
+    data_dir = current_app.config["DATA_DIR"]
+
+    body = request.get_json(force=True) or {}
+    input_data = body.get("input", {})
+    if not isinstance(input_data, dict):
+        return jsonify({"error": {"code": "validation_error", "message": "input must be an object"}}), 400
+
+    folder = _scope_folder(scope, workspace_id, swarm_id, data_dir)
+    if not folder:
+        return jsonify({"error": {"code": "not_found", "message": "Scope not found"}}), 404
+
+    py_path = os.path.join(folder, f"{skill_name}.py")
+    if not os.path.isfile(py_path):
+        return jsonify({"error": {"code": "not_found", "message": "Skill .py not found"}}), 404
+
+    files_root = None
+    if swarm_id:
+        with get_session() as session:
+            swarm = session.get(Swarm, swarm_id)
+            ws = session.get(Workspace, swarm.workspace_id) if swarm else None
+        if swarm and ws:
+            files_root = os.path.join(data_dir, "workspaces", ws.name, "swarms", swarm.name, "files")
+            os.makedirs(files_root, exist_ok=True)
+    if not files_root:
+        import tempfile
+        files_root = tempfile.mkdtemp(prefix="swarm-skill-test-files-")
+
+    context = {
+        "run_id": "test",
+        "agent_name": "test",
+        "swarm_id": swarm_id or "test",
+        "files_root": files_root,
+        "data_dir": data_dir,
+    }
+    result = run_skill(py_path, input_data, context)
+    return jsonify(result)

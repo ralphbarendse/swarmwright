@@ -18,6 +18,7 @@ from app.models.swarm import Swarm
 from app.models.agent import Agent, LAYER_PERCEPTIONIST
 from app.models.trigger import Trigger
 from app.models.run import Run, STATUS_RUNNING
+from app.models.run_step import RunStep
 
 bp = Blueprint("workspaces", __name__, url_prefix="/api/v1")
 
@@ -125,8 +126,30 @@ def get_workspace(workspace_id: str):
             .where(Agent.workspace_id == workspace_id, Agent.layer == LAYER_PERCEPTIONIST)
         ).scalar() or 0
 
+        # Workspace-level stats: total runs, total tokens, last active
+        ws_total_runs = 0
+        ws_total_tokens = 0
+        ws_last_active = None
+        if swarm_ids:
+            ws_total_runs = session.execute(
+                select(func.count()).select_from(Run).where(Run.swarm_id.in_(swarm_ids))
+            ).scalar() or 0
+            tok_row = session.execute(
+                select(func.sum(RunStep.tokens_input), func.sum(RunStep.tokens_output))
+                .join(Run, RunStep.run_id == Run.id)
+                .where(Run.swarm_id.in_(swarm_ids))
+            ).one()
+            ws_total_tokens = (tok_row[0] or 0) + (tok_row[1] or 0)
+            last_active_row = session.execute(
+                select(func.max(Run.started_at)).where(Run.swarm_id.in_(swarm_ids))
+            ).scalar()
+            ws_last_active = last_active_row.isoformat() if last_active_row else None
+
         result = workspace.to_dict()
         result["perceptionist_count"] = percep_count
+        result["total_runs"] = ws_total_runs
+        result["total_tokens"] = ws_total_tokens
+        result["last_active_at"] = ws_last_active
         swarm_dicts = []
         for s in swarms:
             d = s.to_dict()
@@ -181,6 +204,15 @@ def create_workspace():
         session.add(workspace)
         session.commit()
         session.refresh(workspace)
+
+        # Materialise workspace-scope built-in swarms (e.g. concierge) immediately
+        try:
+            from app.core.builtin_swarms import reconcile_workspace
+            reconcile_workspace(folder)
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception("Failed to materialise built-in swarms for new workspace")
+
         return jsonify(workspace.to_dict()), 201
 
 

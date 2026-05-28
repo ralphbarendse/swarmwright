@@ -196,6 +196,31 @@ function _renderKnowledgeGrid(grid, docs, reload, scopeParams) {
         <button class="btn btn-danger btn-sm" data-action="delete">Delete</button>
       </div>` : ""}`;
 
+    // Hover preview popover
+    if (doc.content_preview) {
+      let _tip = null;
+      card.addEventListener("mouseenter", e => {
+        _tip = document.createElement("div");
+        _tip.style.cssText = `
+          position:fixed;z-index:9999;
+          max-width:360px;padding:12px 14px;
+          background:var(--color-surface);border:1px solid var(--color-cream-line);
+          border-radius:6px;box-shadow:0 4px 16px rgba(0,0,0,.14);
+          font-family:var(--font-mono);font-size:11px;line-height:1.6;
+          color:var(--color-ink-soft);white-space:pre-wrap;word-break:break-word;
+          pointer-events:none;
+        `;
+        _tip.textContent = doc.content_preview;
+        document.body.appendChild(_tip);
+        const r = card.getBoundingClientRect();
+        const tipH = 160;
+        const top = r.bottom + 6 + tipH > window.innerHeight ? r.top - tipH - 6 : r.bottom + 6;
+        _tip.style.top  = top + "px";
+        _tip.style.left = Math.min(r.left, window.innerWidth - 376) + "px";
+      });
+      card.addEventListener("mouseleave", () => { _tip?.remove(); _tip = null; });
+    }
+
     const openEditor = () => _openKnowledgeEditor({ doc, isNew: false, scopeParams, onDone: reload });
     card.addEventListener("click", openEditor);
     card.querySelector("[data-action=edit]")?.addEventListener("click", e => { e.stopPropagation(); openEditor(); });
@@ -606,6 +631,7 @@ async function _openSkillEditor({ scopeSel, skillName, isNew, onDone }) {
       </div>
       ${canDo("can_manage_skills") ? `<div style="display:flex;gap:8px">
         <button class="btn btn-ghost btn-sm" id="btn-ai-draft">Draft with AI</button>
+        ${!isNew ? `<button class="btn btn-ghost btn-sm" id="btn-test">Test</button>` : ""}
         <button class="btn btn-primary btn-sm" id="btn-save">Save  ⌘S</button>
       </div>` : ""}
     </div>
@@ -642,7 +668,25 @@ async function _openSkillEditor({ scopeSel, skillName, isNew, onDone }) {
         <div style="padding:8px 12px;border-bottom:1px dashed var(--color-cream-line);background:var(--color-cream-deep);font-family:var(--font-mono);font-size:11px;color:var(--color-ink-soft);letter-spacing:.06em;text-transform:uppercase">config.yaml</div>
         <div id="sk-cm-yaml" style="flex:1;overflow:hidden"></div>
       </div>
-    </div>`;
+    </div>
+
+    ${!isNew ? `
+    <div id="sk-test-panel" style="display:none;margin-top:16px;border:1px solid var(--color-cream-line);border-radius:6px;overflow:hidden;background:var(--color-card)">
+      <div style="padding:8px 12px;border-bottom:1px dashed var(--color-cream-line);background:var(--color-cream-deep);font-family:var(--font-mono);font-size:11px;color:var(--color-ink-soft);letter-spacing:.06em;text-transform:uppercase;display:flex;align-items:center;justify-content:space-between">
+        <span>Test run</span>
+        <button class="btn btn-ghost btn-sm" id="btn-test-run" style="font-size:11px;padding:2px 10px">Run</button>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0">
+        <div style="padding:10px 12px;border-right:1px dashed var(--color-cream-line)">
+          <div style="font-family:var(--font-mono);font-size:10px;color:var(--color-ink-faint);margin-bottom:6px;letter-spacing:.04em">INPUT JSON</div>
+          <textarea id="sk-test-input" spellcheck="false" style="width:100%;height:120px;resize:vertical;font-family:var(--font-mono);font-size:12px;background:transparent;border:none;outline:none;color:var(--color-ink);line-height:1.5">{}</textarea>
+        </div>
+        <div style="padding:10px 12px">
+          <div style="font-family:var(--font-mono);font-size:10px;color:var(--color-ink-faint);margin-bottom:6px;letter-spacing:.04em">OUTPUT</div>
+          <pre id="sk-test-output" style="margin:0;font-family:var(--font-mono);font-size:12px;color:var(--color-ink-soft);white-space:pre-wrap;word-break:break-all;min-height:120px">—</pre>
+        </div>
+      </div>
+    </div>` : ""}`;
 
   const pyHost   = document.getElementById("sk-cm-py");
   const yamlHost = document.getElementById("sk-cm-yaml");
@@ -672,6 +716,38 @@ async function _openSkillEditor({ scopeSel, skillName, isNew, onDone }) {
   }
 
   document.getElementById("btn-back").addEventListener("click", () => onDone && onDone());
+
+  if (!isNew) {
+    const testBtn    = document.getElementById("btn-test");
+    const testPanel  = document.getElementById("sk-test-panel");
+    const testRunBtn = document.getElementById("btn-test-run");
+    const testOutput = document.getElementById("sk-test-output");
+
+    testBtn?.addEventListener("click", () => {
+      const open = testPanel.style.display !== "none";
+      testPanel.style.display = open ? "none" : "block";
+    });
+
+    testRunBtn?.addEventListener("click", async () => {
+      const raw = document.getElementById("sk-test-input")?.value.trim() || "{}";
+      let input;
+      try { input = JSON.parse(raw); } catch { testOutput.textContent = "Invalid JSON in input."; return; }
+      testRunBtn.disabled = true;
+      testRunBtn.textContent = "Running…";
+      testOutput.textContent = "…";
+      try {
+        const result = await api.testSkill(skillName, _scopeParams(scopeSel), input);
+        testOutput.textContent = JSON.stringify(result, null, 2);
+        testOutput.style.color = result.ok === false ? "var(--color-danger, #c0392b)" : "var(--color-ink)";
+      } catch (err) {
+        testOutput.textContent = err?.message || String(err);
+        testOutput.style.color = "var(--color-danger, #c0392b)";
+      } finally {
+        testRunBtn.disabled = false;
+        testRunBtn.textContent = "Run";
+      }
+    });
+  }
 
   const aiDraftBtn = document.getElementById("btn-ai-draft");
   const aiRow      = document.getElementById("sk-ai-row");
@@ -727,6 +803,13 @@ async function _openSkillEditor({ scopeSel, skillName, isNew, onDone }) {
       <div><b>Third-party</b> — installed in this container, must be added to <code>allowed_packages</code> in the YAML to use:<br>
         <ul style="margin:6px 0 0 18px;padding:0">
           ${tp.map(p => `<li><code>${_esc(p.name)}</code> <span style="color:var(--color-ink-faint)">${_esc(p.version)}</span> — <span style="color:var(--color-ink-soft)">${_esc(p.hint)}</span></li>`).join("")}
+        </ul>
+      </div>
+      ` : ""}
+      ${(info.context_keys || []).length ? `
+      <div style="margin-top:10px"><b>Runtime context</b> — keys available in the <code>context</code> dict passed to <code>run()</code>:<br>
+        <ul style="margin:6px 0 0 18px;padding:0">
+          ${(info.context_keys).map(k => `<li><code>${_esc(k.key)}</code> — <span style="color:var(--color-ink-soft)">${_esc(k.description)}</span></li>`).join("")}
         </ul>
       </div>
       ` : ""}

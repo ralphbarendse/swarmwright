@@ -1,0 +1,16 @@
+{
+  "swarm": "concierge",
+  "agents": ["concierge"],
+  "entry_point": "concierge",
+  "edges": [],
+  "consultations": [],
+  "skills": [
+    {"agent": "concierge", "skill": "list_workspace_swarms", "purpose": "List available swarms in this workspace"},
+    {"agent": "concierge", "skill": "read_run",              "purpose": "Read a past run's result"},
+    {"agent": "concierge", "skill": "flag_unmet_need",              "purpose": "Flag a request that no swarm can fulfil"},
+    {"agent": "concierge", "skill": "search_workspace_knowledge", "purpose": "Search knowledge documents in this workspace"}
+  ],
+  "calls": [],
+  "informs": [],
+  "swarm_calls": []
+}

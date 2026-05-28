@@ -1,0 +1,23 @@
+name: list_unmet_needs
+description: Read the queue of Concierge requests that could not be routed.
+timeout_seconds: 15
+allowed_packages: []
+input_schema:
+  type: object
+  properties:
+    workspace_id:
+      type: string
+      description: Filter by workspace. Omit to return all workspaces.
+    status:
+      type: string
+      enum: [open, dismissed, addressed]
+      default: open
+    limit:
+      type: integer
+      default: 20
+output_schema:
+  type: object
+  required: [needs]
+  properties:
+    needs:
+      type: array

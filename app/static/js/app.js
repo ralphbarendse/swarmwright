@@ -20,7 +20,9 @@ import { renderLibraryView }      from "./views/library.js";
 import { renderSettingsView, applyBrandingOnBoot } from "./views/settings.js";
 import { renderInboxView, refreshInboxPip }       from "./views/inbox.js";
 import { renderWelcomeView }                      from "./views/welcome.js";
-import { setCurrentUser, currentUser, logout }    from "./auth.js";
+import { renderOnboardingView }                   from "./views/onboarding.js";
+import { setCurrentUser, currentUser, canDo, logout } from "./auth.js";
+import { mountChatWidget }                          from "./components/chat-panel.js";
 
 // ── Router ────────────────────────────────────────────────────────────────────
 
@@ -91,6 +93,9 @@ function render() {
     case "welcome":
       renderWelcomeView(container);
       break;
+    case "onboarding":
+      renderOnboardingView(container);
+      break;
     default:
       container.innerHTML = `<div class="empty-state"><div class="empty-state-title">Not found</div></div>`;
   }
@@ -160,6 +165,49 @@ function _escHtml(s) {
     ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' })[c]);
 }
 
+// ── Copy to clipboard helper ──────────────────────────────────────────────
+
+window.swCopy = function(text, btn) {
+  navigator.clipboard.writeText(text).then(() => {
+    if (!btn) return;
+    const orig = btn.textContent;
+    btn.textContent = "✓";
+    btn.style.color = "var(--color-success)";
+    setTimeout(() => { btn.textContent = orig; btn.style.color = ""; }, 1500);
+  });
+};
+
+// ── Mobile detection ───────────────────────────────────────────────────────
+
+function _isMobile() {
+  return window.matchMedia("(max-width: 768px)").matches;
+}
+
+function _bootMobile() {
+  // Hide desktop chrome
+  document.querySelector(".topbar").style.display = "none";
+  document.getElementById("main").style.cssText =
+    "position:fixed;inset:0;display:flex;flex-direction:column;overflow:hidden;";
+
+  const app = document.getElementById("app");
+  app.style.cssText = "display:flex;flex-direction:column;height:100dvh;overflow:hidden;";
+
+  if (canDo("can_chat_operator")) {
+    sseConnect();
+    const wrap = document.createElement("div");
+    wrap.style.cssText = "flex:1;display:flex;flex-direction:column;overflow:hidden;";
+    document.getElementById("main").appendChild(wrap);
+    mountChatWidget({ scope: "org", container: wrap });
+  } else {
+    document.getElementById("main").innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:center;height:100%;padding:32px;text-align:center;flex-direction:column;gap:12px;color:var(--color-ink-soft)">
+        <div style="font-size:32px">📵</div>
+        <div style="font-weight:600;font-size:16px;color:var(--color-ink)">Mobile version not supported</div>
+        <div style="font-size:14px">Please contact your administrator.</div>
+      </div>`;
+  }
+}
+
 // ── Bootstrap ─────────────────────────────────────────────────────────────
 
 applyBrandingOnBoot();
@@ -176,6 +224,11 @@ async function boot() {
     _renderUserWidget(user);
   } catch {
     window.location.href = "/login";
+    return;
+  }
+
+  if (_isMobile()) {
+    _bootMobile();
     return;
   }
 

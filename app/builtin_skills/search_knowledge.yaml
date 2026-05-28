@@ -1,0 +1,33 @@
+name: search_knowledge
+description: >
+  Full-text search across all knowledge files on the platform.
+  Returns file names, their workspace/swarm location, and a matching excerpt.
+input:
+  type: object
+  required: [query]
+  properties:
+    query:
+      type: string
+      description: The keyword or phrase to search for.
+    workspace_id:
+      type: string
+      description: Optional workspace name or id to restrict the search.
+output:
+  type: object
+  required: [query, results]
+  properties:
+    query:
+      type: string
+    results:
+      type: array
+      items:
+        type: object
+        properties:
+          file:
+            type: string
+          location:
+            type: string
+          match_count:
+            type: integer
+          excerpt:
+            type: string

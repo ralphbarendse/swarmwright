@@ -1,0 +1,17 @@
+name: read_run
+description: Fetch a run's status and step trail.
+timeout_seconds: 15
+allowed_packages: []
+input_schema:
+  type: object
+  required: [run_id]
+  properties:
+    run_id:
+      type: string
+      description: "Full run UUID or a unique prefix (e.g. first 8 characters)"
+output_schema:
+  type: object
+  required: [run]
+  properties:
+    run:
+      type: object

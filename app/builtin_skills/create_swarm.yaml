@@ -1,0 +1,34 @@
+name: create_swarm
+description: Provision a new swarm inside a workspace.
+timeout_seconds: 30
+allowed_packages: []
+input_schema:
+  type: object
+  properties:
+    workspace_id:
+      type: string
+      description: ID of the workspace. Provide either this or workspace_name.
+    workspace_name:
+      type: string
+      description: Name or display_name of the workspace (case-insensitive). Use instead of workspace_id when the id is unknown.
+    name:
+      type: string
+      description: Human-readable name for the swarm (use this or display_name)
+    display_name:
+      type: string
+      description: Alias for name — provide either name or display_name
+    description:
+      type: string
+output_schema:
+  type: object
+  required: [ok]
+  properties:
+    ok:       {type: boolean}
+    swarm_id:
+      type: string
+    name:
+      type: string
+    display_name:
+      type: string
+    error:   {type: string}
+    message: {type: string}

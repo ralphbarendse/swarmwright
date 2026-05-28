@@ -1,0 +1,13 @@
+{
+  "swarm": "web-search",
+  "agents": ["web-searcher"],
+  "entry_point": "web-searcher",
+  "edges": [],
+  "consultations": [],
+  "skills": [
+    {"agent": "web-searcher", "skill": "web-search", "purpose": "Search the web for information"}
+  ],
+  "calls": [],
+  "informs": [],
+  "swarm_calls": []
+}

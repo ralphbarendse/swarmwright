@@ -1,0 +1,26 @@
+name: flag_unmet_need
+description: Record a user request that no available swarm could fulfil.
+timeout_seconds: 15
+allowed_packages: []
+input_schema:
+  type: object
+  required: [verbatim_request, concierge_summary, workspace_id, user_id]
+  properties:
+    verbatim_request:
+      type: string
+      description: The user's original phrasing, unmodified.
+    concierge_summary:
+      type: string
+      description: A brief interpretation of what the user needed.
+    workspace_id:
+      type: string
+    user_id:
+      type: string
+    session_id:
+      type: integer
+output_schema:
+  type: object
+  required: [need_id]
+  properties:
+    need_id:
+      type: integer

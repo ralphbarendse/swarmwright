@@ -25,6 +25,10 @@ ALL_PERMISSIONS = [
     "can_decide_inbox",
     "can_view_settings",
     "can_manage_users",
+    "can_chat_workspace",
+    "can_chat_operator",
+    "can_read_files",
+    "can_write_files",
 ]
 
 DEFAULT_USER_PERMISSIONS: dict[str, bool] = {
@@ -43,6 +47,10 @@ DEFAULT_USER_PERMISSIONS: dict[str, bool] = {
     "can_decide_inbox": True,
     "can_view_settings": False,
     "can_manage_users": False,
+    "can_chat_workspace": True,
+    "can_chat_operator": False,
+    "can_read_files": True,
+    "can_write_files": False,
 }
 
 

@@ -281,6 +281,28 @@ def resolve_default_model() -> str | None:
     return os.environ.get("LLM_MODEL") or None
 
 
+def infer_provider_from_model(model: str) -> str | None:
+    """Return the provider that owns ``model``, based on model name prefix.
+
+    Returns None when the model name does not match a known provider pattern,
+    meaning the caller should fall back to the platform default provider.
+
+    Recognised patterns:
+        - ``claude-*``      → ``"anthropic"``
+        - ``gpt-*``         → ``"openai"``
+        - ``o1-*`` / ``o3-*`` / ``o4-*`` → ``"openai"``
+        - ``deepseek-*``    → ``"deepseek"``
+    """
+    m = model.lower()
+    if m.startswith("claude-"):
+        return "anthropic"
+    if m.startswith(("gpt-", "o1-", "o3-", "o4-")):
+        return "openai"
+    if m.startswith("deepseek-"):
+        return "deepseek"
+    return None
+
+
 def get_llm_credentials(
     provider: str | None = None,
     model: str | None = None,
@@ -292,18 +314,33 @@ def get_llm_credentials(
     than instantiating `LLMClient` directly so a single line change picks up
     new credentials when the operator updates them in the GUI.
 
+    Provider resolution order when ``provider`` is not given:
+        1. Inferred from the model name (``claude-*`` → anthropic, etc.)
+        2. ``resolve_default_provider()`` (operator's default in Settings)
+
+    This means a constitution that pins ``model: claude-sonnet-4-6`` will always
+    use the Anthropic key — even if the platform default is DeepSeek — as long
+    as an Anthropic key is registered.
+
     Args:
-        provider: Provider id (``"anthropic"`` / ``"openai"``). If omitted,
-            resolved via :func:`resolve_default_provider`.
+        provider: Provider id (``"anthropic"`` / ``"openai"`` / ``"deepseek"``).
+            If omitted, inferred from ``model`` then resolved via
+            :func:`resolve_default_provider`.
         model: Model id passed through to ``LLMClient``. If omitted, resolved
             via :func:`resolve_default_model` (``models.default`` setting,
             then ``LLM_MODEL`` env var, then provider hardcoded default).
     """
     from app.core.llm import LLMClient
 
-    if provider is None:
-        provider = resolve_default_provider()
     if model is None:
         model = resolve_default_model()
+
+    if provider is None:
+        # Try to infer provider from the model name before falling back to default.
+        if model:
+            provider = infer_provider_from_model(model) or resolve_default_provider()
+        else:
+            provider = resolve_default_provider()
+
     api_key = resolve_llm_api_key(provider)
     return LLMClient(provider=provider, model=model, api_key=api_key)

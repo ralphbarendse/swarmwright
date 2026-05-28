@@ -1,0 +1,29 @@
+name: create_workspace
+description: Provision a new workspace with a display name and optional description.
+timeout_seconds: 30
+allowed_packages: []
+input_schema:
+  type: object
+  required: []
+  properties:
+    name:
+      type: string
+      description: Human-readable name for the workspace (use this or display_name)
+    display_name:
+      type: string
+      description: Alias for name — provide either name or display_name
+    description:
+      type: string
+output_schema:
+  type: object
+  required: [ok]
+  properties:
+    ok:          {type: boolean}
+    workspace_id:
+      type: string
+    name:
+      type: string
+    display_name:
+      type: string
+    error:   {type: string}
+    message: {type: string}

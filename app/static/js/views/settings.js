@@ -193,7 +193,7 @@ export function renderSettingsView(container, segments = []) {
   const pane = container.querySelector("#settings-pane");
   pane.innerHTML = `<div style="color:var(--color-ink-faint);font-family:var(--font-mono);font-size:12px">Loading settings…</div>`;
 
-  _loadSettings().then(() => {
+  _loadSettings(true).then(() => {
     pane.innerHTML = "";
     _renderRestartBanner();
     switch (tab) {
@@ -234,7 +234,8 @@ function _makeProviderCard(provider, defaultProvider) {
 
   const card = document.createElement("div");
   card.className = "card";
-  card.style.cssText = "padding:18px 20px;display:flex;flex-direction:column;gap:14px";
+  const _borderColor = hasKey ? "var(--color-warn)" : "var(--color-cream-line)";
+  card.style.cssText = `padding:18px 20px;display:flex;flex-direction:column;gap:14px;border-left:3px solid ${_borderColor}`;
 
   card.innerHTML = `
     <div style="display:flex;align-items:center;gap:10px">
@@ -309,15 +310,18 @@ function _makeProviderCard(provider, defaultProvider) {
         showMsg("Connection successful", true);
         dot.style.background = "var(--color-success)";
         dot.dataset.status = "ok";
+        card.style.borderLeftColor = "var(--color-success)";
       } else {
         showMsg(r.message || "Connection failed", false);
         dot.style.background = "var(--color-danger)";
         dot.dataset.status = "failed";
+        card.style.borderLeftColor = "var(--color-danger)";
       }
     } catch (err) {
       showMsg(err.message || "Connection failed", false);
       dot.style.background = "var(--color-danger)";
       dot.dataset.status = "failed";
+      card.style.borderLeftColor = "var(--color-danger)";
     } finally {
       testBtn.disabled = false;
     }
@@ -1467,6 +1471,10 @@ const PERM_LABELS = {
   can_manage_skills:     "Manage skills",
   can_manage_knowledge:  "Manage knowledge",
   can_decide_inbox:      "Decide inbox items",
+  can_chat_operator:     "Chat with Operator",
+  can_chat_workspace:    "Chat with Concierge",
+  can_read_files:        "Read file vault",
+  can_write_files:       "Write file vault",
   can_view_settings:     "View settings",
   can_manage_users:      "Manage users",
 };

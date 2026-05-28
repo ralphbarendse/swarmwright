@@ -1,0 +1,20 @@
+name: list_workspace_swarms
+description: List all swarms available in the current workspace.
+timeout_seconds: 15
+allowed_packages: []
+input_schema:
+  type: object
+  properties: {}
+output_schema:
+  type: object
+  required: [swarms]
+  properties:
+    swarms:
+      type: array
+      items:
+        type: object
+        properties:
+          name: {type: string}
+          display_name: {type: [string, 'null']}
+          description: {type: [string, 'null']}
+          enabled: {type: boolean}

@@ -71,6 +71,7 @@ export const createSkill = (body) => post("/skills", body);
 export const updateSkill = (name, body) => put(`/skills/${name}`, body);
 export const deleteSkill    = (name, params = {}) => del(`/skills/${name}?` + new URLSearchParams(params));
 export const transferSkill  = (name, body) => post(`/skills/${name}/transfer`, body);
+export const testSkill      = (name, params = {}, input = {}) => post(`/skills/${name}/test?` + new URLSearchParams(params), { input });
 export const getSkillsRuntime = () => get("/skills/_meta/runtime");
 
 // ── Runs ─────────────────────────────────────────────────────────────────────
@@ -158,3 +159,13 @@ export const getUser     = (id)        => get(`/users/${id}`);
 export const createUser  = (body)      => post("/users", body);
 export const updateUser  = (id, body)  => put(`/users/${id}`, body);
 export const deleteUser  = (id)        => del(`/users/${id}`);
+
+// ── Chat (Phase 8) ────────────────────────────────────────────────────────────
+export const createOrGetChatSession = (body)         => post("/chat/sessions", body);
+export const listChatSessions       = (params = {})  => get("/chat/sessions?" + new URLSearchParams(params));
+export const listChatMessages       = (sid, params = {}) => get(`/chat/sessions/${sid}/messages?` + new URLSearchParams(params));
+export const sendChatMessage        = (sid, content) => post(`/chat/sessions/${sid}/messages`, { content });
+export const wipeChatMessages       = (sid)          => del(`/chat/sessions/${sid}/messages`);
+export const deleteChatSession      = (sid)          => del(`/chat/sessions/${sid}`);
+export const listUnmetNeeds         = (params = {})  => get("/unmet-needs?" + new URLSearchParams(params));
+export const patchUnmetNeed         = (id, body)     => patch(`/unmet-needs/${id}`, body);

@@ -37,10 +37,10 @@ def run(input_data: dict, context: dict) -> dict:
 
 
 if __name__ == "__main__":
-    payload = json.loads(sys.argv[1])
+    import json as _json, sys as _sys, traceback as _tb
     try:
-        result = run(payload["input"], payload["context"])
-        print(json.dumps(result))
-    except Exception as exc:
-        print(json.dumps({"error": str(exc)}), file=sys.stderr)
-        sys.exit(1)
+        _payload = _json.loads(_sys.argv[1])
+        _result = run(_payload["input"], _payload["context"])
+    except Exception:
+        _result = {"ok": False, "error": "skill_exception", "message": _tb.format_exc(limit=5).strip()}
+    print(_json.dumps(_result))

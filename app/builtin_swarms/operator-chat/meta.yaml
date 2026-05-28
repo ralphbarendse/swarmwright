@@ -1,0 +1,5 @@
+builtin: true
+scope: platform
+display_name: Operator
+description: Platform-level conversational operator. Can design, create, edit, and invoke swarms across the entire platform.
+icon: ⚙️

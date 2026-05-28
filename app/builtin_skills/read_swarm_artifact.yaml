@@ -1,0 +1,26 @@
+name: read_swarm_artifact
+description: Read the contents of a file from any swarm's files/ directory. Pass the swarm's name or ID and the relative file path. Use utf-8 for text, base64 for binary. Files over 200KB are rejected — use list_swarm_artifacts to confirm those instead of reading them.
+timeout_seconds: 15
+allowed_packages: []
+input_schema:
+  type: object
+  required: [swarm, path]
+  properties:
+    swarm:
+      type: string
+      description: The target swarm's name or UUID (UUID prefix also accepted).
+    path:
+      type: string
+      description: Relative path within the swarm's files/ directory (e.g. "report.csv").
+    encoding:
+      type: string
+      enum: [utf-8, base64]
+      default: utf-8
+      description: "utf-8 for text files; base64 for binary files."
+output_schema:
+  type: object
+  properties:
+    content:    {type: string}
+    encoding:   {type: string}
+    size_bytes: {type: integer}
+  additionalProperties: true

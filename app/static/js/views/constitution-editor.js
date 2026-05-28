@@ -3,6 +3,7 @@ import { toast, toastError, toastSuccess } from "../components/toast.js";
 import { setLastAgent } from "../app.js";
 import { _showModal } from "./org-design.js";
 import { _showAttachSkillModal } from "./swarm-canvas.js";
+import { canDo } from "../auth.js";
 
 let _editor = null;
 let _themeInjected = false;
@@ -66,14 +67,16 @@ export function renderConstitutionEditor(container, agentId) {
     <!-- Toolbar -->
     <div class="ed-toolbar">
       <div class="ed-toolbar-left">
-        <span id="ed-dirty-dot" class="ed-dirty-dot" title="Unsaved changes"></span>
+        ${canDo("can_edit_constitution") ? `<span id="ed-dirty-dot" class="ed-dirty-dot" title="Unsaved changes"></span>` : ""}
         <span id="ed-filename" class="ed-filename">…</span>
         <span id="ed-stats" class="ed-stats"></span>
       </div>
       <div class="ed-toolbar-right">
-        <button class="btn btn-ghost btn-sm" id="btn-draft">✦ Draft</button>
-        <button class="btn btn-ghost btn-sm" id="btn-discard">Discard</button>
-        <button class="btn btn-primary btn-sm" id="btn-save">Save ⌘S</button>
+        ${canDo("can_edit_constitution") ? `
+          <button class="btn btn-ghost btn-sm" id="btn-draft">✦ Draft</button>
+          <button class="btn btn-ghost btn-sm" id="btn-discard">Discard</button>
+          <button class="btn btn-primary btn-sm" id="btn-save">Save ⌘S</button>
+        ` : `<span style="font-family:var(--font-mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--color-ink-faint)">Read only</span>`}
       </div>
     </div>
 
@@ -92,7 +95,7 @@ export function renderConstitutionEditor(container, agentId) {
           <div class="ed-sidebar-section">
             <div class="ed-sidebar-label-row">
               <span class="ed-sidebar-label" style="margin-bottom:0">Skills</span>
-              <button class="btn btn-secondary btn-sm" id="ed-attach-skill" style="font-size:10px;padding:2px 8px">+ Attach</button>
+              ${canDo("can_edit_constitution") ? `<button class="btn btn-secondary btn-sm" id="ed-attach-skill" style="font-size:10px;padding:2px 8px">+ Attach</button>` : ""}
             </div>
             <div class="ed-sidebar-hint">Stored in hierarchy.json</div>
             <div id="ed-skills-list"></div>
@@ -145,6 +148,7 @@ export function renderConstitutionEditor(container, agentId) {
           </div>
         </div>
 
+        ${canDo("can_edit_constitution") ? `
         <!-- Scaffold bar -->
         <div class="ed-scaffold">
           <span class="ed-scaffold-label">Insert</span>
@@ -153,7 +157,7 @@ export function renderConstitutionEditor(container, agentId) {
           ).join("")}
           <span class="ed-scaffold-sep"></span>
           <button class="btn btn-ghost btn-sm" id="btn-insert-action" style="font-size:10px;padding:2px 8px;letter-spacing:0">↗ Action</button>
-        </div>
+        </div>` : ""}
       </div>
 
       <!-- ── Right: Preview + Context tabs ── -->
@@ -198,8 +202,7 @@ export function renderConstitutionEditor(container, agentId) {
   });
 
   // ── Save ──────────────────────────────────────────────────────────────────
-  const save = async () => {
-    if (!_editor) return;
+  const _doSave = async () => {
     const constitution = _getFullContent(container);
     container.querySelector("#btn-save").disabled = true;
     try {
@@ -209,6 +212,13 @@ export function renderConstitutionEditor(container, agentId) {
       toastSuccess("Saved");
     } catch (err) { toastError(err); }
     finally { container.querySelector("#btn-save").disabled = false; }
+  };
+
+  const save = () => {
+    if (!_editor) return;
+    const newContent = _getFullContent(container);
+    if (newContent === _originalContent) { _doSave(); return; }
+    _showDiffModal(_originalContent, newContent, _doSave);
   };
 
   container.querySelector("#btn-save").addEventListener("click", save);
@@ -637,12 +647,20 @@ function _buildFrontmatterForm(container, content, agent, setDirty, configuredMo
         <input style="border:none;outline:none;font-size:11px;min-width:60px;flex:1" id="fm-kn-input" placeholder="+ add" autocomplete="off">
       </div>
     </div>
-    <div style="display:flex;align-items:center;gap:8px">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
       <label class="toggle-switch">
         <input type="checkbox" id="fm-web-search" ${(fm.web_search === "true" || fm.web_search === true) ? "checked" : ""}>
         <span class="toggle-slider"></span>
       </label>
       <span class="form-label" style="margin-bottom:0">Web Search</span>
+    </div>
+    <div class="form-group" style="margin-bottom:0">
+      <label class="form-label">Inheritable directives</label>
+      <textarea class="form-input" id="fm-inheritable" rows="3"
+        placeholder="Constraints passed down to all child agents…"
+        style="font-size:11px;font-family:var(--font-mono);resize:vertical;line-height:1.5"
+      >${_esc(fm.inheritable || "")}</textarea>
+      <div class="ed-sidebar-hint" style="margin-top:3px">Injected into every agent this one delegates to.</div>
     </div>`;
 
   // Cache models list on form element so _resetEditor can re-use it
@@ -652,6 +670,7 @@ function _buildFrontmatterForm(container, content, agent, setDirty, configuredMo
   form.querySelector("#fm-layer")?.addEventListener("change", () => setDirty && setDirty(true));
   form.querySelector("#fm-model")?.addEventListener("change", () => setDirty && setDirty(true));
   form.querySelector("#fm-web-search")?.addEventListener("change", () => setDirty && setDirty(true));
+  form.querySelector("#fm-inheritable")?.addEventListener("input", () => setDirty && setDirty(true));
 
   // Knowledge autocomplete
   _setupKnowledgeAutocomplete(container, setDirty);
@@ -788,6 +807,7 @@ function _initEditor(container, content, onChange) {
     lineWrapping: true,
     autofocus: false,
     styleActiveLine: true,
+    readOnly: canDo("can_edit_constitution") ? false : "nocursor",
     extraKeys: { "Ctrl-Space": "autocomplete" },
   });
   _editor.setValue(body);
@@ -814,14 +834,20 @@ function _resetEditor(content, container) {
 
 function _getFullContent(container) {
   const form = container.querySelector("#ed-fm-form");
-  const layer   = form.querySelector("#fm-layer")?.value || "executioner";
-  const model   = form.querySelector("#fm-model")?.value || "claude-sonnet-4-6";
-  const knChips = [...form.querySelectorAll(".chip")].map(c => c.textContent.trim().replace("×", "").trim());
-  const name    = container.querySelector("#ed-crumb-name")?.textContent.trim() || "";
-  const wsOn    = form.querySelector("#fm-web-search")?.checked;
-  const knYaml  = knChips.length ? `knowledge:\n${knChips.map(k => `  - ${k}`).join("\n")}` : "knowledge: []";
-  const fm      = `---\nname: ${name}\nlayer: ${layer}\nmodel: ${model}\n${knYaml}${wsOn ? "\nweb_search: true" : ""}\n---\n`;
-  const body    = _editor ? _editor.getValue() : "";
+  const layer      = form.querySelector("#fm-layer")?.value || "executioner";
+  const model      = form.querySelector("#fm-model")?.value || "claude-sonnet-4-6";
+  const knChips    = [...form.querySelectorAll(".chip")].map(c => c.textContent.trim().replace("×", "").trim());
+  const name       = container.querySelector("#ed-crumb-name")?.textContent.trim() || "";
+  const wsOn       = form.querySelector("#fm-web-search")?.checked;
+  const inheritable = (form.querySelector("#fm-inheritable")?.value || "").trim();
+  const knYaml     = knChips.length ? `knowledge:\n${knChips.map(k => `  - ${k}`).join("\n")}` : "knowledge: []";
+  const inhYaml    = inheritable
+    ? (inheritable.includes("\n")
+        ? `inheritable: |\n${inheritable.split("\n").map(l => `  ${l}`).join("\n")}`
+        : `inheritable: ${inheritable}`)
+    : "";
+  const fm = `---\nname: ${name}\nlayer: ${layer}\nmodel: ${model}\n${knYaml}${wsOn ? "\nweb_search: true" : ""}${inhYaml ? "\n" + inhYaml : ""}\n---\n`;
+  const body = _editor ? _editor.getValue() : "";
   return fm + body;
 }
 
@@ -840,12 +866,23 @@ function _parseFrontmatter(content) {
     const lines = match[1].split("\n");
     const obj = {};
     let currentKey = null;
+    let blockScalar = false;
     for (const line of lines) {
+      if (blockScalar) {
+        if (line.match(/^\s+/)) {
+          obj[currentKey] = (obj[currentKey] ? obj[currentKey] + "\n" : "") + line.trim();
+          continue;
+        }
+        blockScalar = false;
+      }
       const kv = line.match(/^(\w+):\s*(.*)/);
       if (kv) {
         currentKey = kv[1];
         const val = kv[2].trim();
-        if (val === "[]") { obj[currentKey] = []; }
+        if (val === "|" || val === ">") {
+          obj[currentKey] = "";
+          blockScalar = true;
+        } else if (val === "[]") { obj[currentKey] = []; }
         else if (val) { obj[currentKey] = val.replace(/^['"]|['"]$/g, ""); }
         else { obj[currentKey] = []; }
       } else if (line.match(/^\s+-\s+(.+)/) && currentKey) {
@@ -855,6 +892,106 @@ function _parseFrontmatter(content) {
     }
     return obj;
   } catch (_) { return {}; }
+}
+
+// ── Diff helpers ───────────────────────────────────────────────────────────
+
+function _computeLineDiff(oldText, newText) {
+  const a = oldText.split("\n");
+  const b = newText.split("\n");
+  const m = a.length, n = b.length;
+  const dp = Array.from({length: m + 1}, () => new Int32Array(n + 1));
+  for (let i = 1; i <= m; i++)
+    for (let j = 1; j <= n; j++)
+      dp[i][j] = a[i-1] === b[j-1] ? dp[i-1][j-1] + 1 : Math.max(dp[i-1][j], dp[i][j-1]);
+
+  const result = [];
+  let i = m, j = n;
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && a[i-1] === b[j-1]) {
+      result.unshift({ type: "eq",  text: a[i-1] }); i--; j--;
+    } else if (j > 0 && (i === 0 || dp[i][j-1] >= dp[i-1][j])) {
+      result.unshift({ type: "add", text: b[j-1] }); j--;
+    } else {
+      result.unshift({ type: "del", text: a[i-1] }); i--;
+    }
+  }
+  return result;
+}
+
+function _showDiffModal(oldContent, newContent, onConfirm) {
+  const diff = _computeLineDiff(oldContent, newContent);
+
+  // Collapse long runs of unchanged lines (keep 3 context lines each side)
+  const CONTEXT = 3;
+  const changed = new Set();
+  diff.forEach((d, i) => { if (d.type !== "eq") changed.add(i); });
+  const visible = new Set();
+  changed.forEach(i => {
+    for (let k = Math.max(0, i - CONTEXT); k <= Math.min(diff.length - 1, i + CONTEXT); k++)
+      visible.add(k);
+  });
+
+  const linesHtml = [];
+  let collapsed = 0;
+  diff.forEach((d, i) => {
+    if (!visible.has(i)) { collapsed++; return; }
+    if (collapsed > 0) {
+      linesHtml.push(`<div style="
+        font-family:var(--font-mono);font-size:11px;color:var(--color-ink-faint);
+        background:var(--color-surface);padding:2px 10px;
+        border-top:1px dashed var(--color-cream-line);
+        border-bottom:1px dashed var(--color-cream-line);
+        user-select:none;
+      ">··· ${collapsed} unchanged line${collapsed > 1 ? "s" : ""}</div>`);
+      collapsed = 0;
+    }
+    const bg  = d.type === "add" ? "rgba(50,160,80,.12)"  : d.type === "del" ? "rgba(200,50,50,.10)"  : "";
+    const col = d.type === "add" ? "var(--color-success)" : d.type === "del" ? "var(--color-danger)"  : "var(--color-ink-faint)";
+    const pfx = d.type === "add" ? "+"                    : d.type === "del" ? "−"                    : " ";
+    linesHtml.push(`<div style="
+      display:flex;gap:0;background:${bg};
+      border-left:3px solid ${d.type === "eq" ? "transparent" : col};
+    ">
+      <span style="
+        font-family:var(--font-mono);font-size:11px;
+        color:${col};flex-shrink:0;width:20px;text-align:center;
+        padding:1px 0;user-select:none;
+      ">${pfx}</span>
+      <pre style="
+        font-family:var(--font-mono);font-size:11px;
+        color:${d.type === "eq" ? "var(--color-ink-soft)" : "var(--color-ink)"};
+        margin:0;padding:1px 8px;white-space:pre-wrap;word-break:break-all;flex:1;
+      ">${_esc(d.text)}</pre>
+    </div>`);
+  });
+  if (collapsed > 0) {
+    linesHtml.push(`<div style="
+      font-family:var(--font-mono);font-size:11px;color:var(--color-ink-faint);
+      background:var(--color-surface);padding:2px 10px;
+      border-top:1px dashed var(--color-cream-line);
+    ">··· ${collapsed} unchanged line${collapsed > 1 ? "s" : ""}</div>`);
+  }
+
+  const added   = diff.filter(d => d.type === "add").length;
+  const removed = diff.filter(d => d.type === "del").length;
+
+  const body = `
+    <div style="
+      font-family:var(--font-mono);font-size:10px;color:var(--color-ink-faint);
+      margin-bottom:10px;display:flex;gap:12px;
+    ">
+      <span style="color:var(--color-success)">+${added} added</span>
+      <span style="color:var(--color-danger)">−${removed} removed</span>
+    </div>
+    <div style="
+      border:1px solid var(--color-cream-line);border-radius:5px;
+      overflow-y:auto;max-height:55vh;background:var(--color-bg);
+    ">
+      ${linesHtml.join("")}
+    </div>`;
+
+  _showModal("Review changes", body, onConfirm, "Save");
 }
 
 // ── Utils ──────────────────────────────────────────────────────────────────

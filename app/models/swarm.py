@@ -21,6 +21,7 @@ class Swarm(Base):
     icon: Mapped[str | None] = mapped_column(String, nullable=True)
     meta_hash: Mapped[str] = mapped_column(String, nullable=False, default="")
     hierarchy_hash: Mapped[str] = mapped_column(String, nullable=False, default="")
+    source: Mapped[str] = mapped_column(String, nullable=False, default="user")
     enabled: Mapped[bool] = mapped_column(default=True, nullable=False)
     validation_error: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)

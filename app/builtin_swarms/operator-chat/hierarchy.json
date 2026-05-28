@@ -1,0 +1,31 @@
+{
+  "swarm": "operator-chat",
+  "agents": ["operator"],
+  "entry_point": "operator",
+  "edges": [],
+  "consultations": [],
+  "skills": [
+    {"agent": "operator", "skill": "create_workspace",   "purpose": "Create a new workspace"},
+    {"agent": "operator", "skill": "setup_swarm",        "purpose": "Create a swarm and its first agent in one step"},
+    {"agent": "operator", "skill": "create_swarm",       "purpose": "Create a new swarm shell (use setup_swarm instead when also adding an agent)"},
+    {"agent": "operator", "skill": "add_agent_to_swarm", "purpose": "Add an agent to an existing swarm, set entry point, and attach skills"},
+    {"agent": "operator", "skill": "draft_constitution", "purpose": "Draft a starter constitution for an agent"},
+    {"agent": "operator", "skill": "patch_topology",     "purpose": "Low-level topology edit — use add_agent_to_swarm for adding agents"},
+    {"agent": "operator", "skill": "read_skill",         "purpose": "Read the source code of an existing skill before editing or recreating it"},
+    {"agent": "operator", "skill": "create_skill",       "purpose": "Create a new custom skill (Python + YAML)"},
+    {"agent": "operator", "skill": "trigger_run",        "purpose": "Trigger a swarm run"},
+    {"agent": "operator", "skill": "list_runs",          "purpose": "List recent runs"},
+    {"agent": "operator", "skill": "read_run",           "purpose": "Read a run's status and steps"},
+    {"agent": "operator", "skill": "list_swarm_artifacts", "purpose": "List the files a swarm has written to its files/ directory"},
+    {"agent": "operator", "skill": "read_swarm_artifact",  "purpose": "Read the contents of a file from a swarm's files/ directory"},
+    {"agent": "operator", "skill": "list_unmet_needs",   "purpose": "List unmet needs from workspace concierges"},
+    {"agent": "operator", "skill": "list_workspaces",    "purpose": "List all workspaces"},
+    {"agent": "operator", "skill": "list_swarms",        "purpose": "List swarms across workspaces with their enabled status"},
+    {"agent": "operator", "skill": "patch_swarm",        "purpose": "Enable or disable a swarm, or update its metadata"},
+    {"agent": "operator", "skill": "search_knowledge",   "purpose": "Full-text search across all knowledge files on the platform"},
+    {"agent": "operator", "skill": "web-search",         "purpose": "Search the web via DuckDuckGo"}
+  ],
+  "calls": [],
+  "informs": [],
+  "swarm_calls": []
+}

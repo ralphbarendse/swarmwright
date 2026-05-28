@@ -25,6 +25,7 @@ class Run(Base):
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     error: Mapped[str | None] = mapped_column(String, nullable=True)
+    trigger_kind: Mapped[str | None] = mapped_column(String, nullable=True)  # api | chat | trigger
 
     def to_dict(self) -> dict:
         return {
@@ -32,6 +33,7 @@ class Run(Base):
             "event_id": self.event_id,
             "swarm_id": self.swarm_id,
             "status": self.status,
+            "trigger_kind": self.trigger_kind,
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "ended_at": self.ended_at.isoformat() if self.ended_at else None,
             "error": self.error,

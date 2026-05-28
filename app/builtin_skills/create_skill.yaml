@@ -1,0 +1,77 @@
+name: create_skill
+description: >
+  Create a custom skill (Python + YAML) at company, workspace, or swarm scope.
+
+  PYTHON TEMPLATE (py_content must follow this exactly):
+
+    import json, os, sys
+
+    def run(input_data: dict, context: dict) -> dict:
+        # your logic here — use input_data["field"] to read inputs
+        return {"result": "..."}
+
+    if __name__ == "__main__":
+        payload = json.loads(sys.argv[1])
+        print(json.dumps(run(payload["input"], payload["context"])))
+
+  YAML TEMPLATE (yaml_content must include all these keys):
+
+    name: my-skill-name
+    description: One-line description of what the skill does.
+    timeout_seconds: 30
+    allowed_packages: []
+    input_schema:
+      type: object
+      required: [field1]
+      properties:
+        field1:
+          type: string
+          description: What field1 is for.
+    output_schema:
+      type: object
+      required: [result]
+      properties:
+        result:
+          type: string
+
+  The skill name in yaml_content must match the name field passed to this skill.
+timeout_seconds: 30
+allowed_packages: []
+input_schema:
+  type: object
+  required: [scope, name, py_content, yaml_content]
+  properties:
+    scope:
+      type: string
+      description: "Where to create the skill: 'company', 'workspace', or 'swarm'"
+    name:
+      type: string
+      description: Skill name — lowercase letters, digits, and hyphens only (underscores are converted to hyphens automatically)
+    py_content:
+      type: string
+      description: Full Python source for the skill
+    yaml_content:
+      type: string
+      description: YAML config with description, input_schema, output_schema, allowed_packages, timeout_seconds
+    workspace_id:
+      type: string
+      description: Required when scope is 'workspace' or 'swarm'
+    workspace_name:
+      type: string
+      description: Workspace name (alternative to workspace_id)
+    swarm_id:
+      type: string
+      description: Required when scope is 'swarm'
+output_schema:
+  type: object
+  properties:
+    name:         {type: string}
+    scope:        {type: string}
+    workspace_id: {type: [string, 'null']}
+    swarm_id:     {type: [string, 'null']}
+    py_path:      {type: string}
+    yaml_path:    {type: string}
+    description:  {type: [string, 'null']}
+    ok:           {type: boolean}
+    error:        {type: string}
+    message:      {type: string}

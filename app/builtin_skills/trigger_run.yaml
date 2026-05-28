@@ -1,0 +1,35 @@
+name: trigger_run
+description: Invoke an existing swarm by firing an event into it. Waits briefly and returns the run_id so you can call read_run immediately after.
+timeout_seconds: 30
+allowed_packages: []
+input_schema:
+  type: object
+  required: [swarm_id]
+  properties:
+    swarm_id:
+      type: string
+      description: The swarm's UUID or its name (either works — name is resolved automatically).
+    payload:
+      type: object
+      description: >
+        Input payload passed to the swarm's entry agent. Use whatever keys
+        the swarm expects (e.g. query, message, etc.).
+output_schema:
+  type: object
+  required: [ok]
+  properties:
+    ok:        {type: boolean}
+    event_id:
+      type: string
+    run_id:
+      type: string
+      description: The run that was started. Empty string if the run hadn't been created within the poll window.
+    swarm_id:
+      type: string
+    swarm_name:
+      type: string
+    status:
+      type: string
+      description: queued if run_id is not yet available, started if run_id was found.
+    error:   {type: string}
+    message: {type: string}

@@ -1,0 +1,5 @@
+builtin: true
+scope: platform
+display_name: Web Search
+description: Search the web via DuckDuckGo and return ranked results with titles, URLs, and snippets.
+icon: 🔍

@@ -313,7 +313,7 @@
         });
         const data = await res.json();
         if (res.ok) {
-          location.href = '/#welcome';
+          location.href = '/#onboarding';
         } else {
           errEl.textContent = data?.error?.message || 'Setup failed';
           errEl.classList.add('visible');

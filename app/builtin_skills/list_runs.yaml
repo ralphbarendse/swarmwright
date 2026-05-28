@@ -1,0 +1,22 @@
+name: list_runs
+description: List recent runs across the platform with status and timing.
+timeout_seconds: 15
+allowed_packages: []
+input_schema:
+  type: object
+  properties:
+    limit:
+      type: integer
+      description: Max number of runs to return (default 20)
+    swarm_id:
+      type: string
+      description: Filter by swarm ID (optional)
+    status:
+      type: string
+      description: Filter by status — completed, failed, running (optional)
+output_schema:
+  type: object
+  required: [runs]
+  properties:
+    runs:
+      type: array

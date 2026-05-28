@@ -1,0 +1,34 @@
+name: web-search
+description: Perform a web search using DuckDuckGo and return a list of results with title, URL, and snippet.
+input_schema:
+  type: object
+  required:
+    - query
+  properties:
+    query:
+      type: string
+      description: The search query to perform.
+    max_results:
+      type: integer
+      description: Maximum number of results to return (default 5).
+output_schema:
+  type: object
+  properties:
+    query:
+      type: string
+    results:
+      type: array
+      items:
+        type: object
+        properties:
+          title:
+            type: string
+          href:
+            type: string
+          body:
+            type: [string, 'null']
+    result_count:
+      type: integer
+allowed_packages:
+  - ddgs
+timeout_seconds: 30

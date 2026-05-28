@@ -1,0 +1,28 @@
+name: list_swarms
+description: List swarms across all workspaces (or one workspace) with their name, enabled status, and workspace. Use this before patch_swarm to confirm a swarm's current state.
+timeout_seconds: 15
+allowed_packages: []
+input_schema:
+  type: object
+  properties:
+    workspace_id:
+      type: string
+      description: Optional. Filter to one workspace by its ID. Omit to list all workspaces.
+output_schema:
+  type: object
+  required: [swarms]
+  properties:
+    swarms:
+      type: array
+      items:
+        type: object
+        properties:
+          id:            {type: string}
+          name:          {type: string}
+          display_name:  {type: [string, 'null']}
+          description:   {type: [string, 'null']}
+          enabled:       {type: boolean}
+          source:        {type: [string, 'null']}
+          workspace_id:          {type: string}
+          workspace_name:        {type: string}
+          workspace_display_name: {type: [string, 'null']}
