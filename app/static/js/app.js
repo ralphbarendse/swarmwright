@@ -11,7 +11,8 @@
  *   #library               — skills + knowledge
  */
 
-import { connect as sseConnect } from "./sse.js";
+import * as api from "./api.js";
+import { connect as sseConnect, onEvent as onSseEvent } from "./sse.js";
 import { renderOrgView }          from "./views/org-design.js";
 import { renderSwarmCanvas }      from "./views/swarm-canvas.js";
 import { renderConstitutionEditor } from "./views/constitution-editor.js";
@@ -44,7 +45,16 @@ function navigate(hash) {
 window.swNav = navigate;
 
 function render() {
-  const { view, segments } = parseHash();
+  let { view, segments } = parseHash();
+
+  // On mobile, authoring/config surfaces are hidden. Any route that isn't a
+  // mobile destination (incl. deep links someone followed from a desktop link)
+  // bounces to the mobile home rather than rendering a broken desktop view.
+  if (_mobileMode && !_mobileAllowed(view)) {
+    view = MOBILE_HOME; segments = [];
+    history.replaceState(null, "", "#" + MOBILE_HOME);
+  }
+
   const main = document.getElementById("main");
 
   // Highlight active tab
@@ -96,9 +106,14 @@ function render() {
     case "onboarding":
       renderOnboardingView(container);
       break;
+    case "chat":
+      _activeCleanup = renderMobileChat(container);
+      break;
     default:
       container.innerHTML = `<div class="empty-state"><div class="empty-state-title">Not found</div></div>`;
   }
+
+  if (_mobileMode) _updateMobileNav(view);
 }
 
 // ── Tab navigation ─────────────────────────────────────────────────────────
@@ -175,38 +190,182 @@ window.swCopy = function(text, btn) {
   });
 };
 
-// ── Mobile detection ───────────────────────────────────────────────────────
+// ── Mobile ─────────────────────────────────────────────────────────────────
+//
+// Phase 9. A phone is for consuming, conversing, and approving — never
+// authoring. The mobile shell reuses the desktop views (one codebase) but
+// swaps the topbar for a thumb-reachable bottom tab bar and exposes only the
+// read/decide destinations: Chat, Signals (inbox), and Runs.
+
+const MOBILE_HOME = "chat";
+
+let _mobileMode = false;
+let _mobileNavEl = null;
+
+// Bottom-tab definitions. `view` is the route the tab navigates to; `show`
+// gates visibility on the same per-user permissions the desktop uses.
+const MOBILE_TABS = [
+  { id: "chat",    view: "chat",  icon: "💬", label: "Chat",
+    show: () => canDo("can_chat_operator") || canDo("can_chat_workspace") },
+  { id: "signals", view: "inbox", icon: "🔔", label: "Signals", pip: true,
+    show: () => canDo("can_decide_inbox") },
+  { id: "runs",    view: "runs",  icon: "📡", label: "Runs",
+    show: () => canDo("can_chat_operator") || canDo("can_start_run") || canDo("can_stop_run") },
+];
 
 function _isMobile() {
   return window.matchMedia("(max-width: 768px)").matches;
 }
 
-function _bootMobile() {
-  // Hide desktop chrome
-  document.querySelector(".topbar").style.display = "none";
-  document.getElementById("main").style.cssText =
-    "position:fixed;inset:0;display:flex;flex-direction:column;overflow:hidden;";
+// Which routes are reachable on mobile = the visible tabs (plus run detail,
+// which lives under the Runs tab and is navigated to internally).
+function _mobileAllowed(view) {
+  if (view === "runs") return MOBILE_TABS.find(t => t.id === "runs").show();
+  return MOBILE_TABS.some(t => t.show() && t.view === view);
+}
 
-  const app = document.getElementById("app");
-  app.style.cssText = "display:flex;flex-direction:column;height:100dvh;overflow:hidden;";
+function _bootMobile() {
+  _mobileMode = true;
+  document.documentElement.classList.add("sw-mobile");
+  document.querySelector(".topbar").style.display = "none";
+
+  const visible = MOBILE_TABS.filter(t => t.show());
+
+  // No mobile-eligible surface for this user → honest dead end.
+  if (!visible.length) {
+    document.getElementById("main").innerHTML = `
+      <div class="mobile-unsupported">
+        <div style="font-size:32px">📵</div>
+        <div class="mobile-unsupported-title">Mobile not available for your account</div>
+        <div>Open SwarmWright on a desktop, or contact your administrator.</div>
+      </div>`;
+    return;
+  }
+
+  _buildMobileNav(visible);
+  sseConnect();
+  if (visible.some(t => t.id === "signals")) _bindMobilePip();
+  window.addEventListener("popstate", render);
+
+  // Land on the home tab unless the deep link already points at an allowed one.
+  const { view } = parseHash();
+  if (!_mobileAllowed(view)) history.replaceState(null, "", "#" + MOBILE_HOME);
+  render();
+}
+
+function _buildMobileNav(tabs) {
+  const nav = document.createElement("nav");
+  nav.className = "mobile-tabbar";
+  nav.innerHTML = tabs.map(t => `
+    <button class="mobile-tab" data-view="${t.view}" data-id="${t.id}">
+      <span class="mobile-tab-icon">${t.icon}</span>
+      <span class="mobile-tab-label">${t.label}</span>
+      ${t.pip ? `<span class="mobile-tab-pip" hidden></span>` : ""}
+    </button>`).join("");
+  nav.addEventListener("click", e => {
+    const btn = e.target.closest(".mobile-tab");
+    if (btn) navigate(btn.dataset.view);
+  });
+  document.getElementById("app").appendChild(nav);
+  _mobileNavEl = nav;
+}
+
+// Map the current route back onto a tab for the active-state highlight.
+function _updateMobileNav(view) {
+  if (!_mobileNavEl) return;
+  const activeId = view === "inbox" ? "signals" : view === "runs" ? "runs" : "chat";
+  _mobileNavEl.querySelectorAll(".mobile-tab").forEach(btn => {
+    btn.classList.toggle("active", btn.dataset.id === activeId);
+  });
+}
+
+// Signals tab badge — mirrors the desktop inbox pip (pending actions + unread
+// informs), refreshed from the server on the same SSE events.
+async function _updateMobilePip() {
+  const pip = _mobileNavEl?.querySelector(".mobile-tab-pip");
+  if (!pip) return;
+  try {
+    const [actions, informs] = await Promise.all([
+      api.listInbox({ status: "pending", limit: "200" }),
+      api.listInforms({ status: "unread", limit: "200" }),
+    ]);
+    const total = (actions?.length ?? 0) + (informs?.length ?? 0);
+    pip.hidden = !total;
+    pip.textContent = total ? String(total) : "";
+  } catch { /* offline / boot — ignore */ }
+}
+
+function _bindMobilePip() {
+  ["human_action.pending", "human_action.resolved", "run.awaiting_human",
+   "run.resumed", "human_inform.pending", "human_inform.acked"]
+    .forEach(ev => onSseEvent(ev, () => _updateMobilePip()));
+  _updateMobilePip();
+}
+
+// ── Mobile Chat tab ─────────────────────────────────────────────────────────
+//
+// Operators get the org-level Operator chat. Everyone else gets their
+// workspace Concierge — the front desk, which the old chat-only mobile path
+// wrongly walled off behind a "not supported" screen.
+
+function renderMobileChat(container) {
+  container.classList.add("mobile-chat-host");
 
   if (canDo("can_chat_operator")) {
-    sseConnect();
-    const wrap = document.createElement("div");
-    wrap.style.cssText = "flex:1;display:flex;flex-direction:column;overflow:hidden;";
-    document.getElementById("main").appendChild(wrap);
-    mountChatWidget({ scope: "org", container: wrap });
-  } else {
-    document.getElementById("main").innerHTML = `
-      <div style="display:flex;align-items:center;justify-content:center;height:100%;padding:32px;text-align:center;flex-direction:column;gap:12px;color:var(--color-ink-soft)">
-        <div style="font-size:32px">📵</div>
-        <div style="font-weight:600;font-size:16px;color:var(--color-ink)">Mobile version not supported</div>
-        <div style="font-size:14px">Please contact your administrator.</div>
-      </div>`;
+    return mountChatWidget({ scope: "org", container });
   }
+
+  // Concierge needs a workspace. Resolve which one, then mount.
+  let destroy = null;
+  const host = document.createElement("div");
+  host.style.cssText = "flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden;";
+  container.appendChild(host);
+
+  const mountConcierge = (wsId) => {
+    destroy?.();
+    host.innerHTML = "";
+    destroy = mountChatWidget({ scope: "workspace", workspaceId: wsId, container: host });
+  };
+
+  (async () => {
+    let workspaces = [];
+    try { workspaces = await api.listWorkspaces(); } catch { /* handled below */ }
+
+    if (!workspaces.length) {
+      host.innerHTML = `
+        <div class="mobile-unsupported">
+          <div style="font-size:32px">🛎</div>
+          <div class="mobile-unsupported-title">No workspace yet</div>
+          <div>Ask your administrator to add you to a workspace.</div>
+        </div>`;
+      return;
+    }
+
+    if (workspaces.length > 1) {
+      // Light switcher so a member of several workspaces can pick a front desk.
+      const bar = document.createElement("div");
+      bar.className = "mobile-ws-switch";
+      bar.innerHTML = `<label>Workspace</label>
+        <select class="form-select">
+          ${workspaces.map(w => `<option value="${w.id}">${_escHtml(w.display_name || w.name || w.id)}</option>`).join("")}
+        </select>`;
+      container.insertBefore(bar, host);
+      bar.querySelector("select").addEventListener("change", e => mountConcierge(e.target.value));
+    }
+    mountConcierge(workspaces[0].id);
+  })();
+
+  return () => destroy?.();
 }
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────
+
+function _registerServiceWorker() {
+  if (!("serviceWorker" in navigator)) return;
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => { /* non-fatal */ });
+  });
+}
 
 applyBrandingOnBoot();
 
@@ -224,6 +383,8 @@ async function boot() {
     window.location.href = "/login";
     return;
   }
+
+  _registerServiceWorker();
 
   if (_isMobile()) {
     _bootMobile();

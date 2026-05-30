@@ -34,10 +34,10 @@ async function _renderControlRoom(container, addCleanup) {
         <span class="crumb-sep">›</span>
         <span class="crumb-here">Control Room</span>
       </div>
-      <div style="display:grid;grid-template-columns:288px 1fr;flex:1;min-height:0;overflow:hidden">
+      <div id="cr-split" style="display:grid;grid-template-columns:288px 1fr;flex:1;min-height:0;overflow:hidden">
 
       <!-- ── Left: Organogram ── -->
-      <div style="
+      <div id="cr-organogram" style="
         border-right:1px dashed var(--color-cream-line);
         background:var(--color-panel);
         display:flex;flex-direction:column;

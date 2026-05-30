@@ -79,7 +79,7 @@ export function renderInboxView(container, segments = []) {
                   style="font-size:13px;padding:8px 16px">${_esc(t.label)}</button>`).join("")}
       </div>
 
-      <div style="display:flex;flex:1;overflow:hidden">
+      <div id="inbox-split" style="display:flex;flex:1;overflow:hidden">
         <div id="inbox-list" style="width:380px;border-right:1px dashed var(--color-cream-line);overflow-y:auto;padding:14px 12px;background:var(--color-panel)">
           <div style="color:var(--color-ink-faint);font-family:var(--font-mono);font-size:12px">Loading…</div>
         </div>
@@ -236,7 +236,7 @@ function _renderEmptyDetail(container) {
   container.querySelector("#inbox-detail").innerHTML = `
     <div class="empty-state" style="margin-top:80px">
       <div class="empty-state-title">No item selected</div>
-      <div class="empty-state-sub">Pick something from the list on the left.</div>
+      <div class="empty-state-sub">Pick an item to see its details.</div>
     </div>`;
 }
 

@@ -330,6 +330,27 @@ def create_app(config: Config | None = None) -> Flask:
             return redirect("/login")
         return app.send_static_file("setup.html")
 
+    # ── PWA (Phase 9) ─────────────────────────────────────────────────────────
+    # Served from root so the service worker controls the whole origin scope.
+    @app.route("/sw.js")
+    def service_worker():
+        resp = app.send_static_file("sw.js")
+        resp.headers["Service-Worker-Allowed"] = "/"
+        resp.headers["Cache-Control"] = "no-cache"
+        resp.headers["Content-Type"] = "application/javascript"
+        return resp
+
+    @app.route("/manifest.json")
+    def web_manifest():
+        resp = app.send_static_file("manifest.json")
+        resp.headers["Content-Type"] = "application/manifest+json"
+        return resp
+
+    @app.route("/apple-touch-icon.png")
+    @app.route("/apple-touch-icon-precomposed.png")
+    def apple_touch_icon():
+        return app.send_static_file("apple-touch-icon.png")
+
     return app
 
 

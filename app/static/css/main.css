@@ -1372,3 +1372,171 @@ input, textarea, select { font: inherit; }
   #app { display: flex; flex-direction: column; height: 100dvh; overflow: hidden; }
   .chat-input-area { padding-bottom: max(var(--sp-3), env(safe-area-inset-bottom)); }
 }
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Phase 9 — Mobile shell.
+   Applied only once app.js confirms a phone (≤768px) and adds `.sw-mobile`.
+   The desktop views are reused as-is; these rules swap the topbar for a
+   bottom tab bar and collapse the two-pane read surfaces into one column.
+   ────────────────────────────────────────────────────────────────────────── */
+html.sw-mobile, html.sw-mobile body {
+  height: 100dvh; overflow: hidden; overscroll-behavior: none;
+}
+html.sw-mobile #app   {
+  display: flex; flex-direction: column; height: 100dvh; overflow: hidden;
+  /* Standalone PWA goes full-bleed under the notch/status bar — inset the top
+     so headers aren't hidden behind it. (box-sizing: border-box keeps it in
+     the 100dvh budget.) The strip shows the app background. */
+  padding-top: env(safe-area-inset-top);
+  background: var(--color-parchment);
+}
+html.sw-mobile #main  { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; position: relative; }
+html.sw-mobile .view  { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+
+/* ── Bottom tab bar ── */
+.mobile-tabbar {
+  flex-shrink: 0;
+  display: flex;
+  background: var(--color-card);
+  border-top: 1px solid var(--color-cream-line);
+  padding-bottom: env(safe-area-inset-bottom);
+  box-shadow: 0 -2px 8px rgba(26, 20, 16, .06);
+  z-index: 50;
+}
+.mobile-tab {
+  flex: 1;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  min-height: 54px;
+  padding: 8px 4px 6px;
+  border: none; background: transparent; cursor: pointer;
+  color: var(--color-ink-faint);
+  font-family: var(--font-mono);
+  position: relative;
+  -webkit-tap-highlight-color: transparent;
+}
+.mobile-tab-icon  { font-size: 20px; line-height: 1; filter: grayscale(.4) opacity(.7); }
+.mobile-tab-label { font-size: 10px; letter-spacing: .04em; text-transform: uppercase; }
+.mobile-tab.active { color: var(--color-primary); }
+.mobile-tab.active .mobile-tab-icon { filter: none; }
+.mobile-tab-pip {
+  position: absolute; top: 4px; left: calc(50% + 6px);
+  min-width: 16px; height: 16px; padding: 0 4px;
+  border-radius: 8px; background: var(--color-danger); color: #fff;
+  font-size: 10px; line-height: 16px; text-align: center; font-weight: 700;
+}
+
+/* ── Inbox / Signals → single column ── */
+html.sw-mobile #inbox-split { flex-direction: column !important; overflow-y: auto !important; }
+html.sw-mobile #inbox-list {
+  width: 100% !important;
+  border-right: none !important;
+  border-bottom: 1px dashed var(--color-cream-line) !important;
+  max-height: 42vh; flex-shrink: 0;
+}
+html.sw-mobile #inbox-detail { padding: 16px !important; }
+
+/* ── Control Room / Runs → drop the organogram, go full width ── */
+html.sw-mobile #cr-split      { grid-template-columns: 1fr !important; }
+html.sw-mobile #cr-organogram { display: none !important; }
+
+/* ── Tighter page chrome ── */
+html.sw-mobile .page-header { padding-left: 16px; padding-right: 16px; }
+html.sw-mobile .crumbs      { padding-left: 16px; padding-right: 16px; }
+
+/* ── Concierge workspace switcher + dead-end states ── */
+.mobile-ws-switch {
+  flex-shrink: 0; display: flex; align-items: center; gap: 8px;
+  padding: 8px 14px; border-bottom: 1px dashed var(--color-cream-line);
+  background: var(--color-parchment);
+}
+.mobile-ws-switch label {
+  font-family: var(--font-mono); font-size: 10px; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--color-ink-faint);
+}
+.mobile-ws-switch select { flex: 1; }
+.mobile-unsupported {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 10px; padding: 32px; text-align: center; color: var(--color-ink-soft); font-size: 14px;
+}
+.mobile-unsupported-title { font-weight: 700; font-size: 16px; color: var(--color-ink); }
+
+/* ──────────────────────────────────────────────────────────────────────────
+   Phase 9 — Mobile comfort layer.
+   Touch ergonomics on top of the structural rules above: bigger tap targets,
+   legible body text, no iOS focus-zoom, and a calmer, roomier feel.
+   ────────────────────────────────────────────────────────────────────────── */
+
+/* Inputs at ≥16px so iOS Safari never auto-zooms the viewport on focus. */
+html.sw-mobile .form-input,
+html.sw-mobile .form-select,
+html.sw-mobile .form-textarea,
+html.sw-mobile .chat-input-field,
+html.sw-mobile input,
+html.sw-mobile textarea,
+html.sw-mobile select { font-size: 16px !important; }
+
+/* Smooth, momentum scrolling on every scroll surface. */
+html.sw-mobile .chat-messages,
+html.sw-mobile #inbox-split,
+html.sw-mobile #inbox-detail,
+html.sw-mobile .view { -webkit-overflow-scrolling: touch; }
+
+/* Comfortable buttons. */
+html.sw-mobile .btn      { min-height: 44px; padding: 10px 18px; border-radius: 9px; }
+html.sw-mobile .btn-sm   { min-height: 38px; padding: 8px 14px; font-size: 13px; }
+
+/* ── Chat: the surface people actually live in ── */
+html.sw-mobile .chat-bubble {
+  max-width: 92%;
+  font-size: 15px;
+  line-height: 1.55;
+  padding: 10px 14px;
+}
+html.sw-mobile .chat-messages { padding: 16px 14px; gap: 14px; }
+html.sw-mobile .chat-empty    { font-size: 14px; }
+
+/* Declutter the chat header — drop the dense desktop accessories. */
+html.sw-mobile .chat-subtitle,
+html.sw-mobile .chat-model-tag,
+html.sw-mobile .chat-edit-btn { display: none !important; }
+
+/* Operator tab strip → real tap targets. */
+html.sw-mobile .chat-tab-btn { min-height: 46px; font-size: 12px; }
+html.sw-mobile .chat-widget-header--concierge { padding: 10px 16px; }
+html.sw-mobile .chat-header-title { font-size: 15px; }
+html.sw-mobile .chat-header-sub   { font-size: 12px; }
+
+/* Input dock: a big primary Send, Clear demoted to a quiet companion. */
+html.sw-mobile .chat-input-area  { padding: 10px 12px; gap: 8px; }
+html.sw-mobile .chat-input-field { padding: 11px 14px; min-height: 46px; }
+html.sw-mobile .chat-input-row   { gap: 10px; }
+html.sw-mobile .chat-input-send  { flex: 1; justify-content: center; }
+html.sw-mobile .chat-wipe-btn    { flex-shrink: 0; }
+
+/* ── Bottom tab bar: a touch more presence + an active pill ── */
+.mobile-tab { min-height: 58px; }
+.mobile-tab-icon  { font-size: 22px; }
+.mobile-tab-label { font-size: 10.5px; font-weight: 600; }
+.mobile-tab::before {
+  content: ""; position: absolute; top: 7px;
+  width: 50px; height: 30px; border-radius: 16px;
+  background: transparent; transition: background .15s;
+  z-index: -1;
+}
+.mobile-tab.active::before { background: rgba(201, 124, 42, .14); }
+.mobile-tab:active::before { background: rgba(201, 124, 42, .10); }
+
+/* ── Signals / Inbox: roomier cards, clearer hierarchy ── */
+html.sw-mobile #inbox-list  { max-height: 46vh; padding: 12px; }
+html.sw-mobile .inbox-card  { padding: 14px 16px !important; margin-bottom: 10px !important; border-radius: 9px; }
+html.sw-mobile #inbox-detail { padding: 18px 16px !important; }
+html.sw-mobile .page-title  { font-size: 22px; }
+html.sw-mobile .page-sub    { font-size: 12.5px; }
+
+/* ── Control Room / Runs: trim the filter clutter for a phone ── */
+html.sw-mobile #cr-filter-bar    { gap: 8px !important; padding: 10px 16px !important; }
+html.sw-mobile #fl-date-from,
+html.sw-mobile #fl-date-to       { display: none !important; }
+html.sw-mobile #cr-filter-bar > span { display: none !important; }   /* the "→" between dates */
+html.sw-mobile #fl-status,
+html.sw-mobile #fl-workspace     { width: auto !important; flex: 1 1 130px; }
