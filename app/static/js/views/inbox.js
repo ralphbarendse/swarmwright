@@ -38,6 +38,7 @@ async function _updatePipFromServer() {
       api.listInforms({ status: "unread", limit: "200" }),
     ]);
     const total = (actions?.length ?? 0) + (informs?.length ?? 0);
+    document.getElementById("inbox-tab-btn")?.classList.toggle("has-messages", total > 0);
     const pip = document.getElementById("inbox-count-pip");
     if (!pip) return;
     if (!total) {

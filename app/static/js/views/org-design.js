@@ -1,7 +1,7 @@
 import * as api from "../api.js";
 import { toast, toastError, toastSuccess } from "../components/toast.js";
 import { canDo } from "../auth.js";
-import { mountChatWidget } from "../components/chat-panel.js";
+import { mountChatWidget, mountConciergeLauncher } from "../components/chat-panel.js";
 
 let _chatDestroy = null;
 
@@ -40,13 +40,20 @@ async function _renderWorkspaceList(container) {
           ${canDo("can_create_workspace") ? `<button class="btn btn-primary" id="btn-new-ws">+ New workspace</button>` : ""}
         </div>
       </div>
-      <div style="flex:1;overflow-y:auto;min-height:0;padding:0 24px 16px">
+      <div style="flex:2;overflow-y:auto;min-height:0;padding:0 24px 16px">
         <div id="ws-grid"></div>
+      </div>
+      <div id="home-snippets" style="flex:1;min-height:190px;display:flex;gap:14px;
+        border-top:1px dashed var(--color-cream-line);padding:14px 24px 16px;overflow:hidden">
+        ${_snippetCardSkeleton("snip-control", "Control Room", "runs", "Go to room")}
+        ${_snippetCardSkeleton("snip-library", "Library", "library", "Go to library")}
       </div>
     </div>
     ${showChat ? `<div class="chat-zone-divider" id="chat-divider"></div><div id="chat-zone" class="chat-zone"></div>` : ""}`;
 
   container.querySelector("#btn-new-ws")?.addEventListener("click", () => _showCreateWorkspaceModal(() => _renderWorkspaceList(container)));
+
+  _renderHomeSnippets(container);
 
   try {
     const workspaces = await api.listWorkspaces();
@@ -92,6 +99,131 @@ function _wsRow(ws) {
       </div>
       <span style="color:var(--color-ink-faint);font-size:16px;flex-shrink:0;line-height:1">›</span>
     </div>`;
+}
+
+// ── Home snippets (Control Room + Library footer band) ──────────────────────
+
+function _snippetCardSkeleton(id, title, go, goLabel) {
+  return `
+    <div class="card" id="${id}" style="flex:1;display:flex;flex-direction:column;
+      min-width:0;min-height:0;overflow:hidden;padding:12px 14px 10px;cursor:pointer"
+      data-go="${go}">
+      <div class="flex-row" style="justify-content:space-between;align-items:center;margin-bottom:8px">
+        <div class="card-title" style="margin:0">${title}</div>
+        <span class="snip-go" style="font-size:11px;font-family:var(--font-mono);color:var(--color-ink-faint)">${goLabel} ›</span>
+      </div>
+      <div class="snip-head" style="margin-bottom:8px;font-family:var(--font-mono);font-size:11px;color:var(--color-ink-faint)">Loading…</div>
+      <div class="snip-list" style="flex:1;overflow-y:auto;min-height:0"></div>
+    </div>`;
+}
+
+function _renderHomeSnippets(container) {
+  const control = container.querySelector("#snip-control");
+  const library = container.querySelector("#snip-library");
+  if (!control || !library) return;
+
+  // Card body → section landing; a row → its deep target.
+  control.addEventListener("click", (e) => {
+    const row = e.target.closest(".snip-row[data-run]");
+    window.swNav(row ? `runs/${row.dataset.run}` : "runs");
+  });
+  library.addEventListener("click", (e) => {
+    const row = e.target.closest(".snip-row[data-go]");
+    window.swNav(row ? row.dataset.go : "library");
+  });
+
+  _fillControlSnippet(control);
+  _fillLibrarySnippet(library);
+}
+
+async function _fillControlSnippet(card) {
+  const head = card.querySelector(".snip-head");
+  const list = card.querySelector(".snip-list");
+  try {
+    const [stats, runs] = await Promise.all([
+      api.getRunStats().catch(() => null),
+      api.listRuns({ limit: 5 }).catch(() => []),
+    ]);
+    if (stats) {
+      head.style.display = "flex";
+      head.style.gap = "12px";
+      head.style.flexWrap = "wrap";
+      head.innerHTML = [
+        ["var(--color-amber)",        `● ${stats.running} running`,            stats.running],
+        ["var(--color-orchestrator)", `● ${stats.awaiting_human} awaiting`,    stats.awaiting_human],
+        ["var(--color-success)",      `✓ ${stats.completed_today} done`,       stats.completed_today],
+        ["var(--color-danger)",       `✗ ${stats.failed_today} failed`,        stats.failed_today],
+      ].map(([c, txt, n]) => `<span style="color:${c};opacity:${n > 0 ? 1 : .4};white-space:nowrap">${txt}</span>`).join("");
+    } else {
+      head.textContent = "Stats unavailable";
+    }
+    list.innerHTML = runs.length
+      ? runs.map(_snipRunRow).join("")
+      : `<div class="snip-empty" style="font-family:var(--font-mono);font-size:11px;color:var(--color-ink-faint);padding:6px 0">No runs yet</div>`;
+  } catch {
+    head.textContent = "Unavailable";
+  }
+}
+
+async function _fillLibrarySnippet(card) {
+  const head = card.querySelector(".snip-head");
+  const list = card.querySelector(".snip-list");
+  try {
+    const [docs, skills] = await Promise.all([
+      api.listKnowledge({ scope: "company" }).catch(() => []),
+      api.listSkills({ scope: "company" }).catch(() => []),
+    ]);
+    head.textContent =
+      `${docs.length} knowledge doc${docs.length !== 1 ? "s" : ""} · ${skills.length} skill${skills.length !== 1 ? "s" : ""}`;
+    const items = [
+      ...docs.map(d => ({ kind: "Doc", label: d.title || d.name, updated: d.updated_at, nav: "library/knowledge" })),
+      ...skills.map(s => ({ kind: "Skill", label: s.name, updated: s.updated_at, nav: "library/skills" })),
+    ]
+      .sort((a, b) => new Date(b.updated || 0) - new Date(a.updated || 0))
+      .slice(0, 5);
+    list.innerHTML = items.length
+      ? items.map(_snipLibRow).join("")
+      : `<div class="snip-empty" style="font-family:var(--font-mono);font-size:11px;color:var(--color-ink-faint);padding:6px 0">Nothing here yet</div>`;
+  } catch {
+    head.textContent = "Unavailable";
+  }
+}
+
+function _snipRunRow(r) {
+  const color = _snipStatusColor(r.status);
+  const when = r.started_at ? _reltime(r.started_at) : "—";
+  return `
+    <div class="snip-row" data-run="${r.id}" style="display:flex;align-items:center;gap:8px;
+      padding:5px 0;border-bottom:1px solid var(--color-cream-line);cursor:pointer">
+      <span style="color:${color};font-size:10px;flex-shrink:0;line-height:1">●</span>
+      <span style="flex:1;min-width:0;font-size:12px;color:var(--color-ink);
+        white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(r.swarm_display_name || r.swarm_id)}</span>
+      <span style="font-family:var(--font-mono);font-size:10px;color:var(--color-ink-faint);flex-shrink:0">${when}</span>
+    </div>`;
+}
+
+function _snipLibRow(it) {
+  const tagColor = it.kind === "Skill" ? "var(--color-executioner)" : "var(--color-policy)";
+  const when = it.updated ? _reltime(it.updated) : "";
+  return `
+    <div class="snip-row" data-go="${it.nav}" style="display:flex;align-items:center;gap:8px;
+      padding:5px 0;border-bottom:1px solid var(--color-cream-line);cursor:pointer">
+      <span style="font-family:var(--font-mono);font-size:9px;text-transform:uppercase;letter-spacing:.04em;
+        color:${tagColor};flex-shrink:0;width:34px">${it.kind}</span>
+      <span style="flex:1;min-width:0;font-size:12px;color:var(--color-ink);
+        white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(it.label)}</span>
+      <span style="font-family:var(--font-mono);font-size:10px;color:var(--color-ink-faint);flex-shrink:0">${when}</span>
+    </div>`;
+}
+
+function _snipStatusColor(status) {
+  return {
+    running:        "var(--color-amber)",
+    completed:      "var(--color-success)",
+    failed:         "var(--color-danger)",
+    pending:        "var(--color-ink-faint)",
+    awaiting_human: "var(--color-orchestrator)",
+  }[status] || "var(--color-ink-faint)";
 }
 
 // ── Workspace detail ───────────────────────────────────────────────────────
@@ -159,22 +291,14 @@ async function _renderWorkspaceDetail(container, wsId) {
         `<div style="flex:1"></div>`;
     }
 
-    // Concierge chat zone — inject only if workspace has a concierge swarm
+    // Concierge — floating bubble launcher, only if workspace has a concierge swarm
     const hasConcierge = canDo("can_chat_workspace") &&
       (ws.swarms || []).some(s => s.name === "concierge");
     if (hasConcierge) {
-      const divider = document.createElement("div");
-      divider.className = "chat-zone-divider";
-      const chatZone = document.createElement("div");
-      chatZone.className = "chat-zone";
-      container.appendChild(divider);
-      container.appendChild(chatZone);
-      _wireResizeDivider(divider, chatZone, `sw-concierge-chat-w-${wsId}`);
-      _chatDestroy = mountChatWidget({
-        scope: "workspace",
+      _chatDestroy = mountConciergeLauncher({
         workspaceId: ws.id,
         title: `${ws.display_name} · Concierge`,
-        container: chatZone,
+        container,
       });
     }
 

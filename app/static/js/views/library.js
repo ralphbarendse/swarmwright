@@ -31,6 +31,11 @@ export function renderLibraryView(container, segments = []) {
 
   container.innerHTML = `
     <div style="display:flex;flex-direction:column;height:100%;overflow:hidden">
+      <div class="crumbs" style="flex-shrink:0">
+        <span class="crumb-link" onclick="swNav('org')">Workspaces</span>
+        <span class="crumb-sep">›</span>
+        <span class="crumb-here">Library</span>
+      </div>
       <div class="page-header" style="flex-shrink:0">
         <div class="page-title">Library</div>
         <div class="page-sub">Skills and knowledge across all scopes</div>

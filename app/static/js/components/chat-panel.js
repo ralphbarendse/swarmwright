@@ -16,20 +16,109 @@ const SCOPE_ORG       = "org";
 const SCOPE_WORKSPACE = "workspace";
 const WAIT_TIMEOUT_MS = 90_000;
 
-export function mountChatWidget({ scope, workspaceId = null, title = null, container }) {
-  const widget = new ChatWidget({ scope, workspaceId, title, container });
+export function mountChatWidget({ scope, workspaceId = null, title = null, container, onClose = null }) {
+  const widget = new ChatWidget({ scope, workspaceId, title, container, onClose });
   widget.mount();
   return () => widget.destroy();
+}
+
+/**
+ * mountConciergeLauncher — floating bubble that expands into an anchored
+ * popover chat. Used for workspace-scoped concierge so it reads as a
+ * lightweight "front desk" you summon, distinct from the always-docked
+ * operator panel. Returns a destroy function.
+ */
+export function mountConciergeLauncher({ workspaceId, title = null, container }) {
+  const launcher = new ConciergeLauncher({ workspaceId, title, container });
+  launcher.mount();
+  return () => launcher.destroy();
+}
+
+// ── ConciergeLauncher class ─────────────────────────────────────────────────────
+
+class ConciergeLauncher {
+  constructor({ workspaceId, title, container }) {
+    this.workspaceId   = workspaceId;
+    this.title         = title;
+    this.container     = container;
+    this.open          = false;
+    this._root         = null;
+    this._widgetDestroy = null;
+    this._stateKey     = `sw-concierge-open-${workspaceId}`;
+    this._onDocKey     = this._onDocKey.bind(this);
+  }
+
+  mount() {
+    const root = document.createElement("div");
+    root.className = "concierge-launcher";
+    root.innerHTML = `
+      <div class="concierge-popover" style="display:none">
+        <div class="concierge-popover-inner"></div>
+      </div>
+      <button class="concierge-bubble" title="Concierge — ask for anything">
+        <span class="concierge-bubble-icon">🛎</span>
+        <span class="concierge-bubble-label">Concierge</span>
+      </button>`;
+    this.container.appendChild(root);
+    this._root = root;
+
+    root.querySelector(".concierge-bubble").addEventListener("click", () => this._toggle());
+    document.addEventListener("keydown", this._onDocKey);
+
+    if (localStorage.getItem(this._stateKey) === "1") this._open();
+  }
+
+  _toggle() { this.open ? this._close() : this._open(); }
+
+  _open() {
+    if (this.open) return;
+    this.open = true;
+    this._root.classList.add("is-open");
+    this._root.querySelector(".concierge-popover").style.display = "flex";
+
+    if (!this._widgetDestroy) {
+      const inner = this._root.querySelector(".concierge-popover-inner");
+      this._widgetDestroy = mountChatWidget({
+        scope: SCOPE_WORKSPACE,
+        workspaceId: this.workspaceId,
+        title: this.title,
+        container: inner,
+        onClose: () => this._close(),
+      });
+    }
+    localStorage.setItem(this._stateKey, "1");
+  }
+
+  _close() {
+    if (!this.open) return;
+    this.open = false;
+    this._root.classList.remove("is-open");
+    this._root.querySelector(".concierge-popover").style.display = "none";
+    localStorage.setItem(this._stateKey, "0");
+  }
+
+  _onDocKey(e) {
+    if (e.key === "Escape" && this.open) this._close();
+  }
+
+  destroy() {
+    document.removeEventListener("keydown", this._onDocKey);
+    this._widgetDestroy?.();
+    this._widgetDestroy = null;
+    this._root?.remove();
+    this._root = null;
+  }
 }
 
 // ── ChatWidget class ────────────────────────────────────────────────────────────
 
 class ChatWidget {
-  constructor({ scope, workspaceId, title, container }) {
+  constructor({ scope, workspaceId, title, container, onClose = null }) {
     this.scope       = scope;
     this.workspaceId = workspaceId;
     this.title       = title || (scope === SCOPE_ORG ? "Operator" : "Concierge");
     this.container   = container;
+    this.onClose     = onClose;
     this.sessionId   = null;
     this.swarmId     = null;
     this.waiting     = false;
@@ -57,6 +146,7 @@ class ChatWidget {
       if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); this._send(); }
     });
     el.querySelector(".chat-wipe-btn")?.addEventListener("click", () => this._wipe());
+    el.querySelector(".chat-collapse-btn")?.addEventListener("click", () => this.onClose?.());
 
     if (this.scope === SCOPE_ORG) {
       el.querySelectorAll(".chat-tab-btn").forEach(btn => {
@@ -89,8 +179,20 @@ class ChatWidget {
            <button class="chat-tab-btn" data-tab="signals">Signals <span class="chat-signal-badge" style="display:none"></span></button>
            <span class="chat-model-tag" style="display:none"></span>
            <button class="chat-edit-btn" title="Edit operator constitution" style="display:none">Edit</button>
-         </div>`
-      : `<div class="chat-widget-header">◈ Concierge <span class="chat-model-tag" style="display:none"></span></div>`;
+         </div>
+         <div class="chat-subtitle">Builds &amp; manages your platform — create swarms, trigger runs, review signals.</div>`
+      : `<div class="chat-widget-header chat-widget-header--concierge">
+           <span class="chat-header-icon">🛎</span>
+           <div class="chat-header-titles">
+             <span class="chat-header-title">Concierge <span class="chat-model-tag" style="display:none"></span></span>
+             <span class="chat-header-sub">Tell me what you need — I'll route it to the right swarm.</span>
+           </div>
+           ${this.onClose ? `<button class="chat-collapse-btn" title="Minimise">✕</button>` : ""}
+         </div>`;
+
+    const placeholder = isOp
+      ? "Create a swarm, trigger a run, check signals…"
+      : "Ask for something…";
 
     return `
       ${header}
@@ -99,7 +201,7 @@ class ChatWidget {
           <div class="chat-loading-init">Loading…</div>
         </div>
         <div class="chat-input-area">
-          <textarea class="chat-input-field" placeholder="Type a message…" rows="2"></textarea>
+          <textarea class="chat-input-field" placeholder="${placeholder}" rows="2"></textarea>
           <div class="chat-input-row">
             <button class="btn btn-ghost btn-sm chat-wipe-btn">Clear history</button>
             <button class="btn btn-primary btn-sm chat-input-send">Send</button>

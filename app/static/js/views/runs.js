@@ -28,7 +28,13 @@ export function renderRunsView(container, runId) {
 
 async function _renderControlRoom(container, addCleanup) {
   container.innerHTML = `
-    <div style="display:grid;grid-template-columns:288px 1fr;height:100%;overflow:hidden">
+    <div style="display:flex;flex-direction:column;height:100%;overflow:hidden">
+      <div class="crumbs" style="flex-shrink:0">
+        <span class="crumb-link" onclick="swNav('org')">Workspaces</span>
+        <span class="crumb-sep">›</span>
+        <span class="crumb-here">Control Room</span>
+      </div>
+      <div style="display:grid;grid-template-columns:288px 1fr;flex:1;min-height:0;overflow:hidden">
 
       <!-- ── Left: Organogram ── -->
       <div style="
@@ -164,6 +170,7 @@ async function _renderControlRoom(container, addCleanup) {
           <div id="cr-stream-list" style="flex:1;overflow-y:auto;padding:0"></div>
         </div>
 
+      </div>
       </div>
     </div>`;
 

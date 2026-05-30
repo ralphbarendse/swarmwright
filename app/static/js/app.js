@@ -107,17 +107,15 @@ function _handleTabClick(e) {
   const btn = e.target.closest("[data-view]");
   if (!btn) return;
   const v = btn.dataset.view;
-  if (v === "org")           navigate("org");
-  else if (v === "swarm")    navigate("swarm/" + (_lastSwarmId || ""));
-  else if (v === "runs")     navigate("runs");
-  else if (v === "library")  navigate("library");
-  else if (v === "inbox")    navigate("inbox");
+  // Primary destinations (Org/Swarm/Control Room/Library) now live on the
+  // Org hub; the topbar only carries utility actions.
+  if (v === "inbox")         navigate("inbox");
   else if (v === "settings") navigate("settings");
 }
 
 document.getElementById("topbar-tabs").addEventListener("click", _handleTabClick);
 document.querySelector(".topbar-right").addEventListener("click", _handleTabClick);
-document.querySelector(".topbar-logo").addEventListener("click", () => navigate("welcome"));
+document.querySelector(".topbar-logo").addEventListener("click", () => navigate("org"));
 
 // Track last-visited swarm and agent for tab re-activation
 export let _lastSwarmId = "";
@@ -157,7 +155,7 @@ function _renderUserWidget(user) {
     <button class="user-widget-logout" title="Sign out">↩</button>
   `;
   chip.querySelector(".user-widget-logout").addEventListener("click", logout);
-  right.insertBefore(chip, right.firstChild);
+  right.appendChild(chip);
 }
 
 function _escHtml(s) {
