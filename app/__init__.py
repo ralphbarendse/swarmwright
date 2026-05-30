@@ -271,6 +271,10 @@ def create_app(config: Config | None = None) -> Flask:
         data_dir = cfg.DATA_DIR
         os.makedirs(data_dir, exist_ok=True)
 
+        # Fail any run left `running` by a previous process before we accept
+        # new work, so the Control Room never shows a permanently-hung run.
+        runtime.reconcile_orphaned_runs()
+
         _seed_platform_workspace(data_dir)
         _seed_default_models()
         boot_scan(data_dir)

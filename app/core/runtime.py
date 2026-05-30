@@ -1606,6 +1606,43 @@ def _finish_run(run_id: str, status: str, error: str | None = None) -> None:
             session.commit()
 
 
+# ── Crash recovery ───────────────────────────────────────────────────────────
+
+ORPHAN_ERROR = "Interrupted by server restart"
+
+
+def reconcile_orphaned_runs() -> list[str]:
+    """Fail any run left in `running` from a previous process.
+
+    Runs only ever execute inside the live process, so at boot — before any
+    run thread exists — every row still marked `running` is provably orphaned
+    (the worker that owned it died). We flip those to `failed` so the Control
+    Room shows a clear outcome instead of a row stuck `running` forever.
+
+    `awaiting_human` is a legitimate pause (a run waiting on a `call` edge) and
+    is deliberately left untouched. Returns the list of run IDs reconciled.
+    """
+    now = datetime.now(timezone.utc)
+    reconciled: list[str] = []
+    with get_session() as session:
+        orphans = session.execute(
+            select(Run).where(Run.status == STATUS_RUNNING)
+        ).scalars().all()
+        for run in orphans:
+            run.status = STATUS_FAILED
+            run.ended_at = now
+            run.error = ORPHAN_ERROR
+            reconciled.append(run.id)
+        if reconciled:
+            session.commit()
+
+    for run_id in reconciled:
+        _notify("run.failed", {"run_id": run_id, "status": "failed", "error": ORPHAN_ERROR})
+    if reconciled:
+        logger.warning("Reconciled %d orphaned run(s) to failed: %s", len(reconciled), reconciled)
+    return reconciled
+
+
 _FILE_WRITE_SKILLS = {"write_swarm_file"}
 _FILE_DELETE_SKILLS = {"delete_swarm_file"}
 
