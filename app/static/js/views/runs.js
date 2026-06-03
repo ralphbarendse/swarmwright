@@ -1341,6 +1341,8 @@ function _renderSteps(container, steps, activeIdx = -1, onSeek = null) {
     const tokenStr    = (step.tokens_input || step.tokens_output)
       ? `↑${(step.tokens_input  || 0).toLocaleString()} ↓${(step.tokens_output || 0).toLocaleString()} tok`
       : null;
+    const reasoning   = Array.isArray(step.reasoning) ? step.reasoning : null;
+    const thinkingHtml = (reasoning && reasoning.length) ? _renderThinking(reasoning) : "";
 
     return `
       <div id="step-card-${step.id}" class="step-card" style="display:flex;gap:12px;margin-bottom:12px;cursor:pointer"
@@ -1363,6 +1365,7 @@ function _renderSteps(container, steps, activeIdx = -1, onSeek = null) {
           ${step.output && !step.error ? `<div style="font-family:var(--font-mono);font-size:11px;color:var(--color-ink-faint);
             white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:6px"
             title="${_esc(_summarizeOutput(step.output))}">↳ ${_esc(_summarizeOutput(step.output))}</div>` : ""}
+          ${thinkingHtml}
           ${hasIO ? `
             <div class="step-io" id="${stepId}" data-input="${_esc(inputStr || "")}" data-output="${_esc(outputStr || "")}">
               <div style="display:flex;align-items:center;gap:0;border-bottom:1px solid var(--color-border-soft);margin-bottom:8px">
@@ -1638,6 +1641,60 @@ function _stepTypeLabel(type) {
     informer_notify:     "Informer",
     topology_violation:  "Violation",
   }[type] || type;
+}
+
+function _actionLabel(action, target) {
+  const verbs = {
+    delegate:             "Delegated to",
+    escalate:             "Escalated to",
+    report:               "Reported to",
+    consult_perceptionist:"Consulted",
+    consult_caller:       "Asked human",
+    inform_informer:      "Notified",
+    skill_call:           "Called skill",
+    invoke_swarm:         "Invoked swarm",
+    escalate_to_human:    "Escalated to a human",
+    complete:             "Completed",
+  };
+  const verb = verbs[action] || action;
+  return target ? `${verb} ${target}` : verb;
+}
+
+// Render the agent's per-turn reasoning trace ("what happened in the middle")
+// as a collapsible block. `entries` come from RunStep.reasoning.
+function _renderThinking(entries) {
+  const rows = entries.map(e => {
+    const label   = _actionLabel(e.action, e.target);
+    const isFinal = e.action === "complete";
+    const isError = e.action === "(invalid response)" || e.action === "escalate_to_human";
+    const dot     = isError ? "var(--color-danger)" : (isFinal ? "var(--color-policy)" : "var(--color-amber)");
+    const purpose = e.purpose_match
+      ? `<span style="font-style:italic;color:var(--color-policy);font-size:10px;margin-left:6px">"${_esc(e.purpose_match)}"</span>`
+      : "";
+    const reasoning = e.reasoning
+      ? `<div style="font-size:11px;color:var(--color-ink-soft);margin-top:3px;white-space:pre-wrap;line-height:1.45">${_esc(e.reasoning)}</div>`
+      : `<div style="font-size:11px;color:var(--color-ink-faint);margin-top:3px;font-style:italic">(no reasoning given)</div>`;
+    return `
+      <div style="display:flex;gap:9px;padding:7px 0;border-top:1px solid var(--color-border-soft)">
+        <div style="width:18px;height:18px;border-radius:50%;background:${dot}1a;border:1px solid ${dot};color:${dot};
+          flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:600;font-family:var(--font-mono);margin-top:1px">${e.turn || ""}</div>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:11px;font-weight:600;font-family:var(--font-mono);color:var(--color-ink)">${_esc(label)}${purpose}</div>
+          ${reasoning}
+        </div>
+      </div>`;
+  }).join("");
+
+  return `
+    <details class="step-thinking" style="margin-bottom:8px">
+      <summary style="cursor:pointer;font-size:11px;font-family:var(--font-mono);color:var(--color-ink-soft);
+        list-style:none;user-select:none;display:flex;align-items:center;gap:5px;padding:2px 0">
+        <span style="color:var(--color-amber)">◆</span> Thinking · ${entries.length} turn${entries.length === 1 ? "" : "s"}
+      </summary>
+      <div style="margin-top:4px;padding:2px 10px 6px;background:var(--color-bg);border:1px solid var(--color-border-soft);border-radius:4px">
+        ${rows}
+      </div>
+    </details>`;
 }
 
 function _duration(start, end) {

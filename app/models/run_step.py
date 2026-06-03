@@ -34,6 +34,7 @@ class RunStep(Base):
     informer_id: Mapped[str | None] = mapped_column(String, ForeignKey("informers.id"), nullable=True)
     input_json: Mapped[str] = mapped_column(String, nullable=False, default="{}")
     output_json: Mapped[str | None] = mapped_column(String, nullable=True)
+    reasoning_json: Mapped[str | None] = mapped_column(String, nullable=True)
     started_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     error: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -54,6 +55,7 @@ class RunStep(Base):
             "sequence": self.sequence,
             "input": _parse_json_field(self.input_json),
             "output": _parse_json_field(self.output_json),
+            "reasoning": _parse_json_field(self.reasoning_json),
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "ended_at": self.ended_at.isoformat() if self.ended_at else None,
             "error": self.error,

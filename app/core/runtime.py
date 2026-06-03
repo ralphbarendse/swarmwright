@@ -630,6 +630,7 @@ def _execute_agent_call(
         session.refresh(step)
         step_id = step.id
 
+    trace: list = []
     try:
         output, token_totals = _run_agent_loop(
             agent_name=agent_name,
@@ -637,10 +638,12 @@ def _execute_agent_call(
             initial_messages=messages,
             ctx=ctx,
             depth=depth,
+            trace=trace,
         )
         _update_step(
             step_id,
             output_json=json.dumps(output),
+            reasoning_json=json.dumps(trace) if trace else None,
             tokens_input=token_totals.get("input_tokens"),
             tokens_output=token_totals.get("output_tokens"),
         )
@@ -652,7 +655,13 @@ def _execute_agent_call(
         return output
 
     except Exception as exc:
-        _update_step(step_id, error=str(exc))
+        # Persist whatever reasoning the agent produced before it broke — the
+        # trace up to the failure is often the most useful thing to read.
+        _update_step(
+            step_id,
+            error=str(exc),
+            reasoning_json=json.dumps(trace) if trace else None,
+        )
         raise
 
 
@@ -662,11 +671,17 @@ def _run_agent_loop(
     initial_messages: list[dict],
     ctx: RunContext,
     depth: int,
+    trace: list | None = None,
 ) -> tuple[dict, dict]:
     """Multi-turn loop: call LLM, dispatch actions, continue until complete.
 
     Returns (output, token_totals) where token_totals = {input_tokens, output_tokens}.
     Raises for topology violations, max turns, or human escalations.
+
+    If `trace` is provided, each turn's decision (action, target, reasoning) is
+    appended to it in place — this is the agent's "thinking" between the step's
+    input and output. Mutating in place means the caller still sees the partial
+    trace when the loop raises (e.g. a failed run), not just on success.
     """
     if md_path is None or not os.path.isfile(md_path):
         raise SwarmRuntimeError(
@@ -700,6 +715,14 @@ def _run_agent_loop(
     if web_search and llm.provider == "anthropic":
         llm_kwargs["tools"] = [{"type": "web_search_20250305", "name": "web_search"}]
 
+    if trace is None:
+        trace = []
+
+    def _trace(turn: int, **fields) -> None:
+        entry = {"turn": turn + 1}
+        entry.update({k: v for k, v in fields.items() if v})
+        trace.append(entry)
+
     _max_turns = _get_max_agent_turns()
     _json_failures = 0
     for turn in range(_max_turns):
@@ -712,6 +735,7 @@ def _run_agent_loop(
             action_dict = _parse_action(raw, agent_name)
         except SwarmRuntimeError as exc:
             _json_failures += 1
+            _trace(turn, action="(invalid response)", reasoning=f"Could not parse a JSON action — retrying ({_json_failures}/3)")
             if _json_failures >= 3:
                 raise
             logger.warning("Agent '%s' returned non-JSON on turn %d — retrying: %s", agent_name, turn, exc)
@@ -731,6 +755,13 @@ def _run_agent_loop(
             continue
         _json_failures = 0
         action = action_dict.get("action", "")
+        _trace(
+            turn,
+            action=action,
+            target=action_dict.get("target"),
+            purpose_match=action_dict.get("purpose_match"),
+            reasoning=action_dict.get("reasoning"),
+        )
 
         if action == "complete":
             return action_dict.get("input") or {}, {
@@ -1680,6 +1711,7 @@ def _update_step(
     step_id: str,
     *,
     output_json: str | None = None,
+    reasoning_json: str | None = None,
     error: str | None = None,
     tokens_input: int | None = None,
     tokens_output: int | None = None,
@@ -1694,6 +1726,8 @@ def _update_step(
                 step.tokens_output = tokens_output
             if output_json is not None:
                 step.output_json = output_json
+            if reasoning_json is not None:
+                step.reasoning_json = reasoning_json
             if error is not None:
                 step.error = error
             session.commit()

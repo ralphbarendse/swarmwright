@@ -1540,3 +1540,8 @@ html.sw-mobile #fl-date-to       { display: none !important; }
 html.sw-mobile #cr-filter-bar > span { display: none !important; }   /* the "→" between dates */
 html.sw-mobile #fl-status,
 html.sw-mobile #fl-workspace     { width: auto !important; flex: 1 1 130px; }
+
+/* Run-step "Thinking" trace — hide the native disclosure marker; we draw our own. */
+.step-thinking > summary { list-style: none; }
+.step-thinking > summary::-webkit-details-marker { display: none; }
+.step-thinking > summary:hover { color: var(--color-ink); }
