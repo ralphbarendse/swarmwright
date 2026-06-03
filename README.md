@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="img/banner-readme.png" alt="SwarmWright" width="100%">
+  <img src="img/showcase.gif" alt="SwarmWright in action — first-boot setup, designing a swarm on the canvas, an agent constitution, and a run streaming live in the Control Room" width="100%">
 </p>
 
 ---
