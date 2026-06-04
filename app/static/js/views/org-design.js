@@ -40,20 +40,17 @@ async function _renderWorkspaceList(container) {
           ${canDo("can_create_workspace") ? `<button class="btn btn-primary" id="btn-new-ws">+ New workspace</button>` : ""}
         </div>
       </div>
-      <div style="flex:2;overflow-y:auto;min-height:0;padding:0 24px 16px">
+      <div style="flex:1;overflow-y:auto;min-height:0;padding:0 24px 16px">
         <div id="ws-grid"></div>
       </div>
-      <div id="home-snippets" style="flex:1;min-height:190px;display:flex;gap:14px;
-        border-top:1px dashed var(--color-cream-line);padding:14px 24px 16px;overflow:hidden">
-        ${_snippetCardSkeleton("snip-control", "Control Room", "runs", "Go to room")}
-        ${_snippetCardSkeleton("snip-library", "Library", "library", "Go to library")}
-      </div>
+      <div id="snip-divider" class="snip-divider"></div>
+      <div id="home-snippets" style="flex-shrink:0;overflow:hidden"></div>
     </div>
     ${showChat ? `<div class="chat-zone-divider" id="chat-divider"></div><div id="chat-zone" class="chat-zone"></div>` : ""}`;
 
   container.querySelector("#btn-new-ws")?.addEventListener("click", () => _showCreateWorkspaceModal(() => _renderWorkspaceList(container)));
 
-  _renderHomeSnippets(container);
+  _wireSnippetDivider(container);
 
   try {
     const workspaces = await api.listWorkspaces();
@@ -61,9 +58,7 @@ async function _renderWorkspaceList(container) {
     if (!workspaces.length) {
       grid.innerHTML = `<div class="empty-state"><div class="empty-state-icon">🏢</div><div class="empty-state-title">No workspaces yet</div><div class="empty-state-sub">Create your first workspace to get started.</div></div>`;
     } else {
-      grid.innerHTML = workspaces.map(ws => _wsRow(ws)).join("") +
-        (canDo("can_create_workspace") ? `<div style="margin-top:6px"><button class="btn btn-ghost btn-sm" id="add-ws-card" style="font-size:12px;color:var(--color-ink-faint)">+ New workspace</button></div>` : "");
-      grid.querySelector("#add-ws-card")?.addEventListener("click", () => _showCreateWorkspaceModal(() => _renderWorkspaceList(container)));
+      grid.innerHTML = workspaces.map(ws => _wsRow(ws)).join("");
       grid.querySelectorAll(".ws-card").forEach(el => {
         el.addEventListener("click", () => window.swNav(`org/ws/${el.dataset.id}`));
       });
@@ -117,12 +112,11 @@ function _snippetCardSkeleton(id, title, go, goLabel) {
     </div>`;
 }
 
-function _renderHomeSnippets(container) {
+function _renderHomeSnippets(container, mode = "normal") {
   const control = container.querySelector("#snip-control");
   const library = container.querySelector("#snip-library");
   if (!control || !library) return;
 
-  // Card body → section landing; a row → its deep target.
   control.addEventListener("click", (e) => {
     const row = e.target.closest(".snip-row[data-run]");
     window.swNav(row ? `runs/${row.dataset.run}` : "runs");
@@ -132,17 +126,21 @@ function _renderHomeSnippets(container) {
     window.swNav(row ? row.dataset.go : "library");
   });
 
-  _fillControlSnippet(control);
-  _fillLibrarySnippet(library);
+  const wide = mode === "wide";
+  if (wide) {
+    api.getRunStats().then(s => _fillWideStats(container.querySelector("#snip-stats-bar"), s)).catch(() => {});
+  }
+  _fillControlSnippet(control, wide);
+  _fillLibrarySnippet(library, wide);
 }
 
-async function _fillControlSnippet(card) {
+async function _fillControlSnippet(card, wide = false) {
   const head = card.querySelector(".snip-head");
   const list = card.querySelector(".snip-list");
   try {
     const [stats, runs] = await Promise.all([
       api.getRunStats().catch(() => null),
-      api.listRuns({ limit: 5 }).catch(() => []),
+      api.listRuns({ limit: wide ? 15 : 5 }).catch(() => []),
     ]);
     if (stats) {
       head.style.display = "flex";
@@ -160,12 +158,16 @@ async function _fillControlSnippet(card) {
     list.innerHTML = runs.length
       ? runs.map(_snipRunRow).join("")
       : `<div class="snip-empty" style="font-family:var(--font-mono);font-size:11px;color:var(--color-ink-faint);padding:6px 0">No runs yet</div>`;
+    if (wide) {
+      const spark = card.querySelector("#snip-spark");
+      if (spark) _buildSparkline(runs, spark);
+    }
   } catch {
     head.textContent = "Unavailable";
   }
 }
 
-async function _fillLibrarySnippet(card) {
+async function _fillLibrarySnippet(card, wide = false) {
   const head = card.querySelector(".snip-head");
   const list = card.querySelector(".snip-list");
   try {
@@ -175,15 +177,42 @@ async function _fillLibrarySnippet(card) {
     ]);
     head.textContent =
       `${docs.length} knowledge doc${docs.length !== 1 ? "s" : ""} · ${skills.length} skill${skills.length !== 1 ? "s" : ""}`;
-    const items = [
-      ...docs.map(d => ({ kind: "Doc", label: d.title || d.name, updated: d.updated_at, nav: "library/knowledge" })),
-      ...skills.map(s => ({ kind: "Skill", label: s.name, updated: s.updated_at, nav: "library/skills" })),
-    ]
-      .sort((a, b) => new Date(b.updated || 0) - new Date(a.updated || 0))
-      .slice(0, 5);
-    list.innerHTML = items.length
-      ? items.map(_snipLibRow).join("")
-      : `<div class="snip-empty" style="font-family:var(--font-mono);font-size:11px;color:var(--color-ink-faint);padding:6px 0">Nothing here yet</div>`;
+
+    if (wide) {
+      const sortedDocs   = [...docs].sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0));
+      const sortedSkills = [...skills].sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0));
+      const empty = `<div style="font-family:var(--font-mono);font-size:11px;color:var(--color-ink-faint);padding:3px 0">Nothing here yet</div>`;
+
+      const docSection = sortedDocs.length ? `
+        ${sortedDocs[0] ? _snipDocCard(sortedDocs[0]) : ""}
+        ${sortedDocs.slice(1, 6).map(d => _snipLibRow({
+          kind: "Doc", label: d.title || d.name, updated: d.updated_at, nav: "library/knowledge"
+        })).join("")}
+      ` : empty;
+
+      const skillSection = sortedSkills.length
+        ? sortedSkills.slice(0, 7).map(_snipSkillRow).join("")
+        : empty;
+
+      list.innerHTML = `
+        <div style="font-family:var(--font-mono);font-size:9px;letter-spacing:.08em;
+          color:var(--color-ink-faint);margin-bottom:5px">DOCS (${docs.length})</div>
+        ${docSection}
+        <div style="font-family:var(--font-mono);font-size:9px;letter-spacing:.08em;
+          color:var(--color-ink-faint);margin:10px 0 5px">SKILLS (${skills.length})</div>
+        ${skillSection}
+      `;
+    } else {
+      const items = [
+        ...docs.map(d => ({ kind: "Doc", label: d.title || d.name, updated: d.updated_at, nav: "library/knowledge" })),
+        ...skills.map(s => ({ kind: "Skill", label: s.name, updated: s.updated_at, nav: "library/skills" })),
+      ]
+        .sort((a, b) => new Date(b.updated || 0) - new Date(a.updated || 0))
+        .slice(0, 5);
+      list.innerHTML = items.length
+        ? items.map(_snipLibRow).join("")
+        : `<div class="snip-empty" style="font-family:var(--font-mono);font-size:11px;color:var(--color-ink-faint);padding:6px 0">Nothing here yet</div>`;
+    }
   } catch {
     head.textContent = "Unavailable";
   }
@@ -216,6 +245,38 @@ function _snipLibRow(it) {
     </div>`;
 }
 
+function _snipDocCard(d) {
+  const title   = _esc(d.title || d.name);
+  const preview = _esc((d.content_preview || "").trim());
+  const when    = d.updated_at ? _reltime(d.updated_at) : "";
+  return `
+    <div class="snip-row" data-go="library/knowledge" style="display:flex;flex-direction:column;gap:3px;
+      padding:7px 9px;margin-bottom:5px;border-radius:5px;cursor:pointer;
+      background:var(--color-panel);border:1px solid var(--color-cream-line)">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+        <span style="font-size:12px;font-weight:600;color:var(--color-ink);
+          white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;min-width:0">${title}</span>
+        <span style="font-family:var(--font-mono);font-size:10px;color:var(--color-ink-faint);flex-shrink:0">${when}</span>
+      </div>
+      ${preview ? `<div style="font-size:11px;color:var(--color-ink-faint);
+        display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+        line-height:1.4">${preview}</div>` : ""}
+    </div>`;
+}
+
+function _snipSkillRow(s) {
+  const when = s.updated_at ? _reltime(s.updated_at) : "";
+  return `
+    <div class="snip-row" data-go="library/skills" style="display:flex;align-items:baseline;gap:8px;
+      padding:5px 0;border-bottom:1px solid var(--color-cream-line);cursor:pointer">
+      <span style="font-family:var(--font-mono);font-size:11px;color:var(--color-executioner);
+        flex-shrink:0;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:30%">${_esc(s.name)}</span>
+      <span style="flex:1;min-width:0;font-size:11px;color:var(--color-ink-faint);
+        white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_esc(s.description || "")}</span>
+      <span style="font-family:var(--font-mono);font-size:10px;color:var(--color-ink-faint);flex-shrink:0">${when}</span>
+    </div>`;
+}
+
 function _snipStatusColor(status) {
   return {
     running:        "var(--color-amber)",
@@ -224,6 +285,240 @@ function _snipStatusColor(status) {
     pending:        "var(--color-ink-faint)",
     awaiting_human: "var(--color-orchestrator)",
   }[status] || "var(--color-ink-faint)";
+}
+
+// ── Snippet panel resize ───────────────────────────────────────────────────
+
+const _SNIP_H_KEY  = "sw-snip-h";
+const _SNIP_CO_KEY = "sw-snip-collapsed";
+const _SNIP_MICRO  = 52;
+const _SNIP_WIDE   = 320;
+
+function _snipMode(h) {
+  return h < _SNIP_MICRO ? "micro" : h >= _SNIP_WIDE ? "wide" : "normal";
+}
+
+function _wireSnippetDivider(container) {
+  const divider = container.querySelector("#snip-divider");
+  const panel   = container.querySelector("#home-snippets");
+  if (!divider || !panel) return;
+
+  let currentMode = null;
+
+  const _setHeight = (h, save = false) => {
+    h = Math.max(40, Math.min(600, h));
+    panel.style.height = h + "px";
+    if (save) try { localStorage.setItem(_SNIP_H_KEY, h); } catch (_) {}
+    const mode = _snipMode(h);
+    if (mode !== currentMode) {
+      currentMode = mode;
+      _setSnippetMode(container, panel, mode);
+    }
+  };
+
+  const toggleBtn = document.createElement("button");
+  toggleBtn.className = "snip-toggle";
+  const _updateToggle = (collapsed) => {
+    toggleBtn.textContent = collapsed ? "▴" : "▾";
+    toggleBtn.title = collapsed ? "Expand panel" : "Collapse panel";
+  };
+
+  const _applyCollapse = (collapsed) => {
+    if (collapsed) {
+      try { localStorage.setItem(_SNIP_H_KEY, panel.offsetHeight || 190); } catch (_) {}
+      panel.style.height = "0";
+      divider.classList.add("snip-divider-collapsed");
+    } else {
+      const savedH = parseInt(localStorage.getItem(_SNIP_H_KEY)) || 190;
+      _setHeight(savedH);
+      divider.classList.remove("snip-divider-collapsed");
+    }
+    _updateToggle(collapsed);
+    try { localStorage.setItem(_SNIP_CO_KEY, collapsed ? "1" : "0"); } catch (_) {}
+  };
+
+  _updateToggle(false);
+  divider.appendChild(toggleBtn);
+  toggleBtn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    _applyCollapse(!divider.classList.contains("snip-divider-collapsed"));
+  });
+
+  const startCollapsed = localStorage.getItem(_SNIP_CO_KEY) === "1";
+  const savedH = parseInt(localStorage.getItem(_SNIP_H_KEY)) || 190;
+
+  if (startCollapsed) {
+    panel.style.height = "0";
+    divider.classList.add("snip-divider-collapsed");
+    _updateToggle(true);
+  } else {
+    _setHeight(savedH);
+  }
+
+  divider.addEventListener("mousedown", (e) => {
+    if (divider.classList.contains("snip-divider-collapsed")) return;
+    if (e.target === toggleBtn) return;
+    e.preventDefault();
+    const startY = e.clientY;
+    const startH = panel.offsetHeight;
+    const onMove = (mv) => _setHeight(startH + (startY - mv.clientY));
+    const onUp   = () => {
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+      try { localStorage.setItem(_SNIP_H_KEY, panel.offsetHeight); } catch (_) {}
+    };
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  });
+}
+
+function _setSnippetMode(container, panel, mode) {
+  if (mode === "micro") {
+    panel.style.cssText = `flex-shrink:0;overflow:hidden;height:${panel.style.height};
+      display:flex;align-items:center;flex-direction:row;padding:0 24px;gap:0`;
+    panel.innerHTML = _snipMicroSkeleton();
+    _renderMicroSnippets(container);
+  } else if (mode === "wide") {
+    panel.style.cssText = `flex-shrink:0;overflow:hidden;height:${panel.style.height};
+      display:flex;flex-direction:column;gap:0;padding:0`;
+    panel.innerHTML = _snipWideSkeleton();
+    _renderHomeSnippets(container, "wide");
+  } else {
+    panel.style.cssText = `flex-shrink:0;overflow:hidden;height:${panel.style.height};
+      display:flex;flex-direction:row;gap:14px;
+      border-top:1px dashed var(--color-cream-line);padding:14px 24px 16px`;
+    panel.innerHTML =
+      _snippetCardSkeleton("snip-control", "Control Room", "runs", "Go to room") +
+      _snippetCardSkeleton("snip-library", "Library", "library", "Go to library");
+    _renderHomeSnippets(container, "normal");
+  }
+}
+
+function _snipMicroSkeleton() {
+  return `
+    <div id="snip-micro" style="display:flex;align-items:center;gap:16px;width:100%;
+      font-family:var(--font-mono)">
+      <div id="snip-micro-status" style="display:flex;gap:12px;align-items:center;flex:1;min-width:0">
+        <span style="font-size:11px;color:var(--color-ink-faint)">Loading…</span>
+      </div>
+      <a id="snip-micro-ctrl" style="font-size:12px;color:var(--color-ink-faint);cursor:pointer;
+        white-space:nowrap">Control Room ›</a>
+      <span style="color:var(--color-cream-line);font-size:10px">|</span>
+      <a id="snip-micro-lib" style="font-size:12px;color:var(--color-ink-faint);cursor:pointer;
+        white-space:nowrap">Library ›</a>
+      <span id="snip-micro-lib-count" style="font-size:11px;color:var(--color-ink-faint)"></span>
+    </div>`;
+}
+
+function _snipWideSkeleton() {
+  return `
+    <div id="snip-stats-bar" style="display:flex;gap:32px;align-items:center;
+      padding:10px 24px 8px;border-top:1px dashed var(--color-cream-line);
+      border-bottom:1px solid var(--color-cream-line);flex-shrink:0">
+      <span style="font-family:var(--font-mono);font-size:11px;color:var(--color-ink-faint)">Loading…</span>
+    </div>
+    <div style="flex:1;display:flex;gap:0;min-height:0">
+      <div id="snip-control" class="card" style="flex:1;display:flex;flex-direction:column;
+        min-width:0;min-height:0;overflow:hidden;padding:12px 14px 10px;cursor:pointer;
+        border:none;border-radius:0" data-go="runs">
+        <div class="flex-row" style="justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div class="card-title" style="margin:0">Control Room</div>
+          <span class="snip-go" style="font-size:11px;font-family:var(--font-mono);
+            color:var(--color-ink-faint)">Go to room ›</span>
+        </div>
+        <div class="snip-head" style="margin-bottom:8px;font-family:var(--font-mono);
+          font-size:11px;color:var(--color-ink-faint)">Loading…</div>
+        <div class="snip-list" style="flex:1;overflow-y:auto;min-height:0"></div>
+        <div id="snip-spark" style="height:48px;flex-shrink:0;margin-top:6px;
+          border-top:1px solid var(--color-cream-line);padding-top:6px;
+          display:flex;align-items:flex-end;gap:2px"></div>
+      </div>
+      <div style="width:1px;background:var(--color-cream-line);flex-shrink:0;margin:10px 0"></div>
+      <div id="snip-library" class="card" style="flex:1;display:flex;flex-direction:column;
+        min-width:0;min-height:0;overflow:hidden;padding:12px 14px 10px;cursor:pointer;
+        border:none;border-radius:0" data-go="library">
+        <div class="flex-row" style="justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div class="card-title" style="margin:0">Library</div>
+          <span class="snip-go" style="font-size:11px;font-family:var(--font-mono);
+            color:var(--color-ink-faint)">Go to library ›</span>
+        </div>
+        <div class="snip-head" style="margin-bottom:8px;font-family:var(--font-mono);
+          font-size:11px;color:var(--color-ink-faint)">Loading…</div>
+        <div class="snip-list" style="flex:1;overflow-y:auto;min-height:0"></div>
+      </div>
+    </div>`;
+}
+
+async function _renderMicroSnippets(container) {
+  const statusEl   = container.querySelector("#snip-micro-status");
+  const libCountEl = container.querySelector("#snip-micro-lib-count");
+  container.querySelector("#snip-micro-ctrl")?.addEventListener("click", () => window.swNav("runs"));
+  container.querySelector("#snip-micro-lib")?.addEventListener("click",  () => window.swNav("library"));
+  try {
+    const [stats, docs, skills] = await Promise.all([
+      api.getRunStats().catch(() => null),
+      api.listKnowledge({ scope: "company" }).catch(() => []),
+      api.listSkills({ scope: "company" }).catch(() => []),
+    ]);
+    if (statusEl && stats) {
+      statusEl.innerHTML = [
+        [stats.running,        "var(--color-amber)",        `● ${stats.running} running`],
+        [stats.awaiting_human, "var(--color-orchestrator)", `⏳ ${stats.awaiting_human} awaiting`],
+        [stats.completed_today,"var(--color-success)",      `✓ ${stats.completed_today} done`],
+        [stats.failed_today,   "var(--color-danger)",       `✗ ${stats.failed_today} failed`],
+      ].map(([n, c, txt]) =>
+        `<span style="font-size:11px;color:${c};opacity:${n > 0 ? 1 : .4};white-space:nowrap">${txt}</span>`
+      ).join("");
+    }
+    if (libCountEl) libCountEl.textContent = `${docs.length} docs · ${skills.length} skills`;
+  } catch (_) {}
+}
+
+function _fillWideStats(statsBar, stats) {
+  if (!statsBar || !stats) return;
+  statsBar.innerHTML = [
+    { v: stats.running,         c: "var(--color-amber)",        label: "RUNNING" },
+    { v: stats.awaiting_human,  c: "var(--color-orchestrator)", label: "AWAITING" },
+    { v: stats.completed_today, c: "var(--color-success)",      label: "DONE TODAY" },
+    { v: stats.failed_today,    c: "var(--color-danger)",       label: "FAILED" },
+  ].map(({ v, c, label }) => `
+    <div style="display:flex;flex-direction:column;align-items:flex-start">
+      <div style="font-family:var(--font-display);font-size:28px;line-height:1;
+        color:${c};opacity:${v > 0 ? 1 : .25}">${v}</div>
+      <div style="font-family:var(--font-mono);font-size:9px;letter-spacing:.08em;
+        color:var(--color-ink-faint);margin-top:2px">${label}</div>
+    </div>
+  `).join("");
+}
+
+function _buildSparkline(runs, sparkEl) {
+  const now  = Date.now();
+  const bins = Array.from({ length: 8 }, (_, i) => {
+    const h = new Date(now - (7 - i) * 3600000).getHours();
+    return { label: `${h}h`, running: 0, completed: 0, failed: 0 };
+  });
+  for (const r of runs) {
+    if (!r.started_at) continue;
+    const age = (now - new Date(r.started_at).getTime()) / 3600000;
+    if (age < 0 || age >= 8) continue;
+    const idx = Math.min(7, Math.max(0, 7 - Math.floor(age)));
+    const key = r.status === "completed" ? "completed" : r.status === "failed" ? "failed" : "running";
+    bins[idx][key]++;
+  }
+  const max = Math.max(1, ...bins.map(b => b.running + b.completed + b.failed));
+  const px  = (n) => Math.max(2, Math.round((n / max) * 30));
+  sparkEl.innerHTML = bins.map(b => `
+    <div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:0;justify-content:flex-end">
+      <div style="width:100%;display:flex;flex-direction:column;justify-content:flex-end;gap:1px;height:30px">
+        ${b.failed    ? `<div style="width:100%;height:${px(b.failed)}px;background:var(--color-danger);border-radius:1px;opacity:.8"></div>` : ""}
+        ${b.completed ? `<div style="width:100%;height:${px(b.completed)}px;background:var(--color-success);border-radius:1px"></div>` : ""}
+        ${b.running   ? `<div style="width:100%;height:${px(b.running)}px;background:var(--color-amber);border-radius:1px"></div>` : ""}
+        ${!b.failed && !b.completed && !b.running ? `<div style="width:100%;height:2px;background:var(--color-cream-line);border-radius:1px;align-self:flex-end"></div>` : ""}
+      </div>
+      <div style="font-family:var(--font-mono);font-size:8px;color:var(--color-ink-faint);
+        margin-top:2px;text-align:center;line-height:1">${b.label}</div>
+    </div>
+  `).join("");
 }
 
 // ── Workspace detail ───────────────────────────────────────────────────────

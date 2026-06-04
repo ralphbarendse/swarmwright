@@ -93,7 +93,15 @@ def _get_default_skill_timeout() -> int:
 # Optional SSE broadcast hook — set by app/__init__.py
 _notify_fn = None
 
-# Run-IDs that have been requested to stop (checked inside _execute_agent_call)
+# Run-IDs that have been requested to stop (checked inside _execute_agent_call).
+#
+# NOTE: this cancellation state lives in-process. It works because gunicorn is
+# pinned to a single worker (see docker/entrypoint.sh: --workers 1), so the
+# thread serving cancel_run() shares memory with the thread running the run.
+# If the deployment is ever scaled to multiple workers, a cancel request may
+# land on a different worker than the one executing the run and will silently
+# do nothing. Moving to >1 worker requires moving this signal into shared
+# storage (e.g. a cancel flag on the Run row, polled inside the agent loop).
 _cancelled_runs: set[str] = set()
 _cancelled_lock = threading.Lock()
 

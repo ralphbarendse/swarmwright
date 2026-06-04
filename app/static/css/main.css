@@ -800,6 +800,63 @@ input, textarea, select { font: inherit; }
   border-left: none;
 }
 
+/* ── Snippet panel (home page footer band) ── */
+.snip-divider {
+  height: 6px;
+  flex-shrink: 0;
+  background: var(--color-cream-line);
+  cursor: ns-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background .15s;
+  position: relative;
+}
+.snip-divider:not(.snip-divider-collapsed):hover { background: var(--color-primary); opacity: .6; }
+.snip-divider::after {
+  content: "";
+  height: 2px;
+  width: 36px;
+  border-radius: 2px;
+  background: rgba(43,36,24,.25);
+  transition: opacity .15s;
+}
+.snip-divider.snip-divider-collapsed { cursor: default; }
+.snip-divider.snip-divider-collapsed::after { opacity: 0; }
+.snip-toggle {
+  position: absolute;
+  left: 50%;
+  bottom: -13px;
+  transform: translateX(-50%);
+  width: 36px;
+  height: 13px;
+  padding: 0;
+  background: var(--color-card);
+  border: 1px solid var(--color-cream-line);
+  border-top: none;
+  border-radius: 0 0 5px 5px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8px;
+  color: var(--color-ink-faint);
+  z-index: 10;
+  opacity: 0;
+  transition: opacity .15s, background .15s, color .15s;
+  line-height: 1;
+}
+.snip-divider:hover .snip-toggle { opacity: 1; }
+.snip-divider-collapsed .snip-toggle {
+  opacity: 1;
+  bottom: auto;
+  top: -13px;
+  border-top: 1px solid var(--color-cream-line);
+  border-bottom: none;
+  border-radius: 5px 5px 0 0;
+}
+.snip-toggle:hover { background: var(--color-primary); color: #fff; border-color: var(--color-primary); }
+
 /* Widget fills its zone */
 .chat-widget {
   display: flex;

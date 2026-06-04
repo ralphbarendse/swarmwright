@@ -37,6 +37,10 @@ landingpage_swarmwright/
 
 # Demo infrastructure (server-side only)
 demo-auth/
+demo_rackhaus/
+
+# Screen-recording artifacts (local-only)
+recording/
 
 # Claude Code
 .claude/

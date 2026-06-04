@@ -141,6 +141,11 @@ export function renderSwarmCanvas(container, swarmId) {
     if (msg.type === "run.completed" || msg.type === "run.failed") {
       setTimeout(() => { if (_cy) _cy.elements().removeClass("live"); }, 2000);
     }
+    // Keep the inspector's "Recent runs" list current on lifecycle changes
+    // (a new run, or a status flip) — but not on every step, which is chatty.
+    if (["run.started", "run.completed", "run.failed", "run.awaiting_human", "run.resumed"].includes(msg.type)) {
+      _renderRecentRuns(container, swarmId);
+    }
   };
   onEvent("*", sseHandler);
 
@@ -1227,6 +1232,9 @@ function _showSwarmInspector(container, swarm, swarmId, hierarchy, reload) {
     <div style="margin-top:12px">
       <div class="insp-label">Runs</div>
       <div style="font-size:var(--text-sm)">${swarm.run_count ?? "—"} total runs</div>
+      <div id="insp-recent-runs" style="margin-top:8px">
+        <div style="font-size:11px;color:var(--color-ink-faint);font-family:var(--font-mono);padding:4px 0">Loading…</div>
+      </div>
     </div>
 
     <div class="insp-btn-row" style="margin-top:auto;padding-top:12px;flex-direction:column;gap:6px">
@@ -1258,6 +1266,64 @@ function _showSwarmInspector(container, swarm, swarmId, hierarchy, reload) {
       if (reload) reload();
     } catch (err) { toastError(err); }
   });
+
+  _renderRecentRuns(container, swarmId);
+}
+
+// Fill the swarm inspector's "Recent runs" list with the latest 4 runs.
+// No-op if the swarm inspector isn't currently mounted (node/edge selected),
+// so it's safe to call from the view-level SSE handler. Each row deep-links
+// to that run's detail page.
+async function _renderRecentRuns(container, swarmId) {
+  const box = container.querySelector("#insp-recent-runs");
+  if (!box) return;
+  let runs;
+  try {
+    runs = await api.listRuns({ swarm_id: swarmId, limit: 4 });
+  } catch (_) {
+    return; // leave the existing list in place on a transient failure
+  }
+  // The inspector may have been swapped out while the fetch was in flight.
+  const box2 = container.querySelector("#insp-recent-runs");
+  if (!box2) return;
+  if (!runs.length) {
+    box2.innerHTML = `<div style="font-size:11px;color:var(--color-ink-faint);font-family:var(--font-mono);padding:4px 0">No runs yet.</div>`;
+    return;
+  }
+  box2.innerHTML = runs.map(r => {
+    const color = _runStatusColor(r.status);
+    const when  = r.started_at ? _reltime(r.started_at) : "—";
+    return `
+      <button class="insp-run-row" data-run-id="${_esc(r.id)}"
+        style="display:flex;align-items:center;gap:8px;width:100%;text-align:left;background:none;
+        border:none;border-bottom:1px solid var(--color-border-soft);padding:6px 2px;cursor:pointer">
+        <span style="width:7px;height:7px;border-radius:50%;background:${color};flex-shrink:0"></span>
+        <span style="font-family:var(--font-mono);font-size:11px;color:var(--color-ink-soft)">${_esc(r.id.slice(0, 8))}</span>
+        <span style="font-size:10px;color:${color};text-transform:capitalize">${_esc((r.status || "").replace("_", " "))}</span>
+        <span style="margin-left:auto;font-size:10px;color:var(--color-ink-faint);font-family:var(--font-mono)">${_esc(when)}</span>
+      </button>`;
+  }).join("");
+  box2.querySelectorAll(".insp-run-row").forEach(btn => {
+    btn.addEventListener("click", () => window.swNav("runs/" + btn.dataset.runId));
+  });
+}
+
+function _runStatusColor(status) {
+  return {
+    running:        "var(--color-amber)",
+    completed:      "var(--color-success)",
+    failed:         "var(--color-danger)",
+    pending:        "var(--color-ink-faint)",
+    awaiting_human: "var(--color-orchestrator)",
+  }[status] || "var(--color-ink-faint)";
+}
+
+function _reltime(iso) {
+  const diff = (Date.now() - new Date(iso)) / 1000;
+  if (diff < 60)    return "just now";
+  if (diff < 3600)  return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
 }
 
 function _showNodeInspector(container, node, swarmId, hierarchy, reload) {

@@ -4,6 +4,10 @@ import { onEvent, offEvent } from "../sse.js";
 import { _showModal } from "./org-design.js";
 import { canDo } from "../auth.js";
 
+// Must match runtime.ORPHAN_ERROR — the error stamped on runs that were
+// reconciled to "failed" on boot after a server restart cut them off.
+const RESTART_INTERRUPT_ERROR = "Interrupted by server restart";
+
 /**
  * Control Room view (was: Runs).
  * Routes:
@@ -1182,9 +1186,12 @@ function _renderRunHeader(container, run) {
         </div>`).join("")}
     </div>
 
-    ${run.error ? `<div style="background:var(--color-danger)1a;border:1px solid var(--color-danger)44;
+    ${run.error ? (run.error === RESTART_INTERRUPT_ERROR ? `<div style="background:var(--color-amber)1a;border:1px solid var(--color-amber)55;
+      border-radius:6px;padding:10px 12px;font-size:12px;color:var(--color-ink-soft);margin-bottom:8px">
+      <b style="color:var(--color-amber)">⟳ Interrupted by a server restart.</b> This run didn't fail — it was cut off when the
+      service restarted. Use <b>↺ Replay</b> above to run it again.</div>` : `<div style="background:var(--color-danger)1a;border:1px solid var(--color-danger)44;
       border-radius:6px;padding:10px 12px;font-size:12px;color:var(--color-danger);margin-bottom:8px">
-      <b>Error:</b> ${_esc(run.error)}</div>` : ""}
+      <b>Error:</b> ${_esc(run.error)}</div>`) : ""}
     <details style="margin-top:4px">
       <summary style="font-size:11px;color:var(--color-ink-soft);cursor:pointer;font-family:var(--font-mono)">Event payload</summary>
       <pre style="margin-top:8px;font-size:11px;background:var(--color-surface);border:1px solid var(--color-border-soft);border-radius:4px;padding:8px;overflow-x:auto">${_esc(payloadStr)}</pre>
