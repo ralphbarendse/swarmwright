@@ -115,6 +115,7 @@ function _snippetCardSkeleton(id, title, go, goLabel) {
 function _renderHomeSnippets(container, mode = "normal") {
   const control = container.querySelector("#snip-control");
   const library = container.querySelector("#snip-library");
+  const files   = container.querySelector("#snip-files");
   if (!control || !library) return;
 
   control.addEventListener("click", (e) => {
@@ -125,6 +126,12 @@ function _renderHomeSnippets(container, mode = "normal") {
     const row = e.target.closest(".snip-row[data-go]");
     window.swNav(row ? row.dataset.go : "library");
   });
+  if (files) {
+    files.addEventListener("click", (e) => {
+      const row = e.target.closest(".snip-row[data-swarm]");
+      window.swNav(row ? `swarm/${row.dataset.swarm}` : "files");
+    });
+  }
 
   const wide = mode === "wide";
   if (wide) {
@@ -132,6 +139,38 @@ function _renderHomeSnippets(container, mode = "normal") {
   }
   _fillControlSnippet(control, wide);
   _fillLibrarySnippet(library, wide);
+  if (files) _fillFilesSnippet(files, wide);
+}
+
+async function _fillFilesSnippet(card, wide = false) {
+  const head = card.querySelector(".snip-head");
+  const list = card.querySelector(".snip-list");
+  try {
+    const resp = await api.listAllFiles({ limit: wide ? 12 : 5 }).catch(() => ({ rows: [], total: 0 }));
+    const files = resp.rows || [];
+    const total = resp.total ?? files.length;
+    const swarmCount = new Set(files.map(f => f.swarm_id)).size;
+    head.textContent = total
+      ? `${total} file${total !== 1 ? "s" : ""} across ${swarmCount}${total > files.length ? "+" : ""} swarm${swarmCount !== 1 ? "s" : ""}`
+      : "No files yet";
+    const recent = files;
+    list.innerHTML = recent.length
+      ? recent.map(_snipFileRow).join("")
+      : `<div class="snip-empty" style="font-family:var(--font-mono);font-size:11px;color:var(--color-ink-faint);padding:6px 0">Agents haven't written any files yet</div>`;
+  } catch {
+    head.textContent = "Unavailable";
+  }
+}
+
+function _snipFileRow(f) {
+  const where = f.swarm_display_name || f.swarm_name || "swarm";
+  return `
+    <div class="snip-row" data-swarm="${_esc(f.swarm_id)}" style="display:flex;justify-content:space-between;
+      align-items:baseline;gap:10px;padding:4px 0;cursor:pointer;border-bottom:1px dashed var(--color-cream-line)">
+      <span style="font-family:var(--font-mono);font-size:11px;color:var(--color-ink);overflow:hidden;
+        text-overflow:ellipsis;white-space:nowrap" title="${_esc(f.path)}">${_esc(f.filename)}</span>
+      <span style="font-family:var(--font-mono);font-size:10px;color:var(--color-ink-faint);white-space:nowrap">${_esc(where)}</span>
+    </div>`;
 }
 
 async function _fillControlSnippet(card, wide = false) {
@@ -389,7 +428,8 @@ function _setSnippetMode(container, panel, mode) {
       border-top:1px dashed var(--color-cream-line);padding:14px 24px 16px`;
     panel.innerHTML =
       _snippetCardSkeleton("snip-control", "Control Room", "runs", "Go to room") +
-      _snippetCardSkeleton("snip-library", "Library", "library", "Go to library");
+      _snippetCardSkeleton("snip-library", "Library", "library", "Go to library") +
+      _snippetCardSkeleton("snip-files", "Files", "files", "Browse files");
     _renderHomeSnippets(container, "normal");
   }
 }
@@ -407,6 +447,9 @@ function _snipMicroSkeleton() {
       <a id="snip-micro-lib" style="font-size:12px;color:var(--color-ink-faint);cursor:pointer;
         white-space:nowrap">Library ›</a>
       <span id="snip-micro-lib-count" style="font-size:11px;color:var(--color-ink-faint)"></span>
+      <span style="color:var(--color-cream-line);font-size:10px">|</span>
+      <a id="snip-micro-files" style="font-size:12px;color:var(--color-ink-faint);cursor:pointer;
+        white-space:nowrap">Files ›</a>
     </div>`;
 }
 
@@ -446,6 +489,19 @@ function _snipWideSkeleton() {
           font-size:11px;color:var(--color-ink-faint)">Loading…</div>
         <div class="snip-list" style="flex:1;overflow-y:auto;min-height:0"></div>
       </div>
+      <div style="width:1px;background:var(--color-cream-line);flex-shrink:0;margin:10px 0"></div>
+      <div id="snip-files" class="card" style="flex:1;display:flex;flex-direction:column;
+        min-width:0;min-height:0;overflow:hidden;padding:12px 14px 10px;cursor:pointer;
+        border:none;border-radius:0" data-go="files">
+        <div class="flex-row" style="justify-content:space-between;align-items:center;margin-bottom:8px">
+          <div class="card-title" style="margin:0">Files</div>
+          <span class="snip-go" style="font-size:11px;font-family:var(--font-mono);
+            color:var(--color-ink-faint)">Browse files ›</span>
+        </div>
+        <div class="snip-head" style="margin-bottom:8px;font-family:var(--font-mono);
+          font-size:11px;color:var(--color-ink-faint)">Loading…</div>
+        <div class="snip-list" style="flex:1;overflow-y:auto;min-height:0"></div>
+      </div>
     </div>`;
 }
 
@@ -454,6 +510,7 @@ async function _renderMicroSnippets(container) {
   const libCountEl = container.querySelector("#snip-micro-lib-count");
   container.querySelector("#snip-micro-ctrl")?.addEventListener("click", () => window.swNav("runs"));
   container.querySelector("#snip-micro-lib")?.addEventListener("click",  () => window.swNav("library"));
+  container.querySelector("#snip-micro-files")?.addEventListener("click", () => window.swNav("files"));
   try {
     const [stats, docs, skills] = await Promise.all([
       api.getRunStats().catch(() => null),

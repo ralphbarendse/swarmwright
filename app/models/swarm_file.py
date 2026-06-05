@@ -36,6 +36,10 @@ class SwarmFile(Base):
     updated_by_run_id: Mapped[str | None] = mapped_column(String, ForeignKey("runs.id"), nullable=True)
     updated_by_step_id: Mapped[str | None] = mapped_column(String, ForeignKey("run_steps.id"), nullable=True)
 
+    # When set, this row is a *logical link* to a canonical file in another swarm:
+    # the bytes live in the referenced row's swarm, not on this swarm's disk.
+    links_to_file_id: Mapped[str | None] = mapped_column(String, ForeignKey("swarm_files.id"), nullable=True)
+
     def to_dict(self) -> dict:
         return {
             "id": self.id,
@@ -52,4 +56,6 @@ class SwarmFile(Base):
             "created_by_step_id": self.created_by_step_id,
             "updated_by_run_id": self.updated_by_run_id,
             "updated_by_step_id": self.updated_by_step_id,
+            "links_to_file_id": self.links_to_file_id,
+            "is_link": self.links_to_file_id is not None,
         }

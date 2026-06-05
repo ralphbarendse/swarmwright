@@ -114,9 +114,12 @@ export const readInformItem  = (id, body)        => post(`/informs/${encodeURICo
 export const dismissInformItem = (id, body)      => post(`/informs/${encodeURIComponent(id)}/dismiss`, body || {});
 
 // ── Swarm Files (Phase 7) ────────────────────────────────────────────────────
+export const listAllFiles      = (params = {})      => get("/files?" + new URLSearchParams(params));
 export const listSwarmFiles    = (sid, params = {}) => get(`/swarms/${sid}/files?` + new URLSearchParams(params));
 export const deleteSwarmFile   = (sid, path)        => del(`/swarms/${sid}/files?path=${encodeURIComponent(path)}`);
 export const downloadSwarmFileUrl = (sid, path)     => `/api/v1/swarms/${sid}/files/download?path=${encodeURIComponent(path)}`;
+export const rawSwarmFileUrl   = (sid, path)        => `/api/v1/swarms/${sid}/files/raw?path=${encodeURIComponent(path)}`;
+export const linkSwarmFile     = (sid, body)        => post(`/swarms/${sid}/files/link`, body);
 
 export async function uploadSwarmFile(swarmId, file, path, overwrite = false) {
   const form = new FormData();

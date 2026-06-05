@@ -6,7 +6,7 @@ import mimetypes
 import os
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 
 from app.db import get_session
 from app.models.swarm_file import SwarmFile, ORIGIN_AGENT, ORIGIN_HUMAN, ORIGIN_UNKNOWN
@@ -101,6 +101,69 @@ def remove_file(swarm_id: str, path: str) -> bool:
         return False
 
 
+# ── Logical links ─────────────────────────────────────────────────────────────
+# A link is a swarm_files row whose `links_to_file_id` points at a *canonical*
+# row in another swarm. The bytes live with the canonical row; the link only
+# carries display metadata. Links never point at other links.
+
+
+def resolve_canonical(swarm_file: SwarmFile, session) -> SwarmFile | None:
+    """Return the canonical row a file resolves to (itself if not a link).
+
+    Returns None if the row is a link whose target no longer exists (dangling).
+    """
+    if not swarm_file.links_to_file_id:
+        return swarm_file
+    return session.get(SwarmFile, swarm_file.links_to_file_id)
+
+
+def links_to(file_id: str, session) -> list[SwarmFile]:
+    """Return every link row pointing at the given canonical file id."""
+    return list(
+        session.execute(
+            select(SwarmFile).where(SwarmFile.links_to_file_id == file_id)
+        ).scalars().all()
+    )
+
+
+def create_link(target_swarm_id: str, source_file_id: str, path: str | None = None) -> SwarmFile:
+    """Create a link row in `target_swarm_id` pointing at a canonical source file.
+
+    Copies display metadata (size/mime/checksum/origin) from the canonical row so
+    listings render correctly without an extra lookup; bytes are always served
+    from the canonical row at download time. Raises ValueError if the source is
+    missing. Path defaults to the canonical filename. A duplicate (swarm_id, path)
+    raises sqlalchemy.exc.IntegrityError via the unique constraint.
+    """
+    with get_session() as session:
+        source = session.get(SwarmFile, source_file_id)
+        if source is None:
+            raise ValueError("source file not found")
+        # Never chain links — collapse to the true canonical row.
+        canonical = resolve_canonical(source, session)
+        if canonical is None:
+            raise ValueError("source file is a dangling link")
+
+        link_path = path or canonical.filename
+        now = datetime.now(timezone.utc)
+        row = SwarmFile(
+            swarm_id=target_swarm_id,
+            path=link_path,
+            filename=os.path.basename(link_path),
+            size_bytes=canonical.size_bytes,
+            mime_type=canonical.mime_type,
+            checksum=canonical.checksum,
+            origin=canonical.origin,
+            created_at=now,
+            updated_at=now,
+            links_to_file_id=canonical.id,
+        )
+        session.add(row)
+        session.commit()
+        session.refresh(row)
+        return row
+
+
 def list_files(swarm_id: str, prefix: str | None = None) -> list[SwarmFile]:
     """Return all indexed files for a swarm, optionally filtered by path prefix."""
     with get_session() as session:
@@ -109,6 +172,99 @@ def list_files(swarm_id: str, prefix: str | None = None) -> list[SwarmFile]:
         if prefix:
             rows = [r for r in rows if r.path.startswith(prefix)]
         return [r for r in sorted(rows, key=lambda r: r.path)]
+
+
+def list_all_files(
+    search: str | None = None,
+    workspace_id: str | None = None,
+    limit: int = 500,
+    offset: int = 0,
+) -> dict:
+    """Return a page of indexed files across all swarms, enriched for the browser.
+
+    Read-only aggregation that backs the org-wide Files browser. Returns
+    ``{"rows": [...], "total": N}`` where each row is a SwarmFile.to_dict() plus
+    the owning swarm/workspace id + display names (so the UI can group without N
+    lookups) and, for link rows, a `link_source` describing the canonical file.
+    Ordered most-recently-updated first. `search` matches filename or path in SQL
+    (case-insensitive). `total` reflects the filtered count before pagination.
+    """
+    from app.models.swarm import Swarm
+    from app.models.workspace import Workspace
+
+    needle = search.strip() if search else None
+
+    with get_session() as session:
+        base = (
+            select(SwarmFile, Swarm, Workspace)
+            .join(Swarm, SwarmFile.swarm_id == Swarm.id)
+            .join(Workspace, Swarm.workspace_id == Workspace.id)
+        )
+        if workspace_id:
+            base = base.where(Swarm.workspace_id == workspace_id)
+        if needle:
+            like = f"%{needle}%"
+            base = base.where(or_(SwarmFile.filename.ilike(like), SwarmFile.path.ilike(like)))
+
+        total = session.execute(
+            select(func.count()).select_from(base.order_by(None).subquery())
+        ).scalar_one()
+
+        rows = session.execute(
+            base.order_by(SwarmFile.updated_at.desc()).limit(limit).offset(offset)
+        ).all()
+
+        # Resolve canonical provenance for any link rows on this page.
+        link_target_ids = {sf.links_to_file_id for sf, _, _ in rows if sf.links_to_file_id}
+        canon_map: dict[str, tuple[SwarmFile, Swarm, Workspace]] = {}
+        if link_target_ids:
+            for csf, cswarm, cws in session.execute(
+                select(SwarmFile, Swarm, Workspace)
+                .join(Swarm, SwarmFile.swarm_id == Swarm.id)
+                .join(Workspace, Swarm.workspace_id == Workspace.id)
+                .where(SwarmFile.id.in_(link_target_ids))
+            ).all():
+                canon_map[csf.id] = (csf, cswarm, cws)
+
+        # Count links pointing at the canonical files shown on this page.
+        page_ids = [sf.id for sf, _, _ in rows]
+        link_counts: dict[str, int] = {}
+        if page_ids:
+            for fid, cnt in session.execute(
+                select(SwarmFile.links_to_file_id, func.count())
+                .where(SwarmFile.links_to_file_id.in_(page_ids))
+                .group_by(SwarmFile.links_to_file_id)
+            ).all():
+                link_counts[fid] = cnt
+
+        results: list[dict] = []
+        for sf, swarm, ws in rows:
+            d = sf.to_dict()
+            d["swarm_name"] = swarm.name
+            d["swarm_display_name"] = swarm.display_name
+            d["workspace_id"] = ws.id
+            d["workspace_name"] = ws.name
+            d["workspace_display_name"] = ws.display_name
+            d["link_count"] = link_counts.get(sf.id, 0)
+            if sf.links_to_file_id:
+                canon = canon_map.get(sf.links_to_file_id)
+                if canon:
+                    csf, cswarm, cws = canon
+                    # Keep displayed size/mime fresh from the canonical bytes.
+                    d["size_bytes"] = csf.size_bytes
+                    d["mime_type"] = csf.mime_type
+                    d["link_source"] = {
+                        "swarm_id": cswarm.id,
+                        "swarm_name": cswarm.name,
+                        "swarm_display_name": cswarm.display_name,
+                        "workspace_display_name": cws.display_name,
+                        "path": csf.path,
+                    }
+                else:
+                    d["link_source"] = None  # dangling link
+            results.append(d)
+
+    return {"rows": results, "total": total}
 
 
 def reconcile(swarm_id: str, files_root: str) -> None:

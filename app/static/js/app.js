@@ -9,6 +9,7 @@
  *   #runs                  — runs list
  *   #runs/<id>             — run detail
  *   #library               — skills + knowledge
+ *   #files                 — org-wide file browser (all swarms)
  */
 
 import * as api from "./api.js";
@@ -18,6 +19,7 @@ import { renderSwarmCanvas }      from "./views/swarm-canvas.js";
 import { renderConstitutionEditor } from "./views/constitution-editor.js";
 import { renderRunsView }         from "./views/runs.js";
 import { renderLibraryView }      from "./views/library.js";
+import { renderFilesView }        from "./views/files.js";
 import { renderSettingsView, applyBrandingOnBoot } from "./views/settings.js";
 import { renderInboxView, refreshInboxPip }       from "./views/inbox.js";
 import { renderWelcomeView }                      from "./views/welcome.js";
@@ -93,6 +95,9 @@ function render() {
       break;
     case "library":
       _activeCleanup = renderLibraryView(container, segments);
+      break;
+    case "files":
+      _activeCleanup = renderFilesView(container);
       break;
     case "settings":
       _activeCleanup = renderSettingsView(container, segments);
