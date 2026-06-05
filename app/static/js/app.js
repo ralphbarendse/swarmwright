@@ -20,6 +20,7 @@ import { renderConstitutionEditor } from "./views/constitution-editor.js";
 import { renderRunsView }         from "./views/runs.js";
 import { renderLibraryView }      from "./views/library.js";
 import { renderFilesView }        from "./views/files.js";
+import { renderMobileFilesView }  from "./views/mobile-files.js";
 import { renderSettingsView, applyBrandingOnBoot } from "./views/settings.js";
 import { renderInboxView, refreshInboxPip }       from "./views/inbox.js";
 import { renderWelcomeView }                      from "./views/welcome.js";
@@ -97,7 +98,9 @@ function render() {
       _activeCleanup = renderLibraryView(container, segments);
       break;
     case "files":
-      _activeCleanup = renderFilesView(container);
+      _activeCleanup = _mobileMode
+        ? renderMobileFilesView(container)
+        : renderFilesView(container);
       break;
     case "settings":
       _activeCleanup = renderSettingsView(container, segments);
@@ -216,6 +219,8 @@ const MOBILE_TABS = [
     show: () => canDo("can_decide_inbox") },
   { id: "runs",    view: "runs",  icon: "📡", label: "Runs",
     show: () => canDo("can_chat_operator") || canDo("can_start_run") || canDo("can_stop_run") },
+  { id: "files",   view: "files", icon: "📁", label: "Files",
+    show: () => canDo("can_read_files") },
 ];
 
 function _isMobile() {
@@ -278,7 +283,7 @@ function _buildMobileNav(tabs) {
 // Map the current route back onto a tab for the active-state highlight.
 function _updateMobileNav(view) {
   if (!_mobileNavEl) return;
-  const activeId = view === "inbox" ? "signals" : view === "runs" ? "runs" : "chat";
+  const activeId = view === "inbox" ? "signals" : view === "runs" ? "runs" : view === "files" ? "files" : "chat";
   _mobileNavEl.querySelectorAll(".mobile-tab").forEach(btn => {
     btn.classList.toggle("active", btn.dataset.id === activeId);
   });

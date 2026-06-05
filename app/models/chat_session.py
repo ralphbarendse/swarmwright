@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint, func
+from sqlalchemy import DateTime, ForeignKey, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db import Base
@@ -10,12 +10,14 @@ from app.db import Base
 SCOPE_ORG = "org"
 SCOPE_WORKSPACE = "workspace"
 
+# Default titles a session keeps until its first user message names it.
+DEFAULT_TITLES = {"New conversation", "Operator", "Concierge"}
+
 
 class ChatSession(Base):
     __tablename__ = "chat_sessions"
-    __table_args__ = (
-        UniqueConstraint("user_id", "scope", "workspace_id", name="uq_chat_session_user_scope"),
-    )
+    # No unique constraint on (user, scope, workspace): a user keeps a history of
+    # multiple conversations per scope. See migration d1e6a4b9c273.
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     user_id: Mapped[str] = mapped_column(String, ForeignKey("users.id"), nullable=False)

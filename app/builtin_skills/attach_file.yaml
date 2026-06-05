@@ -1,0 +1,31 @@
+name: attach_file
+description: >
+  Surface a file from any swarm's files/ directory to the user as a chat
+  attachment they can preview and download. Does NOT return the file contents,
+  so it's safe for large or binary files — prefer this over read_swarm_artifact
+  when the user just wants the file itself rather than you reasoning over it.
+  Pass the swarm's name or ID and the relative file path.
+timeout_seconds: 15
+allowed_packages: []
+input_schema:
+  type: object
+  required: [swarm, path]
+  properties:
+    swarm:
+      type: string
+      description: The target swarm's name or UUID (UUID prefix also accepted).
+    path:
+      type: string
+      description: Relative path within the swarm's files/ directory (e.g. "report.csv").
+output_schema:
+  type: object
+  required: [attached, swarm_id, path, filename]
+  properties:
+    attached:   {type: boolean}
+    swarm_id:   {type: string}
+    swarm:      {type: string}
+    path:       {type: string}
+    filename:   {type: string}
+    size_bytes: {type: integer}
+    mime:       {type: string}
+  additionalProperties: true

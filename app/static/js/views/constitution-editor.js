@@ -4,6 +4,7 @@ import { setLastAgent } from "../app.js";
 import { _showModal } from "./org-design.js";
 import { _showAttachSkillModal } from "./swarm-canvas.js";
 import { canDo } from "../auth.js";
+import { renderMarkdown } from "../components/markdown.js";
 
 let _editor = null;
 let _themeInjected = false;
@@ -853,8 +854,8 @@ function _getFullContent(container) {
 
 function _updatePreview(container) {
   const preview = container.querySelector("#ed-preview");
-  if (!preview || typeof marked === "undefined") return;
-  preview.innerHTML = marked.parse(_editor ? _editor.getValue() : "");
+  if (!preview) return;
+  preview.innerHTML = renderMarkdown(_editor ? _editor.getValue() : "");
 }
 
 // ── Frontmatter parser ─────────────────────────────────────────────────────

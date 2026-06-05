@@ -36,6 +36,9 @@ class SessionCreate(BaseModel):
     scope: str
     workspace_id: str | None = None
     title: str | None = None
+    # When true, always start a fresh conversation instead of resuming the most
+    # recent one for this scope (the "New chat" button).
+    new: bool = False
 
 
 class MessageCreate(BaseModel):
@@ -63,28 +66,42 @@ def _check_chat_permission(scope: str, workspace_id: str | None = None) -> tuple
     return True, ""
 
 
-def _get_or_create_session(user_id: str, scope: str, workspace_id: str | None, title: str | None = None) -> ChatSession:
+def _default_title(scope: str) -> str:
+    return "Operator" if scope == SCOPE_ORG else "Concierge"
+
+
+def _create_session(user_id: str, scope: str, workspace_id: str | None, title: str | None = None) -> ChatSession:
     with get_session() as session:
-        q = select(ChatSession).where(
-            ChatSession.user_id == user_id,
-            ChatSession.scope == scope,
-            ChatSession.workspace_id == workspace_id,
-        )
-        existing = session.execute(q).scalar_one_or_none()
-        if existing:
-            session.expunge(existing)
-            return existing
         new = ChatSession(
             user_id=user_id,
             scope=scope,
             workspace_id=workspace_id,
-            title=title or ("Operator" if scope == SCOPE_ORG else "Concierge"),
+            title=title or _default_title(scope),
         )
         session.add(new)
         session.commit()
         session.refresh(new)
         session.expunge(new)
         return new
+
+
+def _get_or_create_session(user_id: str, scope: str, workspace_id: str | None, title: str | None = None) -> ChatSession:
+    """Resume the user's most recent conversation for this scope, or start one."""
+    with get_session() as session:
+        existing = session.execute(
+            select(ChatSession)
+            .where(
+                ChatSession.user_id == user_id,
+                ChatSession.scope == scope,
+                ChatSession.workspace_id == workspace_id,
+            )
+            .order_by(ChatSession.updated_at.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+        if existing:
+            session.expunge(existing)
+            return existing
+    return _create_session(user_id, scope, workspace_id, title)
 
 
 def _resolve_chat_swarm(scope: str, workspace_id: str | None) -> Swarm | None:
@@ -178,14 +195,135 @@ def _build_context_messages(session_id: int) -> list[dict]:
     return kept
 
 
-def _persist_message(session_id: int, role: str, content: str, run_id: str | None = None) -> ChatMessage:
+def _persist_message(
+    session_id: int,
+    role: str,
+    content: str,
+    run_id: str | None = None,
+    attachments: list[dict] | None = None,
+) -> ChatMessage:
     with get_session() as session:
-        msg = ChatMessage(session_id=session_id, role=role, content=content, run_id=run_id)
+        msg = ChatMessage(
+            session_id=session_id,
+            role=role,
+            content=content,
+            run_id=run_id,
+            attachments=json.dumps(attachments) if attachments else None,
+        )
         session.add(msg)
         session.commit()
         session.refresh(msg)
         session.expunge(msg)
     return msg
+
+
+def _derive_title(text: str, limit: int = 48) -> str:
+    """Turn a user's first message into a short conversation title."""
+    title = " ".join((text or "").split())  # collapse whitespace/newlines
+    if len(title) > limit:
+        title = title[:limit].rstrip() + "…"
+    return title or "New conversation"
+
+
+def _touch_session(session_id: int, current_title: str, first_message: str) -> None:
+    """Bump updated_at, and name the session from its first message if still default."""
+    from app.models.chat_session import DEFAULT_TITLES
+
+    with get_session() as session:
+        chat_session = session.get(ChatSession, session_id)
+        if not chat_session:
+            return
+        if current_title in DEFAULT_TITLES:
+            chat_session.title = _derive_title(first_message)
+        chat_session.updated_at = datetime.now(timezone.utc)
+        session.commit()
+
+
+# Skills whose successful calls mean "the agent surfaced this file to the user".
+_ATTACHMENT_SKILLS = ("attach_file", "read_swarm_artifact")
+_MAX_ATTACHMENTS = 10
+
+
+def _extract_run_attachments(run_id: str) -> list[dict]:
+    """Collect file refs the agent surfaced during a run.
+
+    Scans skill_call steps for `attach_file` (explicit) and `read_swarm_artifact`
+    (implicit — the agent read a file to answer). Each becomes an attachment
+    descriptor the chat panel can preview/download. Deduped by (swarm_id, path),
+    capped, and silently best-effort — attachment extraction must never break a
+    chat reply.
+    """
+    import mimetypes
+    from app.models.run_step import RunStep, STEP_SKILL_CALL
+
+    attachments: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    try:
+        with get_session() as db:
+            steps = db.execute(
+                select(RunStep)
+                .where(
+                    RunStep.run_id == run_id,
+                    RunStep.step_type == STEP_SKILL_CALL,
+                    RunStep.step_name.in_(_ATTACHMENT_SKILLS),
+                    RunStep.error.is_(None),
+                )
+                .order_by(RunStep.sequence.asc())
+            ).scalars().all()
+
+        for step in steps:
+            try:
+                inp = json.loads(step.input_json or "{}")
+                out = json.loads(step.output_json or "{}") if step.output_json else {}
+            except Exception:
+                continue
+            if not isinstance(out, dict) or out.get("ok") is False:
+                continue  # skill errored / returned a structured failure
+
+            path = inp.get("path")
+            swarm_ident = inp.get("swarm")
+            if not path or not swarm_ident:
+                continue
+
+            # attach_file echoes the canonical swarm_id; read_swarm_artifact does
+            # not, so resolve the identifier the agent passed to a swarm row.
+            swarm_id = out.get("swarm_id") or _resolve_swarm_id(swarm_ident)
+            if not swarm_id:
+                continue
+
+            key = (swarm_id, path)
+            if key in seen:
+                continue
+            seen.add(key)
+
+            filename = out.get("filename") or path.rsplit("/", 1)[-1]
+            mime = out.get("mime") or mimetypes.guess_type(filename)[0] or "application/octet-stream"
+            attachments.append({
+                "swarm_id": swarm_id,
+                "path": path,
+                "filename": filename,
+                "size_bytes": out.get("size_bytes"),
+                "mime": mime,
+            })
+            if len(attachments) >= _MAX_ATTACHMENTS:
+                break
+    except Exception:
+        logger.debug("Could not extract attachments for run %s", run_id, exc_info=True)
+    return attachments
+
+
+def _resolve_swarm_id(ident: str) -> str | None:
+    """Resolve a swarm name / id / id-prefix to its canonical id."""
+    with get_session() as db:
+        row = db.execute(
+            select(Swarm.id).where((Swarm.id == ident) | (Swarm.name == ident))
+        ).scalar_one_or_none()
+        if row:
+            return row
+        row = db.execute(
+            select(Swarm.id).where(Swarm.id.like(f"{ident}%"))
+        ).scalar_one_or_none()
+        return row
 
 
 def _fire_run_async(swarm: Swarm, input_payload: dict, session_id: int, user_message_id: int, app) -> None:
@@ -235,9 +373,10 @@ def _fire_run_async(swarm: Swarm, input_payload: dict, session_id: int, user_mes
 
                 run_id = run.id if run else None
 
-                # Extract assistant reply from last run step output
+                # Extract assistant reply + any files the agent surfaced
                 content = _extract_run_output(run_id) if run_id else "Run completed."
-                _persist_message(session_id, ROLE_ASSISTANT, content, run_id=run_id)
+                attachments = _extract_run_attachments(run_id) if run_id else []
+                _persist_message(session_id, ROLE_ASSISTANT, content, run_id=run_id, attachments=attachments)
 
                 # Notify via SSE
                 from app.core.runtime import _notify
@@ -336,7 +475,10 @@ def create_or_get_session():
         return jsonify({"error": {"code": "forbidden", "message": msg}}), 403
 
     user = current_user()
-    chat_session = _get_or_create_session(user.id, body.scope, body.workspace_id, body.title)
+    if body.new:
+        chat_session = _create_session(user.id, body.scope, body.workspace_id, body.title)
+    else:
+        chat_session = _get_or_create_session(user.id, body.scope, body.workspace_id, body.title)
     result = chat_session.to_dict()
     result["model_info"] = _resolve_chat_model_info(body.scope, body.workspace_id)
     swarm = _resolve_chat_swarm(body.scope, body.workspace_id)
@@ -360,7 +502,22 @@ def list_sessions():
         if workspace_id:
             q = q.where(ChatSession.workspace_id == workspace_id)
         sessions = session.execute(q.order_by(ChatSession.updated_at.desc())).scalars().all()
-        return jsonify([s.to_dict() for s in sessions])
+
+        # Enrich each session with a message count + last-activity time for the
+        # history drawer, in one grouped query rather than N.
+        from sqlalchemy import func as _func
+        counts = dict(session.execute(
+            select(ChatMessage.session_id, _func.count(ChatMessage.id))
+            .where(ChatMessage.session_id.in_([s.id for s in sessions] or [0]))
+            .group_by(ChatMessage.session_id)
+        ).all())
+
+        out = []
+        for s in sessions:
+            d = s.to_dict()
+            d["message_count"] = counts.get(s.id, 0)
+            out.append(d)
+        return jsonify(out)
 
 
 @bp.get("/chat/sessions/<int:session_id>/messages")
@@ -395,6 +552,7 @@ def send_message(session_id: int):
             return jsonify({"error": {"code": "not_found", "message": "Session not found"}}), 404
         scope = chat_session.scope
         workspace_id = chat_session.workspace_id
+        title = chat_session.title
         session.expunge(chat_session)
 
     allowed, msg = _check_chat_permission(scope, workspace_id)
@@ -410,6 +568,10 @@ def send_message(session_id: int):
 
     # Persist user message
     user_msg = _persist_message(session_id, ROLE_USER, body.content)
+
+    # Title a still-unnamed conversation from its first message, and mark it the
+    # most recently active so the history drawer orders it first.
+    _touch_session(session_id, title, body.content)
     input_payload = {
         "message": body.content,
         "conversation_history": context_messages,

@@ -1,6 +1,7 @@
 import * as api from "../api.js";
 import { toastError, toastSuccess } from "../components/toast.js";
 import { canDo } from "../auth.js";
+import { renderMarkdown } from "../components/markdown.js";
 
 /**
  * Library view — skills and knowledge across scopes.
@@ -366,10 +367,7 @@ async function _openKnowledgeEditor({ doc, isNew, scopeParams, onDone }) {
   });
 
   tabPreview.addEventListener("click", () => {
-    const html = typeof marked !== "undefined"
-      ? marked.parse(getContent())
-      : `<pre style="white-space:pre-wrap">${_esc(getContent())}</pre>`;
-    previewPaneEl.innerHTML = html;
+    previewPaneEl.innerHTML = renderMarkdown(getContent());
     writePaneEl.style.display = "none";
     previewPaneEl.style.display = "";
     tabWrite.classList.remove("active");

@@ -11,10 +11,13 @@
 import * as api from "../api.js";
 import { onEvent, offEvent } from "../sse.js";
 import { toastError } from "./toast.js";
+import { renderMarkdown, highlightCodeBlocks } from "./markdown.js";
+import { parseDelimited } from "./csv.js";
 
 const SCOPE_ORG       = "org";
 const SCOPE_WORKSPACE = "workspace";
 const WAIT_TIMEOUT_MS = 90_000;
+const ATTACH_TEXT_MAX = 256 * 1024; // bytes — above this we don't fetch a text preview inline
 
 export function mountChatWidget({ scope, workspaceId = null, title = null, container, onClose = null }) {
   const widget = new ChatWidget({ scope, workspaceId, title, container, onClose });
@@ -130,6 +133,9 @@ class ChatWidget {
     this._stepHandler      = this._onChatStep.bind(this);
     this._signalBadgeCount = 0;
     this._modelInfo  = null;
+    this._historyOpen = false;
+    // Remember the active conversation per scope so reopening resumes it.
+    this._sessionKey = `sw-chat-session-${scope}-${workspaceId || "org"}`;
   }
 
   mount() {
@@ -143,7 +149,14 @@ class ChatWidget {
     const sendBtn = el.querySelector(".chat-input-send");
     sendBtn?.addEventListener("click", () => this._send());
     field?.addEventListener("keydown", (e) => {
-      if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); this._send(); }
+      // On a phone the on-screen keyboard's Enter inserts a newline (you can't
+      // shift-Enter) — send only via the button. On desktop Enter still sends.
+      if (e.key === "Enter" && !e.shiftKey && !_isMobileShell()) { e.preventDefault(); this._send(); }
+    });
+    // Auto-grow the textarea up to a few lines as the message gets longer.
+    field?.addEventListener("input", () => {
+      field.style.height = "auto";
+      field.style.height = Math.min(field.scrollHeight, 140) + "px";
     });
     el.querySelector(".chat-wipe-btn")?.addEventListener("click", () => this._wipe());
     el.querySelector(".chat-collapse-btn")?.addEventListener("click", () => this.onClose?.());
@@ -152,6 +165,9 @@ class ChatWidget {
       el.querySelectorAll(".chat-tab-btn").forEach(btn => {
         btn.addEventListener("click", () => this._switchTab(btn.dataset.tab));
       });
+      el.querySelector(".chat-hist-btn")?.addEventListener("click", () => this._openHistory());
+      el.querySelector(".chat-history-close")?.addEventListener("click", () => this._closeHistory());
+      this._wireDrawerSwipe(el.querySelector(".chat-history-drawer"));
       onEvent("signal.new", this._signalHandler);
     }
 
@@ -178,6 +194,7 @@ class ChatWidget {
            <button class="chat-tab-btn active" data-tab="chat">⚙ Operator · Chat</button>
            <button class="chat-tab-btn" data-tab="signals">Signals <span class="chat-signal-badge" style="display:none"></span></button>
            <span class="chat-model-tag" style="display:none"></span>
+           <button class="chat-hist-btn" title="Conversations">🕘 History</button>
            <button class="chat-edit-btn" title="Edit operator constitution" style="display:none">Edit</button>
          </div>
          <div class="chat-subtitle">Builds &amp; manages your platform — create swarms, trigger runs, review signals.</div>`
@@ -212,7 +229,17 @@ class ChatWidget {
         <div class="chat-signals-list" id="chat-signals-list">
           <div class="chat-loading-init">Loading…</div>
         </div>
-      </div>`;
+      </div>
+      ${isOp ? `
+      <div class="chat-history-drawer" style="display:none">
+        <div class="chat-history-head">
+          <span class="chat-history-title">Conversations</span>
+          <button class="chat-history-close" title="Back to chat">✕</button>
+        </div>
+        <div class="chat-history-list" id="chat-history-list">
+          <div class="chat-loading-init">Loading…</div>
+        </div>
+      </div>` : ""}`;
   }
 
   // ── Session / message loading ──────────────────────────────────────────────
@@ -223,7 +250,11 @@ class ChatWidget {
         scope: this.scope,
         workspace_id: this.workspaceId || null,
       });
-      this.sessionId = sess.id;
+      // createOrGet returns the most recent session (and scope-level model/swarm
+      // info). Prefer a previously-active conversation if we have one saved.
+      const saved = this.scope === SCOPE_ORG ? localStorage.getItem(this._sessionKey) : null;
+      if (saved) this.sessionId = Number(saved);
+      else this._setActiveSession(sess.id);
       if (sess.model_info) this._setModelTag(sess.model_info);
       if (sess.swarm_id && this.scope === SCOPE_ORG) {
         this.swarmId = sess.swarm_id;
@@ -235,10 +266,23 @@ class ChatWidget {
           });
         }
       }
-      await this._loadMessages();
+      try {
+        await this._loadMessages();
+      } catch (_) {
+        // Saved conversation was deleted/invalid — fall back to the latest one.
+        this._setActiveSession(sess.id);
+        await this._loadMessages();
+      }
       if (this.scope === SCOPE_ORG) await this._loadSignals();
     } catch (err) {
       toastError(err);
+    }
+  }
+
+  _setActiveSession(id) {
+    this.sessionId = id;
+    if (this.scope === SCOPE_ORG && id != null) {
+      try { localStorage.setItem(this._sessionKey, String(id)); } catch (_) { /* ignore */ }
     }
   }
 
@@ -270,6 +314,7 @@ class ChatWidget {
       el.innerHTML = msgs.map(m => this._msgHtml(m)).join("");
       el.scrollTop = el.scrollHeight;
       this._wireRunTrails(el);
+      _wireAttachments(el);
     }
   }
 
@@ -302,7 +347,7 @@ class ChatWidget {
     });
   }
 
-  _msgHtml({ role, content, run_id }) {
+  _msgHtml({ role, content, run_id, attachments }) {
     if (role === "system") {
       return `<div class="chat-msg chat-msg-system"><div class="chat-bubble">${_escContent(content)}</div></div>`;
     }
@@ -317,6 +362,7 @@ class ChatWidget {
       : "";
     return `<div class="chat-msg chat-msg-assistant">
       <div class="chat-bubble chat-bubble-md">${_mdToHtml(content)}</div>
+      ${_attachmentsHtml(attachments)}
       ${runTrail}
     </div>`;
   }
@@ -419,6 +465,8 @@ class ChatWidget {
     if (this.scope === SCOPE_ORG && this.activeTab === "signals") {
       await this._loadSignals();
     }
+    // The first reply may have auto-titled the conversation — reflect it.
+    if (this._historyOpen) await this._loadSessions();
   }
 
   // ── Wipe ─────────────────────────────────────────────────────────────────
@@ -466,6 +514,125 @@ class ChatWidget {
       const badge = this._el?.querySelector(".chat-signal-badge");
       if (badge) { badge.textContent = ""; badge.style.display = "none"; }
       this._loadSignals();
+    }
+  }
+
+  // ── Conversation history (multiple sessions) ──────────────────────────────
+
+  async _newChat() {
+    if (this.waiting) return;
+    try {
+      const sess = await api.createOrGetChatSession({
+        scope: this.scope,
+        workspace_id: this.workspaceId || null,
+        new: true,
+      });
+      this._setActiveSession(sess.id);
+      this._closeHistory();
+      if (this.activeTab !== "chat") this._switchTab("chat");
+      const el = this._el?.querySelector("#chat-messages");
+      if (el) el.innerHTML = `<div class="chat-empty">Ask me to create workspaces, swarms, trigger runs, or inspect unmet signals.</div>`;
+      this._el?.querySelector(".chat-input-field")?.focus();
+    } catch (err) {
+      toastError(err);
+    }
+  }
+
+  _openHistory() {
+    const drawer = this._el?.querySelector(".chat-history-drawer");
+    if (!drawer) return;
+    this._historyOpen = true;
+    drawer.style.display = "flex";
+    requestAnimationFrame(() => drawer.classList.add("is-open"));
+    this._loadSessions();
+  }
+
+  _closeHistory() {
+    const drawer = this._el?.querySelector(".chat-history-drawer");
+    if (!drawer) return;
+    this._historyOpen = false;
+    drawer.classList.remove("is-open");
+    drawer.style.display = "none";
+  }
+
+  // Swipe-right anywhere on the drawer dismisses it (the slide-over comes in
+  // from the right, so swiping it back out is the natural gesture on a phone).
+  _wireDrawerSwipe(drawer) {
+    if (!drawer) return;
+    let x0 = null, y0 = null;
+    drawer.addEventListener("touchstart", (e) => {
+      const t = e.changedTouches[0]; x0 = t.clientX; y0 = t.clientY;
+    }, { passive: true });
+    drawer.addEventListener("touchend", (e) => {
+      if (x0 == null) return;
+      const t = e.changedTouches[0];
+      const dx = t.clientX - x0, dy = t.clientY - y0;
+      if (dx > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) this._closeHistory();
+      x0 = y0 = null;
+    }, { passive: true });
+  }
+
+  async _loadSessions() {
+    const el = this._el?.querySelector("#chat-history-list");
+    if (!el) return;
+    try {
+      const sessions = await api.listChatSessions({
+        scope: this.scope,
+        workspace_id: this.workspaceId || "",
+      });
+      const newRow = `<button class="chat-hist-new">＋ New conversation</button>`;
+      const rows = sessions.map(s => {
+        const active = String(s.id) === String(this.sessionId) ? " is-active" : "";
+        const count = s.message_count != null ? `${s.message_count} msg` : "";
+        return `<div class="chat-hist-row${active}" data-id="${s.id}">
+          <button class="chat-hist-open" title="Open conversation">
+            <span class="chat-hist-row-title">${_esc(s.title || "New conversation")}</span>
+            <span class="chat-hist-row-meta">${_relTime(s.updated_at)}${count ? " · " + count : ""}</span>
+          </button>
+          <button class="chat-hist-del" title="Delete conversation" data-id="${s.id}">✕</button>
+        </div>`;
+      }).join("");
+      el.innerHTML = newRow + (sessions.length ? rows : `<div class="chat-empty">No past conversations.</div>`);
+
+      el.querySelector(".chat-hist-new")?.addEventListener("click", () => this._newChat());
+      el.querySelectorAll(".chat-hist-row").forEach(row => {
+        const id = Number(row.dataset.id);
+        row.querySelector(".chat-hist-open")?.addEventListener("click", () => this._switchSession(id));
+        row.querySelector(".chat-hist-del")?.addEventListener("click", (e) => {
+          e.stopPropagation();
+          this._deleteSession(id);
+        });
+      });
+    } catch (err) {
+      el.innerHTML = `<div class="chat-empty" style="color:var(--color-danger)">Could not load history</div>`;
+    }
+  }
+
+  async _switchSession(id) {
+    if (String(id) === String(this.sessionId)) { this._closeHistory(); return; }
+    this._setActiveSession(id);
+    if (this.activeTab !== "chat") this._switchTab("chat");
+    this._closeHistory();
+    await this._loadMessages();
+  }
+
+  async _deleteSession(id) {
+    try {
+      await api.deleteChatSession(id);
+      if (String(id) === String(this.sessionId)) {
+        // Deleted the open conversation — resume the most recent remaining one
+        // (createOrGet makes a fresh one if none are left).
+        if (this.scope === SCOPE_ORG) { try { localStorage.removeItem(this._sessionKey); } catch (_) {} }
+        const sess = await api.createOrGetChatSession({
+          scope: this.scope,
+          workspace_id: this.workspaceId || null,
+        });
+        this._setActiveSession(sess.id);
+        await this._loadMessages();
+      }
+      await this._loadSessions();
+    } catch (err) {
+      toastError(err);
     }
   }
 
@@ -671,6 +838,125 @@ function _renderRunTrail(run) {
     ${stepRows}
     <a class="chat-trail-link" href="#runs/${_esc(run.id)}" onclick="window.swNav('runs/${_esc(run.id)}');return false;">View full run →</a>
   </div>`;
+}
+
+// ── Attachments ───────────────────────────────────────────────────────────────
+
+function _attachmentsHtml(attachments) {
+  if (!Array.isArray(attachments) || !attachments.length) return "";
+  const cards = attachments.map((att) => {
+    const dl = api.downloadSwarmFileUrl(att.swarm_id, att.path);
+    const size = att.size_bytes != null ? ` · ${_fmtBytes(att.size_bytes)}` : "";
+    return `<div class="chat-attach" data-att="${_esc(JSON.stringify(att))}">
+      <div class="chat-attach-head">
+        <span class="chat-attach-icon">${_attIcon(att)}</span>
+        <span class="chat-attach-name" title="${_esc(att.path)}">${_esc(att.filename)}</span>
+        <span class="chat-attach-size">${size}</span>
+        <a class="chat-attach-dl" href="${dl}" title="Download" download>⬇</a>
+      </div>
+      <div class="chat-attach-body"></div>
+    </div>`;
+  }).join("");
+  return `<div class="chat-attachments">${cards}</div>`;
+}
+
+function _wireAttachments(container) {
+  container.querySelectorAll(".chat-attach").forEach((card) => {
+    if (card.dataset.wired) return;
+    card.dataset.wired = "1";
+    let att;
+    try { att = JSON.parse(card.dataset.att); } catch { return; }
+    _renderAttachmentPreview(card.querySelector(".chat-attach-body"), att);
+  });
+}
+
+function _renderAttachmentPreview(body, att) {
+  if (!body) return;
+  const raw  = api.rawSwarmFileUrl(att.swarm_id, att.path);
+  const mime = att.mime || "";
+  const ext  = (att.filename.split(".").pop() || "").toLowerCase();
+
+  if (mime.startsWith("image/") || ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico"].includes(ext)) {
+    body.innerHTML = `<img class="chat-attach-img" src="${raw}" alt="">`;
+    return;
+  }
+
+  // Everything else needs the text; bail out (download-only) for binaries and big files.
+  const textish = ["md", "markdown", "csv", "tsv", "txt", "log", "json", "yaml", "yml", "xml",
+    "html", "css", "js", "ts", "py", "sh", "ini", "toml", "env", "conf", "sql"].includes(ext);
+  if (!textish || (att.size_bytes != null && att.size_bytes > ATTACH_TEXT_MAX)) return;
+
+  fetch(raw).then(r => r.ok ? r.text() : Promise.reject(r.status)).then((text) => {
+    if (ext === "md" || ext === "markdown") {
+      body.innerHTML = `<div class="fv-md chat-attach-md">${renderMarkdown(text)}</div>`;
+      highlightCodeBlocks(body);
+    } else if (ext === "csv" || ext === "tsv") {
+      body.innerHTML = _attachCsvHtml(text, ext === "tsv" ? "\t" : ",");
+    } else {
+      const pre = document.createElement("pre");
+      pre.className = "chat-attach-pre";
+      const code = document.createElement("code");
+      code.className = `language-${ext}`;
+      code.textContent = text;
+      pre.appendChild(code);
+      body.innerHTML = "";
+      body.appendChild(pre);
+      if (typeof hljs !== "undefined") { try { hljs.highlightElement(code); } catch { /* plain */ } }
+    }
+  }).catch(() => { /* leave download-only on fetch failure */ });
+}
+
+const _ATTACH_CSV_MAX_ROWS = 50;
+
+function _attachCsvHtml(text, delim) {
+  const rows = parseDelimited(text, delim);
+  if (rows.length < 2) return `<pre class="chat-attach-pre">${_esc(text)}</pre>`;
+  const head = rows[0];
+  const cols = head.length;
+  const shown = rows.slice(1, 1 + _ATTACH_CSV_MAX_ROWS);
+  const th = head.map(c => `<th>${_esc(c)}</th>`).join("");
+  const trs = shown.map(r =>
+    `<tr>${Array.from({ length: cols }, (_, i) => `<td>${_esc(r[i] ?? "")}</td>`).join("")}</tr>`).join("");
+  const more = rows.length - 1 > _ATTACH_CSV_MAX_ROWS
+    ? `<div class="chat-attach-more">… ${rows.length - 1 - _ATTACH_CSV_MAX_ROWS} more rows — download for the full file</div>`
+    : "";
+  return `<div class="fv-csv-wrap chat-attach-csv"><table class="fv-csv">
+    <thead><tr>${th}</tr></thead><tbody>${trs}</tbody></table></div>${more}`;
+}
+
+function _attIcon(att) {
+  const ext = (att.filename.split(".").pop() || "").toLowerCase();
+  const mime = att.mime || "";
+  if (mime.startsWith("image/") || ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico"].includes(ext)) return "🖼";
+  if (mime === "application/pdf" || ext === "pdf") return "📄";
+  if (["csv", "tsv", "xls", "xlsx"].includes(ext)) return "📊";
+  if (["json", "xml", "yaml", "yml", "toml", "ini", "env", "conf"].includes(ext)) return "⚙";
+  if (["js", "ts", "py", "sh", "rb", "go", "rs", "java", "c", "cpp", "css", "html", "sql"].includes(ext)) return "⟨⟩";
+  if (["md", "markdown", "txt", "log", "rtf"].includes(ext)) return "📝";
+  return "📎";
+}
+
+function _fmtBytes(n) {
+  if (n == null) return "";
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function _isMobileShell() {
+  return document.documentElement.classList.contains("sw-mobile");
+}
+
+function _relTime(iso) {
+  if (!iso) return "";
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "";
+  const s = Math.max(0, (Date.now() - then) / 1000);
+  if (s < 60)     return "just now";
+  if (s < 3600)   return `${Math.floor(s / 60)}m ago`;
+  if (s < 86400)  return `${Math.floor(s / 3600)}h ago`;
+  if (s < 604800) return `${Math.floor(s / 86400)}d ago`;
+  return new Date(iso).toLocaleDateString();
 }
 
 function _esc(str) {

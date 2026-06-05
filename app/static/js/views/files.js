@@ -1,6 +1,7 @@
 import * as api from "../api.js";
 import { toastError, toastSuccess } from "../components/toast.js";
 import { canDo } from "../auth.js";
+import { fillFilePreview, fileIcon, fmtBytes } from "../components/file-preview.js";
 
 /**
  * Files view — an org-wide file browser over every swarm's file store.
@@ -14,7 +15,6 @@ import { canDo } from "../auth.js";
  */
 
 const VIEW_KEY = "sw.files.view"; // "table" | "grid"
-const TEXT_PREVIEW_MAX = 512 * 1024; // bytes — above this we don't fetch inline
 
 export function renderFilesView(container) {
   container.style.overflowY = "hidden";
@@ -300,13 +300,13 @@ export function renderFilesView(container) {
     return `<tr class="fv-row" data-id="${_esc(f.id)}" style="border-bottom:1px dashed var(--color-cream-line)">
       <td style="padding:8px 12px 8px 0;font-family:var(--font-mono);max-width:340px">
         <span style="display:flex;align-items:center;gap:7px;overflow:hidden">
-          <span style="flex-shrink:0">${_fileIcon(f.mime_type, f.filename)}</span>
+          <span style="flex-shrink:0">${fileIcon(f.mime_type, f.filename)}</span>
           <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${_esc(f.path)}">${_esc(f.path)}</span>
           ${_linkChips(f)}
         </span></td>
       ${showSwarmCol ? `<td style="padding:8px 12px;color:var(--color-ink-soft);white-space:nowrap;cursor:pointer"
         onclick="swNav('swarm/${f.swarm_id}')">${_esc(f.swarm_display_name || f.swarm_name || "")}</td>` : ""}
-      <td style="padding:8px 12px;font-family:var(--font-mono);color:var(--color-ink-soft);white-space:nowrap">${_fmtBytes(f.size_bytes)}</td>
+      <td style="padding:8px 12px;font-family:var(--font-mono);color:var(--color-ink-soft);white-space:nowrap">${fmtBytes(f.size_bytes)}</td>
       <td style="padding:8px 12px">${_originDot(f.origin)}</td>
       <td style="padding:8px 12px;font-family:var(--font-mono);font-size:11px;color:var(--color-ink-soft);white-space:nowrap">${updated}</td>
       <td style="padding:8px 12px">${runLink}</td>
@@ -327,7 +327,7 @@ export function renderFilesView(container) {
            <img src="${api.rawSwarmFileUrl(f.swarm_id, f.path)}" loading="lazy"
              style="max-width:100%;max-height:100%;object-fit:contain" alt=""></div>`
       : `<div style="height:90px;border-radius:5px;background:var(--color-parchment);
-           display:flex;align-items:center;justify-content:center;font-size:34px">${_fileIcon(f.mime_type, f.filename)}</div>`;
+           display:flex;align-items:center;justify-content:center;font-size:34px">${fileIcon(f.mime_type, f.filename)}</div>`;
     return `<div class="fv-row fv-card" data-id="${_esc(f.id)}" data-act="preview">
       ${thumb}
       <div style="display:flex;flex-direction:column;gap:3px;min-width:0">
@@ -335,7 +335,7 @@ export function renderFilesView(container) {
           text-overflow:ellipsis;white-space:nowrap" title="${_esc(f.path)}">${_esc(f.filename)} ${_linkChips(f)}</span>
         <span style="font-family:var(--font-mono);font-size:10px;color:var(--color-ink-faint);display:flex;
           justify-content:space-between;gap:6px">
-          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(showSwarmCol ? (f.swarm_display_name || f.swarm_name || "") : _fmtBytes(f.size_bytes))}</span>
+          <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(showSwarmCol ? (f.swarm_display_name || f.swarm_name || "") : fmtBytes(f.size_bytes))}</span>
           <span>${_originDot(f.origin)}</span></span>
       </div>
       <div class="fv-actions" style="display:flex;gap:2px;justify-content:flex-end">${_actionCluster(f)}</div>
@@ -408,9 +408,9 @@ export function renderFilesView(container) {
           <div style="display:flex;align-items:start;justify-content:space-between;gap:10px">
             <div style="min-width:0">
               <div style="font-family:var(--font-mono);font-size:13px;color:var(--color-ink);
-                overflow:hidden;text-overflow:ellipsis" title="${_esc(f.path)}">${_fileIcon(f.mime_type, f.filename)} ${_esc(f.filename)}</div>
+                overflow:hidden;text-overflow:ellipsis" title="${_esc(f.path)}">${fileIcon(f.mime_type, f.filename)} ${_esc(f.filename)}</div>
               <div style="font-family:var(--font-mono);font-size:10px;color:var(--color-ink-faint);margin-top:3px">
-                ${_esc(f.swarm_display_name || f.swarm_name || "")} · ${_fmtBytes(f.size_bytes)} · ${_esc(f.origin)}${
+                ${_esc(f.swarm_display_name || f.swarm_name || "")} · ${fmtBytes(f.size_bytes)} · ${_esc(f.origin)}${
                   f.link_source ? ` · ↗ linked from ${_esc(f.link_source.swarm_display_name || f.link_source.swarm_name)}/${_esc(f.link_source.path)}` : ""}
               </div>
             </div>
@@ -436,37 +436,7 @@ export function renderFilesView(container) {
       close(); window.swNav(`runs/${f.created_by_run_id}`);
     });
 
-    _fillPreview(overlay.querySelector(".fv-preview-body"), f);
-  }
-
-  function _fillPreview(host, f) {
-    const url = api.rawSwarmFileUrl(f.swarm_id, f.path);
-    const mime = f.mime_type || "";
-    const noPreview = (msg) => {
-      host.innerHTML = `<div style="padding:40px 20px;text-align:center;font-family:var(--font-mono);
-        font-size:12px;color:var(--color-ink-faint)">${msg}</div>`;
-    };
-
-    if (mime.startsWith("image/")) {
-      host.innerHTML = `<div style="padding:16px;display:flex;justify-content:center">
-        <img src="${url}" style="max-width:100%;height:auto;border-radius:4px" alt=""></div>`;
-      return;
-    }
-    if (mime === "application/pdf" || /\.pdf$/i.test(f.filename)) {
-      host.innerHTML = `<iframe src="${url}" style="width:100%;height:100%;border:none"></iframe>`;
-      return;
-    }
-    if (_isTextish(mime, f.filename)) {
-      if (f.size_bytes > TEXT_PREVIEW_MAX) { noPreview("File too large to preview inline. Use Download."); return; }
-      host.innerHTML = `<div style="padding:20px;font-family:var(--font-mono);font-size:12px;
-        color:var(--color-ink-faint)">Loading preview…</div>`;
-      fetch(url).then(r => r.ok ? r.text() : Promise.reject(r.status)).then(text => {
-        host.innerHTML = `<pre style="margin:0;padding:16px 18px;font-family:var(--font-mono);font-size:12px;
-          line-height:1.5;color:var(--color-ink);white-space:pre-wrap;word-break:break-word">${_esc(text)}</pre>`;
-      }).catch(() => noPreview("Could not load preview."));
-      return;
-    }
-    noPreview("No inline preview for this file type. Use Download.");
+    fillFilePreview(overlay.querySelector(".fv-preview-body"), f);
   }
 
   // ── Link picker ─────────────────────────────────────────────────────────────
@@ -476,7 +446,7 @@ export function renderFilesView(container) {
     const { close, body } = _modal(`
       <div style="font-family:var(--font-display);font-size:16px;margin-bottom:4px">Link file into a swarm</div>
       <div style="font-family:var(--font-mono);font-size:11px;color:var(--color-ink-faint);margin-bottom:14px">
-        ${_fileIcon(f.mime_type, f.filename)} ${_esc(source)} — the bytes stay where they are; the target swarm gets a reference.</div>
+        ${fileIcon(f.mime_type, f.filename)} ${_esc(source)} — the bytes stay where they are; the target swarm gets a reference.</div>
       <label class="form-label">Target swarm</label>
       <select class="form-select fv-link-swarm" style="width:100%;margin-bottom:12px"><option value="">Loading…</option></select>
       <label class="form-label">Path in target (optional)</label>
@@ -673,35 +643,6 @@ function _originDot(origin) {
     : origin === "human" ? "var(--color-ink-soft)" : "var(--color-cream-line)";
   return `<span title="${_esc(origin)}" style="display:inline-block;width:8px;height:8px;border-radius:50%;
     background:${c};border:1px solid var(--color-cream-line)"></span>`;
-}
-
-function _fileIcon(mime, filename) {
-  const ext = (String(filename).split(".").pop() || "").toLowerCase();
-  mime = mime || "";
-  if (mime.startsWith("image/") || ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico"].includes(ext)) return "🖼";
-  if (mime === "application/pdf" || ext === "pdf") return "📄";
-  if (["csv", "tsv", "xls", "xlsx"].includes(ext) || mime === "text/csv") return "📊";
-  if (["json", "xml", "yaml", "yml", "toml", "ini", "env", "conf"].includes(ext)) return "⚙";
-  if (["js", "ts", "py", "sh", "rb", "go", "rs", "java", "c", "cpp", "css", "html", "sql"].includes(ext)) return "⟨⟩";
-  if (["zip", "tar", "gz", "tgz", "rar", "7z"].includes(ext)) return "🗜";
-  if (["txt", "md", "markdown", "log", "rtf"].includes(ext)) return "📝";
-  return "▱";
-}
-
-function _isTextish(mime, filename) {
-  mime = mime || "";
-  if (mime.startsWith("text/")) return true;
-  if (["application/json", "application/xml", "application/javascript", "application/csv"].includes(mime)) return true;
-  const ext = (String(filename).split(".").pop() || "").toLowerCase();
-  return ["txt", "md", "markdown", "json", "csv", "tsv", "log", "yaml", "yml", "xml",
-    "html", "css", "js", "ts", "py", "sh", "ini", "toml", "env", "conf", "sql"].includes(ext);
-}
-
-function _fmtBytes(n) {
-  if (!n) return "0 B";
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function _esc(s) {
