@@ -50,20 +50,25 @@ def run(input_data: dict, context: dict) -> dict:
         body_text = exc.read().decode(errors="replace")
         try:
             body = json.loads(body_text)
-            error_code = body.get("error", {}).get("code", "")
+            error_code = body.get("error", {}).get("code", f"http_{exc.code}")
             error_msg  = body.get("error", {}).get("message", body_text)
         except Exception:
-            error_code = ""
+            error_code = f"http_{exc.code}"
             error_msg  = body_text
-        if error_code == "package_not_allowed":
-            # Return a structured result so the agent can relay the problem to the user
-            # rather than crashing the run with an unhandled skill failure.
-            return {
-                "ok": False,
-                "error": "package_not_allowed",
-                "message": error_msg,
-            }
-        raise RuntimeError(f"Failed to create skill: {exc.code} {body_text}") from exc
+
+        # Every failure here is something the agent can fix and retry (bad YAML, a
+        # missing __main__ block, a disallowed package) or relay to the user (a name
+        # that already exists). Return a structured result instead of raising, which
+        # would otherwise crash the whole run with an unhandled skill failure.
+        if error_code == "conflict":
+            # The create endpoint rejects existing names — editing is a different skill.
+            error_msg += " Use the edit_skill skill to update an existing skill instead of create_skill."
+        return {
+            "ok": False,
+            "error": error_code,
+            "message": error_msg,
+            "status": exc.code,
+        }
 
 
 if __name__ == "__main__":

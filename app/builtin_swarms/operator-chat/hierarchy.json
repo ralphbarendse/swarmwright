@@ -13,6 +13,7 @@
     {"agent": "operator", "skill": "patch_topology",     "purpose": "Low-level topology edit — use add_agent_to_swarm for adding agents"},
     {"agent": "operator", "skill": "read_skill",         "purpose": "Read the source code of an existing skill before editing or recreating it"},
     {"agent": "operator", "skill": "create_skill",       "purpose": "Create a new custom skill (Python + YAML)"},
+    {"agent": "operator", "skill": "edit_skill",         "purpose": "Update an existing custom skill's Python and/or YAML (use instead of create_skill when the skill already exists)"},
     {"agent": "operator", "skill": "trigger_run",        "purpose": "Trigger a swarm run"},
     {"agent": "operator", "skill": "list_runs",          "purpose": "List recent runs"},
     {"agent": "operator", "skill": "read_run",           "purpose": "Read a run's status and steps"},

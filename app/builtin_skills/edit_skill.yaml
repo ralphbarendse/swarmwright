@@ -1,0 +1,54 @@
+name: edit_skill
+description: >
+  Update an existing custom skill's Python and/or YAML source. Use this — not
+  create_skill — whenever the skill already exists. Always call read_skill first
+  to see the current source, make targeted changes, then pass the corrected content
+  here.
+
+  You may send only the half you changed: pass just py_content to rewrite the Python
+  while keeping the YAML, or just yaml_content to rewrite the config while keeping the
+  Python. The omitted half is fetched from the current skill and left unchanged.
+
+  The skill name and scope must match an existing skill. To create a brand-new skill
+  instead, use create_skill.
+timeout_seconds: 30
+allowed_packages: []
+input_schema:
+  type: object
+  required: [scope, name]
+  properties:
+    scope:
+      type: string
+      description: "Where the skill lives: 'company', 'workspace', or 'swarm'"
+    name:
+      type: string
+      description: Name of the existing skill (underscores are converted to hyphens automatically)
+    py_content:
+      type: string
+      description: New full Python source. Omit to keep the current Python unchanged.
+    yaml_content:
+      type: string
+      description: New full YAML config. Omit to keep the current YAML unchanged.
+    workspace_id:
+      type: string
+      description: Required when scope is 'workspace' or 'swarm'
+    workspace_name:
+      type: string
+      description: Workspace name (alternative to workspace_id)
+    swarm_id:
+      type: string
+      description: Required when scope is 'swarm'
+output_schema:
+  type: object
+  properties:
+    ok:           {type: boolean}
+    name:         {type: string}
+    scope:        {type: string}
+    workspace_id: {type: [string, 'null']}
+    swarm_id:     {type: [string, 'null']}
+    py_path:      {type: string}
+    yaml_path:    {type: string}
+    description:  {type: [string, 'null']}
+    error:        {type: string}
+    message:      {type: string}
+    status:       {type: integer}

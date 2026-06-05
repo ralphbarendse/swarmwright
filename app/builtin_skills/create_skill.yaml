@@ -75,3 +75,4 @@ output_schema:
     ok:           {type: boolean}
     error:        {type: string}
     message:      {type: string}
+    status:       {type: integer}

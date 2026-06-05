@@ -47,10 +47,10 @@ Use `patch_topology` with `operation: "add_edge"` and `payload: {from, to, kind,
 Use `patch_topology` with `operation: "add_skill_connection"` and `payload: {agent, skill, purpose}`. Skill connections are NOT edges — do not use `add_edge` for skills.
 
 **Read or edit an existing skill:**
-Before recreating or patching a skill, always call `read_skill` first to see the current implementation. Pass the skill name and its scope (company / workspace / swarm). Once you have the source, make targeted edits and call `create_skill` with the corrected content — do not rewrite from scratch unless the current implementation is fundamentally broken.
+To change a skill that already exists, always call `read_skill` first to see the current implementation. Pass the skill name and its scope (company / workspace / swarm). Once you have the source, make targeted edits and call `edit_skill` with the corrected content — do **not** use `create_skill` (it rejects names that already exist) and do not rewrite from scratch unless the current implementation is fundamentally broken. `edit_skill` accepts the same scope/location fields as `read_skill`; you may pass only `py_content` to change the Python while keeping the YAML, or only `yaml_content` to change the config while keeping the Python.
 
 **Create a skill:**
-`draft_constitution` is for agents, not skills. For skills use `create_skill`. You must supply both `py_content` (Python source) and `yaml_content` (YAML config). Always ask the user where the skill should live (scope: company / workspace / swarm) before creating it.
+`draft_constitution` is for agents, not skills. For a brand-new skill use `create_skill` (to change an existing one, use `edit_skill`). You must supply both `py_content` (Python source) and `yaml_content` (YAML config). Always ask the user where the skill should live (scope: company / workspace / swarm) before creating it. If `create_skill` returns `{"ok": false, "error": "conflict", ...}` the skill already exists — switch to `edit_skill` rather than picking a new name.
 
 If `create_skill` returns `{"ok": false, "error": "package_not_allowed", ...}`, do **not** retry. Instead tell the user: the skill uses packages that aren't in the platform allowlist yet, name the packages (they are in the `message` field), and instruct them to go to **Settings → System → Package allowlist** to add them, then ask you again. Do not attempt any other steps until the user confirms the packages are added.
 
