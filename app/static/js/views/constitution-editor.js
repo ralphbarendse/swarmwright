@@ -5,6 +5,7 @@ import { _showModal } from "./org-design.js";
 import { _showAttachSkillModal } from "./swarm-canvas.js";
 import { canDo } from "../auth.js";
 import { renderMarkdown } from "../components/markdown.js";
+import { icon } from "../icons.js";
 
 let _editor = null;
 let _themeInjected = false;
@@ -74,7 +75,7 @@ export function renderConstitutionEditor(container, agentId) {
       </div>
       <div class="ed-toolbar-right">
         ${canDo("can_edit_constitution") ? `
-          <button class="btn btn-ghost btn-sm" id="btn-draft">✦ Draft</button>
+          <button class="btn btn-ghost btn-sm" id="btn-draft">${icon("sparkles", { size: 13 })} Draft</button>
           <button class="btn btn-ghost btn-sm" id="btn-discard">Discard</button>
           <button class="btn btn-primary btn-sm" id="btn-save">Save ⌘S</button>
         ` : `<span style="font-family:var(--font-mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--color-ink-faint)">Read only</span>`}
@@ -157,7 +158,7 @@ export function renderConstitutionEditor(container, agentId) {
             `<button class="btn btn-ghost btn-sm scaffold-btn" data-section="${s}" style="font-size:10px;padding:2px 8px;letter-spacing:0">${s}</button>`
           ).join("")}
           <span class="ed-scaffold-sep"></span>
-          <button class="btn btn-ghost btn-sm" id="btn-insert-action" style="font-size:10px;padding:2px 8px;letter-spacing:0">↗ Action</button>
+          <button class="btn btn-ghost btn-sm" id="btn-insert-action" style="font-size:10px;padding:2px 8px;letter-spacing:0">${icon("plus", { size: 11 })} Action</button>
         </div>` : ""}
       </div>
 
@@ -248,7 +249,7 @@ export function renderConstitutionEditor(container, agentId) {
   // ── AI Draft ─────────────────────────────────────────────────────────────
   container.querySelector("#btn-draft").addEventListener("click", () => {
     _showModal(
-      "✦ Draft constitution",
+      `${icon("sparkles", { size: 13 })} Draft constitution`,
       `<div class="form-group" style="margin-bottom:12px">
         <label class="form-label">Instructions (optional)</label>
         <textarea class="form-input" id="m-draft-prompt" rows="4"
@@ -270,7 +271,7 @@ export function renderConstitutionEditor(container, agentId) {
         const prompt = document.getElementById("m-draft-prompt")?.value.trim() || "";
         const mode = document.querySelector('input[name="draft-mode"]:checked')?.value || "replace";
         const btn = container.querySelector("#btn-draft");
-        btn.textContent = "✦ Drafting…";
+        btn.innerHTML = `${icon("sparkles", { size: 13 })} Drafting…`;
         btn.disabled = true;
         try {
           const result = await api.draftConstitution(agentId, prompt);
@@ -286,7 +287,7 @@ export function renderConstitutionEditor(container, agentId) {
           _updatePreview(container);
           toastSuccess("Draft inserted");
         } catch (err) { toastError(err); }
-        finally { btn.textContent = "✦ Draft"; btn.disabled = false; }
+        finally { btn.innerHTML = `${icon("sparkles", { size: 13 })} Draft`; btn.disabled = false; }
       },
       "Generate"
     );

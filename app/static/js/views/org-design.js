@@ -2,6 +2,7 @@ import * as api from "../api.js";
 import { toast, toastError, toastSuccess } from "../components/toast.js";
 import { canDo } from "../auth.js";
 import { mountChatWidget, mountConciergeLauncher } from "../components/chat-panel.js";
+import { icon } from "../icons.js";
 
 let _chatDestroy = null;
 
@@ -56,7 +57,7 @@ async function _renderWorkspaceList(container) {
     const workspaces = await api.listWorkspaces();
     const grid = container.querySelector("#ws-grid");
     if (!workspaces.length) {
-      grid.innerHTML = `<div class="empty-state"><div class="empty-state-icon">🏢</div><div class="empty-state-title">No workspaces yet</div><div class="empty-state-sub">Create your first workspace to get started.</div></div>`;
+      grid.innerHTML = `<div class="empty-state"><div class="empty-state-icon" style="color:var(--color-ink-faint)">${icon("building-2", { size: 30 })}</div><div class="empty-state-title">No workspaces yet</div><div class="empty-state-sub">Create your first workspace to get started.</div></div>`;
     } else {
       grid.innerHTML = workspaces.map(ws => _wsRow(ws)).join("");
       grid.querySelectorAll(".ws-card").forEach(el => {
@@ -188,8 +189,8 @@ async function _fillControlSnippet(card, wide = false) {
       head.innerHTML = [
         ["var(--color-amber)",        `● ${stats.running} running`,            stats.running],
         ["var(--color-orchestrator)", `● ${stats.awaiting_human} awaiting`,    stats.awaiting_human],
-        ["var(--color-success)",      `✓ ${stats.completed_today} done`,       stats.completed_today],
-        ["var(--color-danger)",       `✗ ${stats.failed_today} failed`,        stats.failed_today],
+        ["var(--color-success)",      `${icon("check", { size: 12 })} ${stats.completed_today} done`,   stats.completed_today],
+        ["var(--color-danger)",       `${icon("x", { size: 12 })} ${stats.failed_today} failed`,        stats.failed_today],
       ].map(([c, txt, n]) => `<span style="color:${c};opacity:${n > 0 ? 1 : .4};white-space:nowrap">${txt}</span>`).join("");
     } else {
       head.textContent = "Stats unavailable";
@@ -520,9 +521,9 @@ async function _renderMicroSnippets(container) {
     if (statusEl && stats) {
       statusEl.innerHTML = [
         [stats.running,        "var(--color-amber)",        `● ${stats.running} running`],
-        [stats.awaiting_human, "var(--color-orchestrator)", `⏳ ${stats.awaiting_human} awaiting`],
-        [stats.completed_today,"var(--color-success)",      `✓ ${stats.completed_today} done`],
-        [stats.failed_today,   "var(--color-danger)",       `✗ ${stats.failed_today} failed`],
+        [stats.awaiting_human, "var(--color-orchestrator)", `${icon("hourglass", { size: 12 })} ${stats.awaiting_human} awaiting`],
+        [stats.completed_today,"var(--color-success)",      `${icon("check", { size: 12 })} ${stats.completed_today} done`],
+        [stats.failed_today,   "var(--color-danger)",       `${icon("x", { size: 12 })} ${stats.failed_today} failed`],
       ].map(([n, c, txt]) =>
         `<span style="font-size:11px;color:${c};opacity:${n > 0 ? 1 : .4};white-space:nowrap">${txt}</span>`
       ).join("");
@@ -1120,7 +1121,7 @@ export function _showModal(title, bodyHtml, onConfirm, confirmLabel = "Save", da
     <div class="modal" role="dialog">
       <div class="modal-header">
         <span>${title}</span>
-        <button class="modal-close" id="modal-x">✕</button>
+        <button class="modal-close" id="modal-x">${icon("x", { size: 16 })}</button>
       </div>
       <div class="modal-body">${bodyHtml}</div>
       <div class="modal-footer">

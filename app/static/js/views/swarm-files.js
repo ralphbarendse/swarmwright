@@ -1,5 +1,6 @@
 import * as api from "../api.js";
 import { toastError, toastSuccess } from "../components/toast.js";
+import { icon } from "../icons.js";
 
 /**
  * Swarm Files view.
@@ -213,8 +214,8 @@ export function renderSwarmFilesView(container, swarmId) {
       <td style="padding:9px 12px;font-family:var(--font-mono);font-size:11px;color:var(--color-ink-soft);white-space:nowrap">${updated}</td>
       <td style="padding:9px 12px">${runLink}</td>
       <td style="padding:9px 8px;white-space:nowrap">
-        <button class="btn btn-ghost btn-sm" data-download="${_esc(f.path)}" title="Download" style="padding:3px 7px;margin-right:4px">↓</button>
-        <button class="btn btn-ghost btn-sm" data-delete="${_esc(f.path)}" title="Delete" style="padding:3px 7px;color:var(--color-danger,#c0392b)">✕</button>
+        <button class="btn btn-ghost btn-sm" data-download="${_esc(f.path)}" title="Download" style="padding:3px 7px;margin-right:4px">${icon("download", { size: 14 })}</button>
+        <button class="btn btn-ghost btn-sm" data-delete="${_esc(f.path)}" title="Delete" style="padding:3px 7px;color:var(--color-danger,#c0392b)">${icon("x", { size: 14 })}</button>
       </td>
     </tr>`;
   }

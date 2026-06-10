@@ -3,6 +3,7 @@
  * creation (setup.html redirects here before the hero welcome screen).
  */
 import * as api from "../api.js";
+import { icon } from "../icons.js";
 
 const PROVIDERS = [
   { id: "anthropic", label: "Anthropic", accent: "#C97B1E", prefix: "sk-ant-", keySetting: "llm.anthropic.api_key" },
@@ -141,7 +142,9 @@ export function renderOnboardingView(container) {
   const saveBtn    = container.querySelector('#ob-save');
 
   function setMsg(text, state) {
-    msgEl.textContent = text;
+    const ic = state === 'ok' ? icon('check', { size: 13 }) : state === 'err' ? icon('x', { size: 13 }) : '';
+    msgEl.innerHTML = ic ? ic + ' ' : '';
+    msgEl.appendChild(document.createTextNode(text));
     msgEl.className = 'ob-msg' + (state === 'ok' ? ' ok' : state === 'err' ? ' err' : '');
   }
 
@@ -179,14 +182,14 @@ export function renderOnboardingView(container) {
     try {
       const r = await api.testLlmConnection({ provider: selected.id, api_key: key });
       if (r.ok) {
-        setMsg('✓ ' + (r.message || 'Connection successful'), 'ok');
+        setMsg(r.message || 'Connection successful', 'ok');
         testPassed = true;
         saveBtn.disabled = false;
       } else {
-        setMsg('✗ ' + (r.message || 'Connection failed'), 'err');
+        setMsg(r.message || 'Connection failed', 'err');
       }
     } catch (err) {
-      setMsg('✗ ' + (err?.message || 'Request failed'), 'err');
+      setMsg(err?.message || 'Request failed', 'err');
     } finally {
       testBtn.disabled = false;
       testBtn.textContent = 'Test';
@@ -212,7 +215,7 @@ export function renderOnboardingView(container) {
       });
       window.swNav('welcome');
     } catch (err) {
-      setMsg('✗ Could not save: ' + (err?.message || 'unknown error'), 'err');
+      setMsg('Could not save: ' + (err?.message || 'unknown error'), 'err');
       saveBtn.disabled = false;
       saveBtn.textContent = 'Save & Continue →';
     }

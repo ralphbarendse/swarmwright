@@ -39,6 +39,9 @@ landingpage_swarmwright/
 demo-auth/
 demo_rackhaus/
 
+# Cloud control plane (proprietary — NOT part of the source-available app)
+console/
+
 # Screen-recording artifacts (local-only)
 recording/
 

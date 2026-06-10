@@ -13,6 +13,8 @@ import { onEvent, offEvent } from "../sse.js";
 import { toastError } from "./toast.js";
 import { renderMarkdown, highlightCodeBlocks } from "./markdown.js";
 import { parseDelimited } from "./csv.js";
+import { icon } from "../icons.js";
+import { fileIcon } from "./file-preview.js";
 
 const SCOPE_ORG       = "org";
 const SCOPE_WORKSPACE = "workspace";
@@ -59,7 +61,7 @@ class ConciergeLauncher {
         <div class="concierge-popover-inner"></div>
       </div>
       <button class="concierge-bubble" title="Concierge — ask for anything">
-        <span class="concierge-bubble-icon">🛎</span>
+        <span class="concierge-bubble-icon">${icon("concierge-bell", { size: 22 })}</span>
         <span class="concierge-bubble-label">Concierge</span>
       </button>`;
     this.container.appendChild(root);
@@ -191,20 +193,20 @@ class ChatWidget {
     const isOp = this.scope === SCOPE_ORG;
     const header = isOp
       ? `<div class="chat-tabs">
-           <button class="chat-tab-btn active" data-tab="chat">⚙ Operator · Chat</button>
+           <button class="chat-tab-btn active" data-tab="chat">${icon("settings", { size: 14 })} Operator · Chat</button>
            <button class="chat-tab-btn" data-tab="signals">Signals <span class="chat-signal-badge" style="display:none"></span></button>
            <span class="chat-model-tag" style="display:none"></span>
-           <button class="chat-hist-btn" title="Conversations">🕘 History</button>
+           <button class="chat-hist-btn" title="Conversations">${icon("history", { size: 14 })} History</button>
            <button class="chat-edit-btn" title="Edit operator constitution" style="display:none">Edit</button>
          </div>
          <div class="chat-subtitle">Builds &amp; manages your platform — create swarms, trigger runs, review signals.</div>`
       : `<div class="chat-widget-header chat-widget-header--concierge">
-           <span class="chat-header-icon">🛎</span>
+           <span class="chat-header-icon">${icon("concierge-bell", { size: 20 })}</span>
            <div class="chat-header-titles">
              <span class="chat-header-title">Concierge <span class="chat-model-tag" style="display:none"></span></span>
              <span class="chat-header-sub">Tell me what you need — I'll route it to the right swarm.</span>
            </div>
-           ${this.onClose ? `<button class="chat-collapse-btn" title="Minimise">✕</button>` : ""}
+           ${this.onClose ? `<button class="chat-collapse-btn" title="Minimise">${icon("x", { size: 16 })}</button>` : ""}
          </div>`;
 
     const placeholder = isOp
@@ -234,7 +236,7 @@ class ChatWidget {
       <div class="chat-history-drawer" style="display:none">
         <div class="chat-history-head">
           <span class="chat-history-title">Conversations</span>
-          <button class="chat-history-close" title="Back to chat">✕</button>
+          <button class="chat-history-close" title="Back to chat">${icon("x", { size: 16 })}</button>
         </div>
         <div class="chat-history-list" id="chat-history-list">
           <div class="chat-loading-init">Loading…</div>
@@ -329,11 +331,11 @@ class ChatWidget {
         const open = body.style.display !== "none";
         if (open) {
           body.style.display = "none";
-          toggle.textContent = "▸ Activity";
+          toggle.innerHTML = `${icon("chevron-right", { size: 13 })} Activity`;
           return;
         }
         body.style.display = "block";
-        toggle.textContent = "▾ Activity";
+        toggle.innerHTML = `${icon("chevron-down", { size: 13 })} Activity`;
         if (body.dataset.loaded) return;
         body.dataset.loaded = "1";
         body.innerHTML = `<div class="chat-trail-loading">Loading…</div>`;
@@ -356,7 +358,7 @@ class ChatWidget {
     }
     const runTrail = run_id
       ? `<div class="chat-run-trail" data-run-id="${_esc(run_id)}">
-           <button class="chat-run-trail-toggle">▸ Activity</button>
+           <button class="chat-run-trail-toggle">${icon("chevron-right", { size: 13 })} Activity</button>
            <div class="chat-run-trail-body" style="display:none"></div>
          </div>`
       : "";
@@ -589,7 +591,7 @@ class ChatWidget {
             <span class="chat-hist-row-title">${_esc(s.title || "New conversation")}</span>
             <span class="chat-hist-row-meta">${_relTime(s.updated_at)}${count ? " · " + count : ""}</span>
           </button>
-          <button class="chat-hist-del" title="Delete conversation" data-id="${s.id}">✕</button>
+          <button class="chat-hist-del" title="Delete conversation" data-id="${s.id}">${icon("x", { size: 14 })}</button>
         </div>`;
       }).join("");
       el.innerHTML = newRow + (sessions.length ? rows : `<div class="chat-empty">No past conversations.</div>`);
@@ -823,11 +825,12 @@ function _renderRunTrail(run) {
     : run.status === "failed" ? "var(--color-danger)" : "var(--color-warn)";
   const steps = (run.steps || []).filter(s => s.step_type !== "topology_violation");
   const stepRows = steps.map(s => {
-    const icon = s.step_type === "skill_call" ? "⚙" : s.step_type === "agent_call" ? "◈" : "·";
+    const stepGlyph = s.step_type === "skill_call" ? icon("settings", { size: 12 })
+      : s.step_type === "agent_call" ? icon("bot", { size: 13 }) : "·";
     const label = _esc(s.step_name || s.step_type || "");
     const dur = s.duration_ms != null ? `${s.duration_ms}ms` : "";
     return `<div class="chat-trail-step">
-      <span class="chat-trail-icon">${icon}</span>
+      <span class="chat-trail-icon">${stepGlyph}</span>
       <span class="chat-trail-label">${label}</span>
       <span class="chat-trail-dur">${dur}</span>
     </div>`;
@@ -836,7 +839,7 @@ function _renderRunTrail(run) {
   return `<div class="chat-trail">
     <div class="chat-trail-status" style="color:${statusColor}">${_esc(run.status)}</div>
     ${stepRows}
-    <a class="chat-trail-link" href="#runs/${_esc(run.id)}" onclick="window.swNav('runs/${_esc(run.id)}');return false;">View full run →</a>
+    <a class="chat-trail-link" href="#runs/${_esc(run.id)}" onclick="window.swNav('runs/${_esc(run.id)}');return false;">View full run ${icon("arrow-right", { size: 13 })}</a>
   </div>`;
 }
 
@@ -852,7 +855,7 @@ function _attachmentsHtml(attachments) {
         <span class="chat-attach-icon">${_attIcon(att)}</span>
         <span class="chat-attach-name" title="${_esc(att.path)}">${_esc(att.filename)}</span>
         <span class="chat-attach-size">${size}</span>
-        <a class="chat-attach-dl" href="${dl}" title="Download" download>⬇</a>
+        <a class="chat-attach-dl" href="${dl}" title="Download" download>${icon("download", { size: 15 })}</a>
       </div>
       <div class="chat-attach-body"></div>
     </div>`;
@@ -925,15 +928,7 @@ function _attachCsvHtml(text, delim) {
 }
 
 function _attIcon(att) {
-  const ext = (att.filename.split(".").pop() || "").toLowerCase();
-  const mime = att.mime || "";
-  if (mime.startsWith("image/") || ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico"].includes(ext)) return "🖼";
-  if (mime === "application/pdf" || ext === "pdf") return "📄";
-  if (["csv", "tsv", "xls", "xlsx"].includes(ext)) return "📊";
-  if (["json", "xml", "yaml", "yml", "toml", "ini", "env", "conf"].includes(ext)) return "⚙";
-  if (["js", "ts", "py", "sh", "rb", "go", "rs", "java", "c", "cpp", "css", "html", "sql"].includes(ext)) return "⟨⟩";
-  if (["md", "markdown", "txt", "log", "rtf"].includes(ext)) return "📝";
-  return "📎";
+  return fileIcon(att.mime || "", att.filename, 15);
 }
 
 function _fmtBytes(n) {

@@ -2,6 +2,7 @@ import * as api from "../api.js";
 import { toastError, toastSuccess } from "../components/toast.js";
 import { canDo } from "../auth.js";
 import { fillFilePreview, fileIcon, fmtBytes } from "../components/file-preview.js";
+import { icon } from "../icons.js";
 
 /**
  * Files view — an org-wide file browser over every swarm's file store.
@@ -59,10 +60,10 @@ export function renderFilesView(container) {
         <div id="files-view-toggle" style="display:flex;border:1px solid var(--color-cream-line);
           border-radius:5px;overflow:hidden">
           <button data-view="table" class="fv-view-btn" title="Table view"
-            style="border:none;background:none;padding:6px 9px;cursor:pointer;font-size:13px">☰</button>
+            style="border:none;background:none;padding:6px 9px;cursor:pointer;display:flex;align-items:center">${icon("list", { size: 15 })}</button>
           <button data-view="grid" class="fv-view-btn" title="Grid view"
-            style="border:none;background:none;padding:6px 9px;cursor:pointer;font-size:13px;
-            border-left:1px solid var(--color-cream-line)">▦</button>
+            style="border:none;background:none;padding:6px 9px;cursor:pointer;display:flex;align-items:center;
+            border-left:1px solid var(--color-cream-line)">${icon("layout-grid", { size: 14 })}</button>
         </div>
         <button id="files-upload-btn" class="btn btn-primary btn-sm" style="margin:0">Upload</button>
         <span id="files-count" style="margin-left:auto;font-family:var(--font-mono);
@@ -184,7 +185,7 @@ export function renderFilesView(container) {
 
     rows.push(`<div class="fv-tree-item" data-scope='${JSON.stringify({ kind: "all" })}'
       style="${_isSel({ kind: "all" }) ? "background:var(--color-parchment);color:var(--color-accent);font-weight:600" : ""}">
-      ▸ All files <span style="color:var(--color-ink-faint)">(${total})</span></div>`);
+      ${icon("layout-grid", { size: 13 })} All files <span style="color:var(--color-ink-faint)">(${total})</span></div>`);
 
     for (const w of [...wss.values()].sort((a, b) => a.label.localeCompare(b.label))) {
       const wsKey = `ws:${w.id}`;
@@ -193,7 +194,7 @@ export function renderFilesView(container) {
       const wScope = { kind: "ws", wsId: w.id };
       rows.push(`<div class="fv-tree-item" data-toggle="${wsKey}" data-scope='${JSON.stringify(wScope)}'
         style="${_isSel(wScope) ? "background:var(--color-parchment);color:var(--color-accent);font-weight:600" : ""}">
-        ${wOpen ? "▾" : "▸"} ${_esc(w.label)}</div>`);
+        ${icon(wOpen ? "chevron-down" : "chevron-right", { size: 14, cls: "fv-tree-caret" })} ${_esc(w.label)}</div>`);
       if (!wOpen) continue;
 
       for (const s of [...w.swarms.values()].sort((a, b) => a.label.localeCompare(b.label))) {
@@ -203,7 +204,7 @@ export function renderFilesView(container) {
         const sScope = { kind: "swarm", wsId: w.id, swarmId: s.id };
         rows.push(`<div class="fv-tree-item" data-toggle="${swKey}" data-scope='${JSON.stringify(sScope)}'
           style="padding-left:20px;${_isSel(sScope) ? "background:var(--color-parchment);color:var(--color-accent);font-weight:600" : ""}">
-          ${s.prefixes.size ? (sOpen ? "▾" : "▸") : "·"} ${_esc(s.label)}</div>`);
+          ${s.prefixes.size ? icon(sOpen ? "chevron-down" : "chevron-right", { size: 14, cls: "fv-tree-caret" }) : "·"} ${_esc(s.label)}</div>`);
         if (!sOpen) continue;
 
         for (const p of [...s.prefixes].sort()) {
@@ -211,7 +212,7 @@ export function renderFilesView(container) {
           const fScope = { kind: "folder", wsId: w.id, swarmId: s.id, prefix: p };
           rows.push(`<div class="fv-tree-item" data-scope='${JSON.stringify(fScope)}'
             style="padding-left:${20 + depth * 12}px;color:var(--color-ink-soft);${_isSel(fScope) ? "background:var(--color-parchment);color:var(--color-accent);font-weight:600" : ""}">
-            ▱ ${_esc(p.split("/").pop())}</div>`);
+            ${icon("folder", { size: 13 })} ${_esc(p.split("/").pop())}</div>`);
         }
       }
     }
@@ -327,7 +328,7 @@ export function renderFilesView(container) {
            <img src="${api.rawSwarmFileUrl(f.swarm_id, f.path)}" loading="lazy"
              style="max-width:100%;max-height:100%;object-fit:contain" alt=""></div>`
       : `<div style="height:90px;border-radius:5px;background:var(--color-parchment);
-           display:flex;align-items:center;justify-content:center;font-size:34px">${fileIcon(f.mime_type, f.filename)}</div>`;
+           display:flex;align-items:center;justify-content:center;color:var(--color-ink-soft)">${fileIcon(f.mime_type, f.filename, 34)}</div>`;
     return `<div class="fv-row fv-card" data-id="${_esc(f.id)}" data-act="preview">
       ${thumb}
       <div style="display:flex;flex-direction:column;gap:3px;min-width:0">
@@ -345,11 +346,11 @@ export function renderFilesView(container) {
   function _actionCluster(f) {
     const canEdit = canDo("can_edit_swarm");
     return `<span class="fv-actions" style="display:inline-flex;gap:1px;align-items:center">
-      <button class="fv-act" data-act="preview" title="Preview">👁</button>
-      <button class="fv-act" data-act="download" title="Download">↓</button>
-      <button class="fv-act" data-act="copy" title="Copy path">⧉</button>
-      ${canEdit ? `<button class="fv-act" data-act="link" title="Link into another swarm">↗</button>` : ""}
-      ${canEdit ? `<button class="fv-act" data-act="delete" title="Delete" style="color:var(--color-danger,#c0392b)">✕</button>` : ""}
+      <button class="fv-act" data-act="preview" title="Preview">${icon("eye", { size: 15 })}</button>
+      <button class="fv-act" data-act="download" title="Download">${icon("download", { size: 15 })}</button>
+      <button class="fv-act" data-act="copy" title="Copy path">${icon("copy", { size: 14 })}</button>
+      ${canEdit ? `<button class="fv-act" data-act="link" title="Link into another swarm">${icon("link", { size: 14 })}</button>` : ""}
+      ${canEdit ? `<button class="fv-act" data-act="delete" title="Delete" style="color:var(--color-danger,#c0392b)">${icon("x", { size: 15 })}</button>` : ""}
     </span>`;
   }
 
@@ -411,10 +412,10 @@ export function renderFilesView(container) {
                 overflow:hidden;text-overflow:ellipsis" title="${_esc(f.path)}">${fileIcon(f.mime_type, f.filename)} ${_esc(f.filename)}</div>
               <div style="font-family:var(--font-mono);font-size:10px;color:var(--color-ink-faint);margin-top:3px">
                 ${_esc(f.swarm_display_name || f.swarm_name || "")} · ${fmtBytes(f.size_bytes)} · ${_esc(f.origin)}${
-                  f.link_source ? ` · ↗ linked from ${_esc(f.link_source.swarm_display_name || f.link_source.swarm_name)}/${_esc(f.link_source.path)}` : ""}
+                  f.link_source ? ` · ${icon("link", { size: 11 })} linked from ${_esc(f.link_source.swarm_display_name || f.link_source.swarm_name)}/${_esc(f.link_source.path)}` : ""}
               </div>
             </div>
-            <button class="fv-act" data-close style="font-size:18px">✕</button>
+            <button class="fv-act" data-close>${icon("x", { size: 17 })}</button>
           </div>
         </div>
         <div class="fv-preview-body" style="flex:1;overflow:auto;background:var(--color-panel)"></div>
@@ -629,7 +630,7 @@ function _linkChips(f) {
       ? `linked from ${f.link_source.swarm_display_name || f.link_source.swarm_name}/${f.link_source.path}`
       : "broken link";
     chips.push(`<span class="fv-chip" title="${_esc(src)}"
-      style="background:var(--color-cream-line);color:var(--color-ink-soft)">↗ ${f.link_source ? "linked" : "broken"}</span>`);
+      style="background:var(--color-cream-line);color:var(--color-ink-soft)">${icon("link", { size: 11 })} ${f.link_source ? "linked" : "broken"}</span>`);
   }
   if (!f.is_link && f.link_count > 0) {
     chips.push(`<span class="fv-chip" title="Linked into ${f.link_count} other swarm(s)"

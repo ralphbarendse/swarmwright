@@ -139,6 +139,7 @@ export const getSetting         = (key)           => get(`/settings/${encodeURIC
 export const putSetting         = (key, body)     => put(`/settings/${encodeURIComponent(key)}`, body);
 export const bulkPutSettings    = (body)          => put("/settings", body);
 export const getSettingsAudit   = (params = {})   => get("/settings/audit?" + new URLSearchParams(params));
+export const getSystemHealth    = ()              => get("/settings/system/health");
 export const testLlmConnection  = (body)          => post("/settings/llm/test", body);
 export const rotateMasterKey    = (body)          => post("/settings/security/rotate-key", body || {});
 export const checkPackageInstalled = (name)       => get(`/settings/system/packages/check?name=${encodeURIComponent(name)}`);

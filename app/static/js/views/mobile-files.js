@@ -11,6 +11,7 @@
 import * as api from "../api.js";
 import { toastError } from "../components/toast.js";
 import { fillFilePreview, fileIcon, fmtBytes } from "../components/file-preview.js";
+import { icon } from "../icons.js";
 
 export function renderMobileFilesView(container) {
   container.classList.add("mfiles");
@@ -63,7 +64,7 @@ export function renderMobileFilesView(container) {
           <span class="mfiles-row-icon">${fileIcon(f.mime_type, f.filename)}</span>
           <span class="mfiles-row-main">
             <span class="mfiles-row-name">${_esc(f.filename)}</span>
-            <span class="mfiles-row-meta">${fmtBytes(f.size_bytes)}${f.is_link ? " · ↗ linked" : ""}</span>
+            <span class="mfiles-row-meta">${fmtBytes(f.size_bytes)}${f.is_link ? ` · ${icon("link", { size: 11 })} linked` : ""}</span>
           </span>
           <span class="mfiles-row-chev">›</span>
         </button>`);
@@ -88,7 +89,7 @@ export function renderMobileFilesView(container) {
       <div class="mfiles-preview-head">
         <button class="mfiles-preview-back" title="Back">‹ Files</button>
         <span class="mfiles-preview-name" title="${_esc(f.path)}">${fileIcon(f.mime_type, f.filename)} ${_esc(f.filename)}</span>
-        <a class="mfiles-preview-dl" href="${api.downloadSwarmFileUrl(f.swarm_id, f.path)}" title="Download" download>⬇</a>
+        <a class="mfiles-preview-dl" href="${api.downloadSwarmFileUrl(f.swarm_id, f.path)}" title="Download" download>${icon("download", { size: 16 })}</a>
       </div>
       <div class="mfiles-preview-sub">${_esc(f.swarm_display_name || f.swarm_name || "")} · ${fmtBytes(f.size_bytes)}</div>
       <div class="mfiles-preview-body"></div>`;

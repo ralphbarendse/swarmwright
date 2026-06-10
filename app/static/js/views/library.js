@@ -2,6 +2,7 @@ import * as api from "../api.js";
 import { toastError, toastSuccess } from "../components/toast.js";
 import { canDo } from "../auth.js";
 import { renderMarkdown } from "../components/markdown.js";
+import { icon } from "../icons.js";
 
 /**
  * Library view — skills and knowledge across scopes.
@@ -174,7 +175,7 @@ function _renderKnowledgeGrid(grid, docs, reload, scopeParams) {
   grid.innerHTML = "";
 
   if (!docs.length) {
-    grid.innerHTML = `<div class="empty-state"><div class="empty-state-icon">📄</div><div class="empty-state-title">No documents</div><div class="empty-state-sub">Create a knowledge document to get started.</div></div>`;
+    grid.innerHTML = `<div class="empty-state"><div class="empty-state-icon" style="color:var(--color-ink-faint)">${icon("file-text", { size: 30 })}</div><div class="empty-state-title">No documents</div><div class="empty-state-sub">Create a knowledge document to get started.</div></div>`;
     return;
   }
 
@@ -517,7 +518,7 @@ async function _renderSkills(container, scopeSel) {
   try {
     const skills = await api.listSkills(_scopeParams(scopeSel));
     if (!skills.length) {
-      grid.innerHTML = `<div class="empty-state"><div class="empty-state-icon">⚙</div><div class="empty-state-title">No skills at this scope</div><div class="empty-state-sub">Click "+ New skill" to create one. The editor opens with a working stub you can edit.</div></div>`;
+      grid.innerHTML = `<div class="empty-state"><div class="empty-state-icon" style="color:var(--color-ink-faint)">${icon("settings", { size: 30 })}</div><div class="empty-state-title">No skills at this scope</div><div class="empty-state-sub">Click "+ New skill" to create one. The editor opens with a working stub you can edit.</div></div>`;
       return;
     }
 
@@ -530,7 +531,7 @@ async function _renderSkills(container, scopeSel) {
 
       const age = skill.updated_at ? ` · ${_fmtAge(skill.updated_at)}` : "";
       card.innerHTML = `
-        <div class="card-icon card-icon-perceptionist" style="width:32px;height:32px;font-size:14px">⚙</div>
+        <div class="card-icon card-icon-perceptionist" style="width:32px;height:32px;display:flex;align-items:center;justify-content:center">${icon("settings", { size: 16 })}</div>
         <div style="flex:1;min-width:0">
           <div style="font-weight:600;font-size:13px;font-family:var(--font-mono);color:var(--color-ink)">${_esc(skill.name)}</div>
           <div style="font-size:11px;color:var(--color-ink-soft);margin-top:2px">${_esc(skill.description || "No description")} · timeout ${skill.timeout_seconds ?? 30}s${age}</div>
@@ -861,7 +862,7 @@ function _showModal(title, bodyHtml, onConfirm, confirmLabel = "Save", danger = 
     <div class="modal" role="dialog">
       <div class="modal-header">
         <span>${title}</span>
-        <button class="modal-close" id="modal-x">✕</button>
+        <button class="modal-close" id="modal-x">${icon("x", { size: 16 })}</button>
       </div>
       <div class="modal-body">${bodyHtml}</div>
       <div class="modal-footer">

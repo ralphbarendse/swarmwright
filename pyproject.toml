@@ -47,6 +47,10 @@ dependencies = [
     # Utilities
     "python-dotenv>=1.0,<2",
 
+    # Host/container resource metrics (Settings → Health tab). The endpoint
+    # also has a /proc fallback, but psutil gives CPU% and cross-platform data.
+    "psutil>=5.9,<8",
+
     # On the default skill allowlist (docs/PHASE_5_SETTINGS.md:225). Skills
     # may declare it in `allowed_packages` so it must be importable in the
     # container.

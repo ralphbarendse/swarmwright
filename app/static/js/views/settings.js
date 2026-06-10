@@ -2,6 +2,7 @@ import * as api from "../api.js";
 import { toastError, toastSuccess } from "../components/toast.js";
 import { _showModal } from "./org-design.js";
 import { currentUser } from "../auth.js";
+import { icon } from "../icons.js";
 
 const MODEL_SUGGESTIONS = {
   anthropic: [
@@ -41,6 +42,7 @@ const TABS = [
   { id: "models",    label: "Models" },
   { id: "branding",  label: "Branding" },
   { id: "system",    label: "System" },
+  { id: "health",    label: "Health", adminOnly: true },
   { id: "security",  label: "Security" },
   { id: "users",     label: "Users", adminOnly: true },
 ];
@@ -201,6 +203,7 @@ export function renderSettingsView(container, segments = []) {
       case "models":    _renderModelsTab(pane); break;
       case "branding":  _renderBrandingTab(pane); break;
       case "system":    _renderSystemTab(pane); break;
+      case "health":    _renderHealthTab(pane); break;
       case "security":  _renderSecurityTab(pane); break;
       case "users":     _renderUsersTab(pane); break;
       default:          _renderProvidersTab(pane);
@@ -812,7 +815,7 @@ function _renderSystemTab(pane) {
       const installBtn = chip.querySelector(".pkg-install-btn");
       api.checkPackageInstalled(pkg).then(r => {
         if (r.installed) {
-          status.textContent = "✓";
+          status.innerHTML = icon("check", { size: 13 });
           status.className = "pkg-chip-status pkg-chip-installed";
           status.title = "Installed";
           installBtn.style.display = "none";
@@ -881,6 +884,154 @@ function _renderSystemTab(pane) {
       toastSuccess(`${updates.length - (hasRestartKey ? 1 : 0)} setting${updates.length - (hasRestartKey ? 1 : 0) === 1 ? "" : "s"} saved`);
     } catch (err) { toastError(err); }
   });
+}
+
+// ── Health tab ───────────────────────────────────────────────────────────────
+
+const _HEALTH_REFRESH_MS = 5000;
+
+function _fmtBytes(n) {
+  if (n == null || isNaN(n)) return "—";
+  const units = ["B", "KB", "MB", "GB", "TB", "PB"];
+  let i = 0, v = n;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+  return `${v.toFixed(i === 0 || v >= 100 ? 0 : 1)} ${units[i]}`;
+}
+
+function _fmtDuration(secs) {
+  if (secs == null || isNaN(secs)) return "—";
+  const d = Math.floor(secs / 86400);
+  const h = Math.floor((secs % 86400) / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h ${m}m`;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m`;
+  return `${secs}s`;
+}
+
+function _healthColor(pct) {
+  if (pct == null || isNaN(pct)) return "var(--color-ink-faint)";
+  if (pct >= 90) return "var(--color-danger)";
+  if (pct >= 70) return "var(--color-warn)";
+  return "var(--color-success)";
+}
+
+function _dedicatedPill() {
+  return `<span style="font-family:var(--font-mono);font-size:9px;text-transform:uppercase;letter-spacing:.06em;padding:2px 6px;margin-left:8px;border-radius:3px;background:rgba(79,122,74,.12);color:var(--color-success);border:1px solid rgba(79,122,74,.35);vertical-align:middle">dedicated</span>`;
+}
+
+function _meterCard(title, pct, leftLabel, rightLabel, dedicated = false) {
+  const known = pct != null && !isNaN(pct);
+  const clamped = known ? Math.max(0, Math.min(100, pct)) : 0;
+  const color = _healthColor(pct);
+  return `
+    <div class="card" style="padding:18px 20px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px">
+        <div class="sec-header" style="margin:0">${_esc(title)}${dedicated ? _dedicatedPill() : ""}</div>
+        <div style="font-family:var(--font-mono);font-size:20px;font-weight:600;color:${color}">${known ? Math.round(pct) + "%" : "—"}</div>
+      </div>
+      <div style="height:8px;border-radius:4px;background:var(--color-cream-line);overflow:hidden;margin-bottom:8px">
+        <div style="height:100%;width:${clamped}%;background:${color};transition:width .4s ease"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-family:var(--font-mono);font-size:11px;color:var(--color-ink-faint)">
+        <span>${_esc(leftLabel)}</span>
+        <span>${_esc(rightLabel)}</span>
+      </div>
+    </div>`;
+}
+
+function _statCard(title, value, sub) {
+  return `
+    <div class="card" style="padding:18px 20px">
+      <div class="sec-header" style="margin:0 0 10px 0">${_esc(title)}</div>
+      <div style="font-family:var(--font-mono);font-size:20px;font-weight:600;color:var(--color-ink)">${_esc(value)}</div>
+      ${sub ? `<div style="font-family:var(--font-mono);font-size:11px;color:var(--color-ink-faint);margin-top:6px">${_esc(sub)}</div>` : ""}
+    </div>`;
+}
+
+function _renderHealthTab(pane) {
+  pane.innerHTML = `
+    <div style="max-width:760px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:16px">
+        <div class="form-helper" style="margin:0">Live host &amp; container resource usage. Refreshes every ${_HEALTH_REFRESH_MS / 1000}s.</div>
+        <div id="health-updated" style="font-family:var(--font-mono);font-size:11px;color:var(--color-ink-faint)"></div>
+      </div>
+      <div id="health-grid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:14px">
+        <div style="color:var(--color-ink-faint);font-family:var(--font-mono);font-size:12px">Loading metrics…</div>
+      </div>
+    </div>`;
+
+  const grid = pane.querySelector("#health-grid");
+  const updated = pane.querySelector("#health-updated");
+
+  async function refresh() {
+    // Self-clean: stop polling once the tab has been navigated away from.
+    if (!document.body.contains(grid)) { clearInterval(timer); return; }
+    try {
+      const h = await api.getSystemHealth();
+      if (!document.body.contains(grid)) { clearInterval(timer); return; }
+
+      const cards = [];
+
+      const disk = h.disk;
+      cards.push(_meterCard(
+        "Disk — data volume",
+        disk ? disk.percent : null,
+        disk ? `${_fmtBytes(disk.used_bytes)} used` : "unavailable",
+        disk ? `${_fmtBytes(disk.free_bytes)} free of ${_fmtBytes(disk.total_bytes)}` : "",
+        !!(disk && disk.quota),
+      ));
+
+      const mem = h.memory;
+      cards.push(_meterCard(
+        "Memory",
+        mem ? mem.percent : null,
+        mem ? `${_fmtBytes(mem.used_bytes)} used` : "unavailable",
+        mem ? `${_fmtBytes(mem.available_bytes)} available of ${_fmtBytes(mem.total_bytes)}` : "",
+        !!(mem && mem.source === "cgroup"),
+      ));
+
+      const cpu = h.cpu;
+      const load = h.load;
+      if (cpu && cpu.percent != null) {
+        cards.push(_meterCard(
+          "CPU",
+          cpu.percent,
+          `${cpu.count ?? "?"} cores`,
+          load ? `load ${load["1m"]} · ${load["5m"]} · ${load["15m"]}` : "",
+          cpu.source === "cgroup",
+        ));
+      } else {
+        // No psutil CPU% — fall back to a load-average stat card.
+        cards.push(_statCard(
+          "CPU load average",
+          load ? `${load["1m"]} · ${load["5m"]} · ${load["15m"]}` : "—",
+          `${cpu?.count ?? "?"} cores · 1m · 5m · 15m`,
+        ));
+      }
+
+      const proc = h.process;
+      cards.push(_statCard(
+        "This container",
+        proc ? _fmtBytes(proc.rss_bytes) : "—",
+        proc
+          ? `RSS · ${proc.num_threads} threads · up ${_fmtDuration(proc.uptime_seconds)}`
+          : "process metrics need psutil",
+      ));
+
+      cards.push(_statCard("Host uptime", _fmtDuration(h.uptime_seconds), null));
+
+      grid.innerHTML = cards.join("");
+      updated.textContent = "updated " + new Date().toLocaleTimeString();
+    } catch (err) {
+      if (document.body.contains(grid)) {
+        grid.innerHTML = `<div style="color:var(--color-danger);font-family:var(--font-mono);font-size:12px">${_esc(err.message || "Could not load metrics")}</div>`;
+      }
+    }
+  }
+
+  const timer = setInterval(refresh, _HEALTH_REFRESH_MS);
+  refresh();
 }
 
 // ── Branding tab ─────────────────────────────────────────────────────────────
@@ -1302,7 +1453,7 @@ function _showRotationModal() {
   veil.innerHTML = `<div class="modal" role="dialog" style="max-width:560px">
     <div class="modal-header">
       <span id="rot-title">Rotate encryption key — Step 1 of 5</span>
-      <button class="modal-close" id="rot-x">✕</button>
+      <button class="modal-close" id="rot-x">${icon("x", { size: 16 })}</button>
     </div>
     <div class="modal-body" id="rot-body" style="min-height:160px"></div>
     <div class="modal-footer">
@@ -1382,7 +1533,7 @@ function _showRotationModal() {
           <p style="margin:0 0 6px 0;font-family:var(--font-mono);font-size:12px;color:var(--color-ink-soft)">New key (copy it now):</p>
           <code style="display:block;padding:10px 12px;background:var(--color-cream-deep);border-radius:4px;font-family:var(--font-mono);font-size:12px;word-break:break-all">${_esc(confirmedKey)}</code>` : ""}
         <p style="margin:12px 0 0 0;color:var(--color-warn);font-family:var(--font-mono);font-size:13px">
-          ⚠ This is the only time you'll see this value.
+          ${icon("triangle-alert", { size: 13 })} This is the only time you'll see this value.
         </p>`;
       nextBtn.textContent = "Re-encrypt now";
     }
@@ -1398,7 +1549,7 @@ function _showRotationModal() {
     else if (step === 5) {
       bodyEl.innerHTML = `
         <p style="margin:0 0 12px 0;font-family:var(--font-mono);font-size:14px">
-          ✓ Rotation succeeded — ${serverResult?.rotated_count ?? 0} secret${serverResult?.rotated_count === 1 ? "" : "s"} re-encrypted.
+          ${icon("check", { size: 13 })} Rotation succeeded — ${serverResult?.rotated_count ?? 0} secret${serverResult?.rotated_count === 1 ? "" : "s"} re-encrypted.
         </p>
         <p style="margin:0 0 8px 0;font-family:var(--font-mono);font-size:12px;color:var(--color-ink-soft)">
           New fingerprint: <code>${_esc(serverResult?.encryption_key_id || "")}</code>
@@ -1600,7 +1751,7 @@ function _showCreateUserModal(reload) {
     <div class="modal" role="dialog" style="max-width:520px">
       <div class="modal-header">
         <span>New user</span>
-        <button class="modal-close" id="cu-x">✕</button>
+        <button class="modal-close" id="cu-x">${icon("x", { size: 16 })}</button>
       </div>
       <div class="modal-body" style="display:flex;flex-direction:column;gap:12px">
         <div>
@@ -1673,7 +1824,7 @@ function _showEditUserModal(user, reload) {
     <div class="modal" role="dialog" style="max-width:520px">
       <div class="modal-header">
         <span>Edit user — ${_esc(user.username)}</span>
-        <button class="modal-close" id="eu-x">✕</button>
+        <button class="modal-close" id="eu-x">${icon("x", { size: 16 })}</button>
       </div>
       <div class="modal-body" style="display:flex;flex-direction:column;gap:12px">
         <div>
@@ -1748,7 +1899,7 @@ function _confirmDeleteUser(user, reload) {
     <div class="modal" role="dialog" style="max-width:400px">
       <div class="modal-header">
         <span>Delete user</span>
-        <button class="modal-close" id="du-x">✕</button>
+        <button class="modal-close" id="du-x">${icon("x", { size: 16 })}</button>
       </div>
       <div class="modal-body">
         <p style="margin:0;font-family:var(--font-mono);font-size:13px">

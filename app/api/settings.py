@@ -643,6 +643,60 @@ def check_package_installed():
     return jsonify({"name": name, "installed": installed})
 
 
+@bp.get("/system/health")
+@require_admin
+def system_health():
+    """Host/container resource metrics for the admin Health tab.
+
+    Self-hosted: reports the real machine. Cloud tenant whose container has
+    cgroup limits (docker ``--memory``/``--cpus``): reports that tenant's
+    *dedicated* allocation, never the shared host — so one client can't see
+    another's, or the host's, capacity. Memory and CPU prefer cgroup limits and
+    fall back to host metrics only when the cgroup is unlimited.
+
+    Read-only. Any unavailable metric is returned as null rather than failing
+    the whole response.
+    """
+    import time
+
+    data_dir = current_app.config["DATA_DIR"]
+    data_dir_exists = os.path.isdir(data_dir)
+    disk_path = data_dir if data_dir_exists else "/"
+
+    health: dict[str, Any] = {
+        # App-level quota only applies to a real data dir — never walk "/".
+        "disk": _disk_metrics(disk_path, allow_quota=data_dir_exists),
+        "load": None,
+        "memory": _cgroup_memory() or _host_memory(),
+        "cpu": _cgroup_cpu() or _host_cpu(),
+        "uptime_seconds": None,
+        "process": None,
+    }
+
+    # Load average is inherently host-wide; informational only.
+    try:
+        la1, la5, la15 = os.getloadavg()
+        health["load"] = {"1m": round(la1, 2), "5m": round(la5, 2), "15m": round(la15, 2)}
+    except (OSError, AttributeError):
+        pass
+
+    # Uptime + this-process stats.
+    try:
+        import psutil
+        health["uptime_seconds"] = int(time.time() - psutil.boot_time())
+        proc = psutil.Process()
+        health["process"] = {
+            "rss_bytes": proc.memory_info().rss,
+            "num_threads": proc.num_threads(),
+            "uptime_seconds": int(time.time() - proc.create_time()),
+        }
+    except ImportError:
+        health["uptime_seconds"] = _uptime_fallback()
+        health["process"] = _process_fallback()
+
+    return jsonify(health)
+
+
 # ── Catch-all single-key routes (registered after specific routes) ───────────
 
 @bp.get("/<string:key>")
@@ -687,6 +741,260 @@ def put_setting(key: str):
         # Re-fetch to get server-generated timestamp
         row = session.get(Setting, key)
         return jsonify(_row_to_dict(row))
+
+
+# ── System health collectors ─────────────────────────────────────────────────
+
+_CGROUP = "/sys/fs/cgroup"
+
+
+def _read_text(path: str) -> str | None:
+    try:
+        with open(path) as fh:
+            return fh.read().strip()
+    except OSError:
+        return None
+
+
+def _read_int(path: str) -> int | None:
+    raw = _read_text(path)
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
+def _disk_metrics(disk_path: str, *, allow_quota: bool = True) -> dict | None:
+    """Disk usage of the data volume.
+
+    An XFS project quota makes ``shutil.disk_usage`` report the quota directly.
+    Without one, set ``SWARM_DISK_QUOTA_GB`` to enforce an app-level quota:
+    usage is summed under the data dir and compared to it. Otherwise this
+    reports the host filesystem (correct for self-hosters).
+
+    ``allow_quota`` is False when ``disk_path`` is not the real data dir (it fell
+    back to ``/``), so the usage walk never descends the whole root filesystem.
+    """
+    import shutil
+
+    quota_env = os.environ.get("SWARM_DISK_QUOTA_GB")
+    if allow_quota and quota_env:
+        try:
+            total = int(float(quota_env) * 1024 ** 3)
+        except ValueError:
+            total = 0
+        if total > 0:
+            used = _dir_size(disk_path)
+            return {
+                "path": disk_path,
+                "total_bytes": total,
+                "used_bytes": used,
+                "free_bytes": max(0, total - used),
+                "percent": round(used / total * 100, 1) if total else 0.0,
+                "quota": True,
+            }
+
+    try:
+        du = shutil.disk_usage(disk_path)
+    except OSError:
+        return None
+    return {
+        "path": disk_path,
+        "total_bytes": du.total,
+        "used_bytes": du.used,
+        "free_bytes": du.free,
+        "percent": round(du.used / du.total * 100, 1) if du.total else 0.0,
+        "quota": False,
+    }
+
+
+def _dir_size(path: str) -> int:
+    """Total bytes of regular files under `path`. Used for app-level disk quota."""
+    total = 0
+    try:
+        with os.scandir(path) as it:
+            for entry in it:
+                try:
+                    if entry.is_symlink():
+                        continue
+                    if entry.is_file():
+                        total += entry.stat().st_size
+                    elif entry.is_dir():
+                        total += _dir_size(entry.path)
+                except OSError:
+                    continue
+    except OSError:
+        pass
+    return total
+
+
+def _cgroup_memory() -> dict | None:
+    """Memory limit + usage from cgroups (v2 then v1). None if unlimited/unknown."""
+    raw = _read_text(f"{_CGROUP}/memory.max")          # cgroup v2
+    if raw is not None:
+        if raw == "max":
+            return None
+        try:
+            total = int(raw)
+        except ValueError:
+            return None
+        return _mem_dict(total, _read_int(f"{_CGROUP}/memory.current") or 0)
+
+    total = _read_int(f"{_CGROUP}/memory/memory.limit_in_bytes")   # cgroup v1
+    used = _read_int(f"{_CGROUP}/memory/memory.usage_in_bytes")
+    # v1 "unlimited" is a huge sentinel (~PAGE_COUNTER_MAX); treat as no limit.
+    if total is not None and used is not None and total < (1 << 62):
+        return _mem_dict(total, used)
+    return None
+
+
+def _mem_dict(total: int, used: int) -> dict:
+    return {
+        "total_bytes": total,
+        "used_bytes": used,
+        "available_bytes": max(0, total - used),
+        "percent": round(used / total * 100, 1) if total else 0.0,
+        "source": "cgroup",
+    }
+
+
+def _host_memory() -> dict | None:
+    try:
+        import psutil
+    except ImportError:
+        m = _meminfo_fallback()
+        if m is not None:
+            m["source"] = "host"
+        return m
+    vm = psutil.virtual_memory()
+    return {
+        "total_bytes": vm.total,
+        "used_bytes": vm.total - vm.available,
+        "available_bytes": vm.available,
+        "percent": vm.percent,
+        "source": "host",
+    }
+
+
+def _cgroup_cpu() -> dict | None:
+    """Allocated cores + this cgroup's CPU% of its own allocation. None if unlimited."""
+    import time
+
+    cores = _cgroup_cpu_cores()
+    if cores is None:
+        return None
+
+    percent = None
+    u0 = _cgroup_cpu_usage_usec()
+    if u0 is not None:
+        t0 = time.monotonic()
+        time.sleep(0.15)
+        u1 = _cgroup_cpu_usage_usec()
+        dt_us = (time.monotonic() - t0) * 1_000_000
+        if u1 is not None and dt_us > 0:
+            cores_used = (u1 - u0) / dt_us
+            percent = round(min(100.0, cores_used / cores * 100), 1)
+    return {"count": round(cores, 2), "percent": percent, "source": "cgroup"}
+
+
+def _cgroup_cpu_cores() -> float | None:
+    raw = _read_text(f"{_CGROUP}/cpu.max")             # cgroup v2: "<quota> <period>"
+    if raw is not None:
+        parts = raw.split()
+        if parts and parts[0] == "max":
+            return None
+        if len(parts) == 2:
+            try:
+                quota, period = int(parts[0]), int(parts[1])
+                if period > 0:
+                    return quota / period
+            except ValueError:
+                pass
+    quota = _read_int(f"{_CGROUP}/cpu/cpu.cfs_quota_us")   # cgroup v1
+    period = _read_int(f"{_CGROUP}/cpu/cpu.cfs_period_us")
+    if quota and period and quota > 0:
+        return quota / period
+    return None
+
+
+def _cgroup_cpu_usage_usec() -> float | None:
+    raw = _read_text(f"{_CGROUP}/cpu.stat")            # cgroup v2
+    if raw is not None:
+        for line in raw.splitlines():
+            if line.startswith("usage_usec"):
+                try:
+                    return float(line.split()[1])
+                except (IndexError, ValueError):
+                    return None
+    ns = _read_int(f"{_CGROUP}/cpuacct/cpuacct.usage")     # cgroup v1 (nanoseconds)
+    return ns / 1000.0 if ns is not None else None
+
+
+def _host_cpu() -> dict | None:
+    try:
+        import psutil
+    except ImportError:
+        return {"count": os.cpu_count(), "percent": None, "source": "host"}
+    return {
+        "count": psutil.cpu_count(logical=True),
+        "percent": psutil.cpu_percent(interval=0.15),
+        "source": "host",
+    }
+
+
+def _meminfo_fallback() -> dict | None:
+    """Parse total/available memory from /proc/meminfo. Linux-only."""
+    try:
+        info: dict[str, int] = {}
+        with open("/proc/meminfo") as fh:
+            for line in fh:
+                name, _, rest = line.partition(":")
+                if rest:
+                    # Values are in kB; convert to bytes.
+                    info[name.strip()] = int(rest.strip().split()[0]) * 1024
+    except (OSError, ValueError):
+        return None
+    total = info.get("MemTotal")
+    available = info.get("MemAvailable")
+    if total is None or available is None:
+        return None
+    return {
+        "total_bytes": total,
+        "used_bytes": total - available,
+        "available_bytes": available,
+        "percent": round((total - available) / total * 100, 1) if total else 0.0,
+    }
+
+
+def _uptime_fallback() -> int | None:
+    """Read system uptime in seconds from /proc/uptime. Linux-only."""
+    try:
+        with open("/proc/uptime") as fh:
+            return int(float(fh.read().split()[0]))
+    except (OSError, ValueError):
+        return None
+
+
+def _process_fallback() -> dict | None:
+    """This process's RSS + thread count from /proc/self. Linux-only."""
+    try:
+        with open("/proc/self/statm") as fh:
+            rss_pages = int(fh.read().split()[1])
+        rss = rss_pages * os.sysconf("SC_PAGE_SIZE")
+    except (OSError, ValueError, IndexError):
+        return None
+    threads = None
+    try:
+        with open("/proc/self/status") as fh:
+            for line in fh:
+                if line.startswith("Threads:"):
+                    threads = int(line.split()[1])
+                    break
+    except (OSError, ValueError):
+        pass
+    return {"rss_bytes": rss, "num_threads": threads, "uptime_seconds": None}
 
 
 # ── Image dimension helpers (no Pillow dependency) ───────────────────────────

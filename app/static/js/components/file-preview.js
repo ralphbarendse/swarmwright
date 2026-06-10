@@ -10,6 +10,7 @@
  */
 import * as api from "../api.js";
 import { renderMarkdown, highlightCodeBlocks } from "./markdown.js";
+import { icon } from "../icons.js";
 import { parseDelimited } from "./csv.js";
 
 export const TEXT_PREVIEW_MAX = 512 * 1024; // bytes — above this we don't fetch inline
@@ -30,17 +31,18 @@ export function isTextish(mime, filename) {
     "html", "css", "js", "ts", "py", "sh", "ini", "toml", "env", "conf", "sql"].includes(ext);
 }
 
-export function fileIcon(mime, filename) {
+export function fileIcon(mime, filename, size = 16) {
   const ext = (String(filename).split(".").pop() || "").toLowerCase();
   mime = mime || "";
-  if (mime.startsWith("image/") || ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico"].includes(ext)) return "🖼";
-  if (mime === "application/pdf" || ext === "pdf") return "📄";
-  if (["csv", "tsv", "xls", "xlsx"].includes(ext) || mime === "text/csv") return "📊";
-  if (["json", "xml", "yaml", "yml", "toml", "ini", "env", "conf"].includes(ext)) return "⚙";
-  if (["js", "ts", "py", "sh", "rb", "go", "rs", "java", "c", "cpp", "css", "html", "sql"].includes(ext)) return "⟨⟩";
-  if (["zip", "tar", "gz", "tgz", "rar", "7z"].includes(ext)) return "🗜";
-  if (["txt", "md", "markdown", "log", "rtf"].includes(ext)) return "📝";
-  return "▱";
+  let name = "file";
+  if (mime.startsWith("image/") || ["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico"].includes(ext)) name = "image";
+  else if (mime === "application/pdf" || ext === "pdf") name = "file-text";
+  else if (["csv", "tsv", "xls", "xlsx"].includes(ext) || mime === "text/csv") name = "table";
+  else if (["json", "xml", "yaml", "yml", "toml", "ini", "env", "conf"].includes(ext)) name = "file-cog";
+  else if (["js", "ts", "py", "sh", "rb", "go", "rs", "java", "c", "cpp", "css", "html", "sql"].includes(ext)) name = "code";
+  else if (["zip", "tar", "gz", "tgz", "rar", "7z"].includes(ext)) name = "archive";
+  else if (["txt", "md", "markdown", "log", "rtf"].includes(ext)) name = "file-text";
+  return icon(name, { size });
 }
 
 export function fmtBytes(n) {

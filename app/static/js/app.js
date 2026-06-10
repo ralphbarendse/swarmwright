@@ -27,6 +27,7 @@ import { renderWelcomeView }                      from "./views/welcome.js";
 import { renderOnboardingView }                   from "./views/onboarding.js";
 import { setCurrentUser, currentUser, canDo, logout } from "./auth.js";
 import { mountChatWidget }                          from "./components/chat-panel.js";
+import { icon }                                     from "./icons.js";
 
 // ── Router ────────────────────────────────────────────────────────────────────
 
@@ -175,7 +176,7 @@ function _renderUserWidget(user) {
   chip.className = "user-widget";
   chip.innerHTML = `
     <span class="user-widget-name">${_escHtml(user.display_name || user.username)}</span>
-    <button class="user-widget-logout" title="Sign out">↩</button>
+    <button class="user-widget-logout" title="Sign out">${icon("log-out", { size: 15 })}</button>
   `;
   chip.querySelector(".user-widget-logout").addEventListener("click", logout);
   right.appendChild(chip);
@@ -191,10 +192,10 @@ function _escHtml(s) {
 window.swCopy = function(text, btn) {
   navigator.clipboard.writeText(text).then(() => {
     if (!btn) return;
-    const orig = btn.textContent;
-    btn.textContent = "✓";
+    const orig = btn.innerHTML;
+    btn.innerHTML = icon("check", { size: 15 });
     btn.style.color = "var(--color-success)";
-    setTimeout(() => { btn.textContent = orig; btn.style.color = ""; }, 1500);
+    setTimeout(() => { btn.innerHTML = orig; btn.style.color = ""; }, 1500);
   });
 };
 
@@ -213,13 +214,13 @@ let _mobileNavEl = null;
 // Bottom-tab definitions. `view` is the route the tab navigates to; `show`
 // gates visibility on the same per-user permissions the desktop uses.
 const MOBILE_TABS = [
-  { id: "chat",    view: "chat",  icon: "💬", label: "Chat",
+  { id: "chat",    view: "chat",  icon: "message-square", label: "Chat",
     show: () => canDo("can_chat_operator") || canDo("can_chat_workspace") },
-  { id: "signals", view: "inbox", icon: "🔔", label: "Signals", pip: true,
+  { id: "signals", view: "inbox", icon: "bell", label: "Signals", pip: true,
     show: () => canDo("can_decide_inbox") },
-  { id: "runs",    view: "runs",  icon: "📡", label: "Runs",
+  { id: "runs",    view: "runs",  icon: "radio", label: "Runs",
     show: () => canDo("can_chat_operator") || canDo("can_start_run") || canDo("can_stop_run") },
-  { id: "files",   view: "files", icon: "📁", label: "Files",
+  { id: "files",   view: "files", icon: "folder", label: "Files",
     show: () => canDo("can_read_files") },
 ];
 
@@ -245,7 +246,7 @@ function _bootMobile() {
   if (!visible.length) {
     document.getElementById("main").innerHTML = `
       <div class="mobile-unsupported">
-        <div style="font-size:32px">📵</div>
+        <div style="color:var(--color-ink-faint)">${icon("wifi-off", { size: 30 })}</div>
         <div class="mobile-unsupported-title">Mobile not available for your account</div>
         <div>Open SwarmWright on a desktop, or contact your administrator.</div>
       </div>`;
@@ -268,7 +269,7 @@ function _buildMobileNav(tabs) {
   nav.className = "mobile-tabbar";
   nav.innerHTML = tabs.map(t => `
     <button class="mobile-tab" data-view="${t.view}" data-id="${t.id}">
-      <span class="mobile-tab-icon">${t.icon}</span>
+      <span class="mobile-tab-icon">${icon(t.icon, { size: 22 })}</span>
       <span class="mobile-tab-label">${t.label}</span>
       ${t.pip ? `<span class="mobile-tab-pip" hidden></span>` : ""}
     </button>`).join("");
@@ -344,7 +345,7 @@ function renderMobileChat(container) {
     if (!workspaces.length) {
       host.innerHTML = `
         <div class="mobile-unsupported">
-          <div style="font-size:32px">🛎</div>
+          <div style="color:var(--color-ink-faint)">${icon("concierge-bell", { size: 30 })}</div>
           <div class="mobile-unsupported-title">No workspace yet</div>
           <div>Ask your administrator to add you to a workspace.</div>
         </div>`;

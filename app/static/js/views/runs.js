@@ -3,6 +3,7 @@ import { toastError, toastSuccess } from "../components/toast.js";
 import { onEvent, offEvent } from "../sse.js";
 import { _showModal } from "./org-design.js";
 import { canDo } from "../auth.js";
+import { icon } from "../icons.js";
 
 // Must match runtime.ORPHAN_ERROR — the error stamped on runs that were
 // reconciled to "failed" on boot after a server restart cut them off.
@@ -85,8 +86,8 @@ async function _renderControlRoom(container, addCleanup) {
           <div style="flex:1;display:flex;align-items:center;gap:16px;font-family:var(--font-mono);font-size:11px;overflow:hidden">
             <span id="stat-running" style="color:var(--color-amber);white-space:nowrap;opacity:.4">● 0 running</span>
             <span id="stat-awaiting" style="color:var(--color-orchestrator);white-space:nowrap;opacity:.4">● 0 awaiting</span>
-            <span id="stat-completed" style="color:var(--color-success);white-space:nowrap;opacity:.4">✓ 0 done today</span>
-            <span id="stat-failed" style="color:var(--color-danger);white-space:nowrap;opacity:.4">✗ 0 failed today</span>
+            <span id="stat-completed" style="color:var(--color-success);white-space:nowrap;opacity:.4">${icon("check", { size: 12 })} 0 done today</span>
+            <span id="stat-failed" style="color:var(--color-danger);white-space:nowrap;opacity:.4">${icon("x", { size: 12 })} 0 failed today</span>
           </div>
           <div style="display:flex;gap:3px;flex-shrink:0">
             <button id="tab-log" style="
@@ -130,7 +131,7 @@ async function _renderControlRoom(container, addCleanup) {
           <input type="text" id="fl-date-to" class="form-input" placeholder="To date"
             style="width:120px;font-size:12px;padding:4px 8px;font-family:var(--font-mono)"
             pattern="\d{4}-\d{2}-\d{2}" title="YYYY-MM-DD">
-          <button class="btn btn-ghost btn-sm" id="btn-refresh" style="margin-left:auto;font-size:11px;letter-spacing:.02em">↺ Refresh</button>
+          <button class="btn btn-ghost btn-sm" id="btn-refresh" style="margin-left:auto;font-size:11px;letter-spacing:.02em">${icon("rotate-ccw", { size: 12 })} Refresh</button>
         </div>
 
         <!-- Context bar (shown when organogram selection active) -->
@@ -149,7 +150,7 @@ async function _renderControlRoom(container, addCleanup) {
           <button class="btn btn-ghost btn-sm" id="cr-clear-sel" style="
             margin-left:auto;font-size:10px;padding:1px 6px;
             color:var(--color-ink-faint);letter-spacing:.02em;
-          ">✕ show all</button>
+          ">${icon("x", { size: 11 })} show all</button>
         </div>
 
         <!-- Log content -->
@@ -169,7 +170,7 @@ async function _renderControlRoom(container, addCleanup) {
           ">
             <span style="font-family:var(--font-mono);font-size:10px;color:var(--color-ink-faint);letter-spacing:.06em;text-transform:uppercase">Events table</span>
             <span id="cr-events-updated" style="font-family:var(--font-mono);font-size:10px;color:var(--color-ink-faint)"></span>
-            <button class="btn btn-ghost btn-sm" id="btn-events-pause" style="margin-left:auto;font-size:10px">⏸ Pause</button>
+            <button class="btn btn-ghost btn-sm" id="btn-events-pause" style="margin-left:auto;font-size:10px">${icon("pause", { size: 11 })} Pause</button>
           </div>
           <div id="cr-stream-list" style="flex:1;overflow-y:auto;padding:0"></div>
         </div>
@@ -214,8 +215,8 @@ async function _renderControlRoom(container, addCleanup) {
       };
       if (els.running)   { els.running.textContent   = `● ${s.running} running`;      els.running.style.opacity   = s.running > 0 ? "1" : ".35"; }
       if (els.awaiting)  { els.awaiting.textContent  = `● ${s.awaiting_human} awaiting`; els.awaiting.style.opacity  = s.awaiting_human > 0 ? "1" : ".35"; }
-      if (els.completed) { els.completed.textContent = `✓ ${s.completed_today} done today`; els.completed.style.opacity = s.completed_today > 0 ? "1" : ".35"; }
-      if (els.failed)    { els.failed.textContent    = `✗ ${s.failed_today} failed today`; els.failed.style.opacity    = s.failed_today > 0 ? "1" : ".35"; }
+      if (els.completed) { els.completed.innerHTML = `${icon("check", { size: 12 })} ${s.completed_today} done today`; els.completed.style.opacity = s.completed_today > 0 ? "1" : ".35"; }
+      if (els.failed)    { els.failed.innerHTML    = `${icon("x", { size: 12 })} ${s.failed_today} failed today`; els.failed.style.opacity    = s.failed_today > 0 ? "1" : ".35"; }
     } catch { /* silently ignore */ }
   };
 
@@ -293,8 +294,8 @@ async function _renderControlRoom(container, addCleanup) {
               transition:transform .15s;
               transform:rotate(${collapsed ? -90 : 0}deg);
               flex-shrink:0;
-            ">▾</span>
-            <span style="font-size:11px;flex-shrink:0">🏢</span>
+            ">${icon("chevron-down", { size: 13 })}</span>
+            <span style="flex-shrink:0;color:var(--color-ink-soft)">${icon("building-2", { size: 13 })}</span>
             <span style="
               font-family:var(--font-mono);font-size:11px;font-weight:700;
               letter-spacing:.05em;text-transform:uppercase;
@@ -365,8 +366,8 @@ async function _renderControlRoom(container, addCleanup) {
                       border-radius:3px;padding:1px 7px;
                       color:var(--color-amber);
                       cursor:pointer;flex-shrink:0;
-                      transition:all .12s;
-                    ">▶</button>
+                      transition:all .12s;display:inline-flex;align-items:center;
+                    ">${icon("play", { size: 11 })}</button>
                 </div>`;
             }).join("")}
             ${swarms.length === 0 ? `
@@ -604,7 +605,7 @@ async function _renderControlRoom(container, addCleanup) {
   container.querySelector("#btn-events-pause").addEventListener("click", () => {
     const btn = container.querySelector("#btn-events-pause");
     state.eventsPaused = !state.eventsPaused;
-    btn.textContent = state.eventsPaused ? "▶ Resume" : "⏸ Pause";
+    btn.innerHTML = state.eventsPaused ? `${icon("play", { size: 11 })} Resume` : `${icon("pause", { size: 11 })} Pause`;
     if (!state.eventsPaused) _pollEvents();
   });
 
@@ -759,7 +760,7 @@ async function _renderControlRoom(container, addCleanup) {
           toastSuccess(`Fired "${trigger.name}" — event ${r?.event_id?.slice(0, 8) || ""}`);
           setTimeout(() => load(), 400);
         },
-        "▶ Fire"
+        `${icon("play", { size: 12 })} Fire`
       );
       return;
     }
@@ -791,7 +792,7 @@ async function _renderControlRoom(container, addCleanup) {
         }
         setTimeout(() => load(), 400);
       },
-      "▶ Fire"
+      `${icon("play", { size: 12 })} Fire`
     );
     setTimeout(() => {
       const ta = document.getElementById("m-payload");
@@ -814,7 +815,7 @@ function _renderEventsTable(container, events, swarmMap) {
   if (!events.length) {
     list.innerHTML = `
       <div class="empty-state" style="padding-top:40px">
-        <div class="empty-state-icon" style="font-size:28px">📭</div>
+        <div class="empty-state-icon" style="color:var(--color-ink-faint)">${icon("inbox", { size: 30 })}</div>
         <div class="empty-state-title">No events yet</div>
         <div class="empty-state-sub">Fire an event from a swarm to see it here.</div>
       </div>`;
@@ -880,7 +881,7 @@ function _renderRunRows(container, runs, reset) {
   if (!runs.length && !list.children.length) {
     list.innerHTML = `
       <div class="empty-state" style="padding-top:40px">
-        <div class="empty-state-icon" style="font-size:28px">📋</div>
+        <div class="empty-state-icon" style="color:var(--color-ink-faint)">${icon("clipboard-list", { size: 30 })}</div>
         <div class="empty-state-title">No runs yet</div>
         <div class="empty-state-sub">Fire an event from a swarm to start a run.</div>
       </div>`;
@@ -911,7 +912,7 @@ function _renderRunRows(container, runs, reset) {
           ${_esc(run.id.slice(0, 8))} · ${_esc(run.source || "—")}</div>
       </div>
       <div style="flex-shrink:0;display:flex;align-items:center;gap:8px">
-        ${isRunning && canDo("can_stop_run") ? `<button class="btn btn-ghost btn-sm run-stop-btn" data-id="${run.id}" style="font-size:10px;padding:1px 6px;color:var(--color-danger);border-color:var(--color-danger)">■ Stop</button>` : ""}
+        ${isRunning && canDo("can_stop_run") ? `<button class="btn btn-ghost btn-sm run-stop-btn" data-id="${run.id}" style="font-size:10px;padding:1px 6px;color:var(--color-danger);border-color:var(--color-danger)">${icon("square", { size: 10 })} Stop</button>` : ""}
         <div style="text-align:right">
           <div style="font-family:var(--font-mono);font-size:10px;
             background:${_statusColor(run.status)}18;color:${_statusColor(run.status)};
@@ -942,6 +943,12 @@ function _renderRunRows(container, runs, reset) {
 // ── Run detail ────────────────────────────────────────────────────────────
 
 async function _renderRunDetail(container, runId, addCleanup) {
+  // Phones get a purpose-built single-column surface (no split, no swimlane,
+  // no drag-resize) instead of the desktop instrument below.
+  if (document.documentElement.classList.contains("sw-mobile")) {
+    return _renderMobileRunDetail(container, runId, addCleanup);
+  }
+
   container.style.cssText = "height:100%;overflow:hidden;display:flex;flex-direction:column";
 
   container.innerHTML = `
@@ -971,12 +978,12 @@ async function _renderRunDetail(container, runId, addCleanup) {
       font-family:var(--font-mono);font-size:11px;
     ">
       <span style="color:var(--color-ink-faint);letter-spacing:.05em;text-transform:uppercase;font-size:9px">Replay</span>
-      <button id="replay-first" class="btn btn-ghost btn-sm" style="padding:2px 7px;font-size:12px" title="First step">⟨⟨</button>
-      <button id="replay-prev"  class="btn btn-ghost btn-sm" style="padding:2px 7px;font-size:12px" title="Previous step">⟨</button>
+      <button id="replay-first" class="btn btn-ghost btn-sm" style="padding:2px 7px" title="First step">${icon("skip-back", { size: 13 })}</button>
+      <button id="replay-prev"  class="btn btn-ghost btn-sm" style="padding:2px 7px" title="Previous step">${icon("chevron-left", { size: 14 })}</button>
       <span id="replay-counter" style="color:var(--color-ink-soft);min-width:70px;text-align:center">—</span>
-      <button id="replay-next"  class="btn btn-ghost btn-sm" style="padding:2px 7px;font-size:12px" title="Next step">⟩</button>
-      <button id="replay-last"  class="btn btn-ghost btn-sm" style="padding:2px 7px;font-size:12px" title="Last step">⟩⟩</button>
-      <button id="replay-play"  class="btn btn-ghost btn-sm" style="padding:2px 9px;font-size:12px;color:var(--color-amber)" title="Auto-play">▶</button>
+      <button id="replay-next"  class="btn btn-ghost btn-sm" style="padding:2px 7px" title="Next step">${icon("chevron-right", { size: 14 })}</button>
+      <button id="replay-last"  class="btn btn-ghost btn-sm" style="padding:2px 7px" title="Last step">${icon("skip-forward", { size: 13 })}</button>
+      <button id="replay-play"  class="btn btn-ghost btn-sm" style="padding:2px 9px;color:var(--color-amber)" title="Auto-play">${icon("play", { size: 13 })}</button>
       <span style="margin-left:auto;color:var(--color-ink-faint);font-size:10px">Click a bar or step to seek</span>
     </div>
 
@@ -991,7 +998,7 @@ async function _renderRunDetail(container, runId, addCleanup) {
           text-transform:uppercase;color:var(--color-ink-faint);
         ">
           Step trace
-          <button id="btn-toggle-replay" class="btn btn-ghost btn-sm" style="font-size:9px;padding:1px 7px;letter-spacing:.04em">⏵ Replay mode</button>
+          <button id="btn-toggle-replay" class="btn btn-ghost btn-sm" style="font-size:9px;padding:1px 7px;letter-spacing:.04em">${icon("play", { size: 11 })} Replay mode</button>
         </div>
         <div id="steps-list"></div>
       </div>
@@ -1062,7 +1069,7 @@ async function _renderRunDetail(container, runId, addCleanup) {
   const _setReplayMode = on => {
     _replayMode = on;
     _replayBar.style.display  = on ? "flex" : "none";
-    _toggleBtn.textContent    = on ? "✕ Exit replay" : "⏵ Replay mode";
+    _toggleBtn.innerHTML      = on ? `${icon("x", { size: 11 })} Exit replay` : `${icon("play", { size: 11 })} Replay mode`;
     if (!on) { _clearReplayHighlight(); if (_playTimer) { clearInterval(_playTimer); _playTimer = null; } }
     else if (_steps.length) _seekReplay(0);
   };
@@ -1093,13 +1100,13 @@ async function _renderRunDetail(container, runId, addCleanup) {
     if (_playTimer) {
       clearInterval(_playTimer);
       _playTimer = null;
-      container.querySelector("#replay-play").textContent = "▶";
+      container.querySelector("#replay-play").innerHTML = icon("play", { size: 13 });
     } else {
-      container.querySelector("#replay-play").textContent = "⏸";
+      container.querySelector("#replay-play").innerHTML = icon("pause", { size: 13 });
       _playTimer = setInterval(() => {
         if (_replayIdx >= _steps.length - 1) {
           clearInterval(_playTimer); _playTimer = null;
-          container.querySelector("#replay-play").textContent = "▶";
+          container.querySelector("#replay-play").innerHTML = icon("play", { size: 13 });
         } else {
           _seekReplay(_replayIdx + 1);
         }
@@ -1150,6 +1157,203 @@ async function _renderRunDetail(container, runId, addCleanup) {
   await _reload();
 }
 
+// ── Mobile run detail ──────────────────────────────────────────────────────
+//
+// A single scrolling column built for a thumb: a compact sticky header, the
+// run's meta/error/payload, the summary pills, then the step trace as the main
+// surface. The desktop swimlane and drag-resize split are dropped entirely;
+// replay collapses to a small prev/next bar that scrolls the active step card
+// into view (it reuses _applyReplayHighlight — the swimlane selectors inside it
+// simply match nothing here).
+async function _renderMobileRunDetail(container, runId, addCleanup) {
+  container.style.cssText = "height:100%;overflow:hidden;display:flex;flex-direction:column";
+
+  container.innerHTML = `
+    <div class="mrun">
+      <div class="mrun-head">
+        <button class="mrun-back" id="mrun-back">${icon("chevron-left", { size: 18 })} Runs</button>
+        <div class="mrun-head-status" id="mrun-head-status"></div>
+      </div>
+      <div class="mrun-scroll">
+        <div id="run-header" class="mrun-section"></div>
+        <div id="run-summary-bar" class="mrun-section"></div>
+        <div id="violations-box" class="mrun-section" style="display:none"></div>
+        <div class="mrun-trace-head">
+          <span>Step trace</span>
+          <button class="btn btn-ghost btn-sm" id="btn-toggle-replay">${icon("play", { size: 12 })} Replay</button>
+        </div>
+        <div class="mrun-replaybar" id="rd-replay-bar" style="display:none">
+          <button class="btn btn-ghost btn-sm" id="replay-prev" title="Previous step">${icon("chevron-left", { size: 16 })}</button>
+          <span id="replay-counter">—</span>
+          <button class="btn btn-ghost btn-sm" id="replay-next" title="Next step">${icon("chevron-right", { size: 16 })}</button>
+          <button class="btn btn-ghost btn-sm" id="replay-play" title="Auto-play">${icon("play", { size: 14 })}</button>
+          <button class="btn btn-ghost btn-sm" id="replay-exit" style="margin-left:auto">${icon("x", { size: 13 })} Exit</button>
+        </div>
+        <div id="steps-list"></div>
+      </div>
+    </div>`;
+
+  container.querySelector("#mrun-back").addEventListener("click", () => window.swNav("runs"));
+
+  // ── Replay state ───────────────────────────────────────────────────────────
+  let _steps = [];
+  let _replayIdx = -1;
+  let _replayMode = false;
+  let _playTimer = null;
+
+  const _replayBar = container.querySelector("#rd-replay-bar");
+  const _toggleBtn = container.querySelector("#btn-toggle-replay");
+
+  const _seekReplay = idx => {
+    if (!_steps.length) return;
+    _replayIdx = Math.max(0, Math.min(_steps.length - 1, idx));
+    _applyReplayHighlight(container, _steps, _replayIdx);
+  };
+
+  const _stopPlay = () => {
+    if (_playTimer) { clearInterval(_playTimer); _playTimer = null; }
+    const btn = container.querySelector("#replay-play");
+    if (btn) btn.innerHTML = icon("play", { size: 14 });
+  };
+
+  const _setReplayMode = on => {
+    _replayMode = on;
+    _replayBar.style.display = on ? "flex" : "none";
+    _toggleBtn.innerHTML = on ? `${icon("x", { size: 12 })} Exit replay` : `${icon("play", { size: 12 })} Replay`;
+    if (!on) {
+      _stopPlay();
+      container.querySelectorAll(".step-card").forEach(c => { c.style.outline = ""; });
+      _renderSteps(container, _steps, -1, null);
+    } else {
+      _renderSteps(container, _steps, _replayIdx, _seekReplay);
+      if (_steps.length) _seekReplay(0);
+    }
+  };
+
+  _toggleBtn.addEventListener("click", () => _setReplayMode(!_replayMode));
+  container.querySelector("#replay-exit").addEventListener("click", () => _setReplayMode(false));
+  container.querySelector("#replay-prev").addEventListener("click", () => _seekReplay(_replayIdx - 1));
+  container.querySelector("#replay-next").addEventListener("click", () => _seekReplay(_replayIdx + 1));
+  container.querySelector("#replay-play").addEventListener("click", () => {
+    if (_playTimer) { _stopPlay(); return; }
+    const btn = container.querySelector("#replay-play");
+    btn.innerHTML = icon("pause", { size: 14 });
+    _playTimer = setInterval(() => {
+      if (_replayIdx >= _steps.length - 1) _stopPlay();
+      else _seekReplay(_replayIdx + 1);
+    }, 1200);
+  });
+
+  // ── SSE + poll ─────────────────────────────────────────────────────────────
+  let pollInterval = null;
+
+  const _onRunEvent = data => { if (data?.run_id === runId) _reload(); };
+  onEvent("run.step",      _onRunEvent);
+  onEvent("run.completed", _onRunEvent);
+  onEvent("run.failed",    _onRunEvent);
+  addCleanup(() => {
+    offEvent("run.step",      _onRunEvent);
+    offEvent("run.completed", _onRunEvent);
+    offEvent("run.failed",    _onRunEvent);
+    if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+    if (_playTimer)   { clearInterval(_playTimer);   _playTimer   = null; }
+  });
+
+  const _reload = async () => {
+    try {
+      const run = await api.getRun(runId);
+      _renderMobileRunHeader(container, run);
+      _renderSummaryBar(container, run);
+      if (run.status === "awaiting_human") _loadEscalation(container, run.id);
+      _renderViolations(container, run.steps || []);
+      _steps = run.steps || [];
+      if (_replayMode) {
+        _renderSteps(container, _steps, _replayIdx, _seekReplay);
+        if (_replayIdx >= 0) _applyReplayHighlight(container, _steps, _replayIdx);
+      } else {
+        _renderSteps(container, _steps, -1, null);
+      }
+
+      const live = run.status === "running" || run.status === "pending";
+      if (live && !pollInterval) {
+        pollInterval = setInterval(_reload, 3000);
+      } else if (!live && pollInterval) {
+        clearInterval(pollInterval);
+        pollInterval = null;
+      }
+    } catch (err) { toastError(err); }
+  };
+
+  await _reload();
+}
+
+// Compact header for the mobile run detail. Writes the sticky-bar summary plus
+// the scrolling header block (run id, actions, meta, error, payload). Banner and
+// badge colours use the inline var()+alpha pattern that the desktop header uses.
+function _renderMobileRunHeader(container, run) {
+  const { label } = _statusBadge(run.status);
+  const color     = _statusColor(run.status);
+  const duration  = _duration(run.started_at, run.ended_at);
+  const payloadStr = JSON.stringify(run.event_payload || {}, null, 2);
+
+  const headStatus = container.querySelector("#mrun-head-status");
+  if (headStatus) {
+    headStatus.innerHTML = `
+      <span class="mrun-head-name">${_esc(run.swarm_display_name || run.swarm_id)}</span>
+      <span class="mrun-head-badge" style="background:${color}22;color:${color}">${label}</span>`;
+  }
+
+  const header = container.querySelector("#run-header");
+  if (!header) return;
+
+  const metaCells = [
+    ["Source",   run.source || "—"],
+    ["Started",  run.started_at ? new Date(run.started_at).toLocaleString() : "—"],
+    ["Ended",    run.ended_at   ? new Date(run.ended_at).toLocaleString()   : "—"],
+    ["Duration", duration || "—"],
+  ];
+
+  header.innerHTML = `
+    <div class="mrun-idrow">
+      <span class="mrun-id">${_esc(run.id)}</span>
+      <button class="mrun-copy" onclick="swCopy('${run.id}',this)" title="Copy run ID">${icon("copy", { size: 14 })}</button>
+    </div>
+    <div class="mrun-actions">
+      ${canDo("can_start_run") ? `<button class="btn btn-ghost btn-sm" id="btn-replay">${icon("rotate-ccw", { size: 13 })} Replay</button>` : ""}
+      ${run.status === "running" && canDo("can_stop_run") ? `<button class="btn btn-ghost btn-sm" id="btn-stop-run" style="color:var(--color-danger);border-color:var(--color-danger)">${icon("square", { size: 12 })} Stop</button>` : ""}
+    </div>
+    <div class="mrun-meta">
+      ${metaCells.map(([k, v]) => `
+        <div class="mrun-meta-cell">
+          <span class="mrun-meta-k">${k}</span>
+          <span class="mrun-meta-v">${_esc(v)}</span>
+        </div>`).join("")}
+    </div>
+    ${run.error ? (run.error === RESTART_INTERRUPT_ERROR ? `
+      <div class="mrun-banner" style="background:var(--color-amber)1a;border:1px solid var(--color-amber)55;color:var(--color-ink-soft)">
+        ${icon("rotate-ccw", { size: 13 })} <b style="color:var(--color-amber)">Interrupted by a server restart.</b> This run didn't fail — it was cut off when the service restarted. Use <b>Replay</b> above to run it again.</div>` : `
+      <div class="mrun-banner" style="background:var(--color-danger)1a;border:1px solid var(--color-danger)44;color:var(--color-danger)">
+        <b>Error:</b> ${_esc(run.error)}</div>`) : ""}
+    <details class="mrun-payload">
+      <summary>Event payload</summary>
+      <pre>${_esc(payloadStr)}</pre>
+    </details>`;
+
+  header.querySelector("#btn-replay")?.addEventListener("click", async () => {
+    try { await api.replayRun(run.id); toastSuccess("Replay fired"); }
+    catch (err) { toastError(err); }
+  });
+
+  const stopBtn = header.querySelector("#btn-stop-run");
+  if (stopBtn) {
+    stopBtn.addEventListener("click", async () => {
+      stopBtn.disabled = true;
+      try { await api.stopRun(run.id); toastSuccess("Stop signal sent — run will halt at next turn"); }
+      catch (err) { toastError(err); stopBtn.disabled = false; }
+    });
+  }
+}
+
 function _renderRunHeader(container, run) {
   const header = container.querySelector("#run-header");
   const { dot, label } = _statusBadge(run.status);
@@ -1170,9 +1374,9 @@ function _renderRunHeader(container, run) {
         color:${_statusColor(run.status)};padding:2px 8px;border-radius:4px">${label}</span>
       <span style="font-family:var(--font-display);font-size:16px;color:var(--color-ink)">${_esc(run.swarm_display_name || run.swarm_id)}</span>
       <span style="color:var(--color-ink-faint);font-size:11px;font-family:var(--font-mono)">${_esc(run.id)}</span>
-      <button onclick="swCopy('${run.id}',this)" style="background:none;border:none;cursor:pointer;font-size:11px;color:var(--color-ink-faint);padding:1px 4px;line-height:1" title="Copy run ID">⎘</button>
-      ${canDo("can_start_run") ? `<button class="btn btn-ghost btn-sm" id="btn-replay" style="margin-left:auto">↺ Replay</button>` : ""}
-      ${run.status === "running" && canDo("can_stop_run") ? `<button class="btn btn-ghost btn-sm" id="btn-stop-run" style="color:var(--color-danger);border-color:var(--color-danger)">■ Stop</button>` : ""}
+      <button onclick="swCopy('${run.id}',this)" style="background:none;border:none;cursor:pointer;color:var(--color-ink-faint);padding:1px 4px;line-height:1" title="Copy run ID">${icon("copy", { size: 13 })}</button>
+      ${canDo("can_start_run") ? `<button class="btn btn-ghost btn-sm" id="btn-replay" style="margin-left:auto">${icon("rotate-ccw", { size: 12 })} Replay</button>` : ""}
+      ${run.status === "running" && canDo("can_stop_run") ? `<button class="btn btn-ghost btn-sm" id="btn-stop-run" style="color:var(--color-danger);border-color:var(--color-danger)">${icon("square", { size: 11 })} Stop</button>` : ""}
     </div>
 
     <div style="display:flex;flex-wrap:wrap;background:var(--color-surface);
@@ -1188,8 +1392,8 @@ function _renderRunHeader(container, run) {
 
     ${run.error ? (run.error === RESTART_INTERRUPT_ERROR ? `<div style="background:var(--color-amber)1a;border:1px solid var(--color-amber)55;
       border-radius:6px;padding:10px 12px;font-size:12px;color:var(--color-ink-soft);margin-bottom:8px">
-      <b style="color:var(--color-amber)">⟳ Interrupted by a server restart.</b> This run didn't fail — it was cut off when the
-      service restarted. Use <b>↺ Replay</b> above to run it again.</div>` : `<div style="background:var(--color-danger)1a;border:1px solid var(--color-danger)44;
+      <b style="color:var(--color-amber)">${icon("rotate-ccw", { size: 13 })} Interrupted by a server restart.</b> This run didn't fail — it was cut off when the
+      service restarted. Use <b>${icon("rotate-ccw", { size: 12 })} Replay</b> above to run it again.</div>` : `<div style="background:var(--color-danger)1a;border:1px solid var(--color-danger)44;
       border-radius:6px;padding:10px 12px;font-size:12px;color:var(--color-danger);margin-bottom:8px">
       <b>Error:</b> ${_esc(run.error)}</div>`) : ""}
     <details style="margin-top:4px">
@@ -1285,10 +1489,10 @@ async function _loadEscalation(container, runId) {
           <button class="btn btn-sm" id="btn-ha-approve" style="
             background:var(--color-success);color:white;
             border-color:var(--color-success);font-size:12px;
-          ">✓ Approve</button>
+          ">${icon("check", { size: 13 })} Approve</button>
           <button class="btn btn-ghost btn-sm" id="btn-ha-reject" style="
             color:var(--color-danger);border-color:var(--color-danger);font-size:12px;
-          ">✕ Reject</button>
+          ">${icon("x", { size: 13 })} Reject</button>
         </div>
       </div>`;
     header.appendChild(div);
@@ -1371,7 +1575,7 @@ function _renderSteps(container, steps, activeIdx = -1, onSeek = null) {
           ${step.error ? `<div style="font-size:12px;color:var(--color-danger);background:var(--color-danger)0f;border:1px solid var(--color-danger)33;border-radius:4px;padding:8px 10px;margin-bottom:8px;font-family:var(--font-mono)">${_esc(step.error)}</div>` : ""}
           ${step.output && !step.error ? `<div style="font-family:var(--font-mono);font-size:11px;color:var(--color-ink-faint);
             white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:6px"
-            title="${_esc(_summarizeOutput(step.output))}">↳ ${_esc(_summarizeOutput(step.output))}</div>` : ""}
+            title="${_esc(_summarizeOutput(step.output))}">${icon("corner-down-right", { size: 12 })} ${_esc(_summarizeOutput(step.output))}</div>` : ""}
           ${thinkingHtml}
           ${hasIO ? `
             <div class="step-io" id="${stepId}" data-input="${_esc(inputStr || "")}" data-output="${_esc(outputStr || "")}">
