@@ -7,6 +7,7 @@
 <p align="center">
   <a href="https://www.swarmwright.com">swarmwright.com</a> &nbsp;·&nbsp;
   <a href="https://www.swarmwright.com/docs.html">Docs</a> &nbsp;·&nbsp;
+  <a href="https://console.swarmwright.com">Managed hosting</a> &nbsp;·&nbsp;
   <a href="LICENSE">CC BY-NC 4.0</a>
 </p>
 
@@ -36,6 +37,11 @@ docker run -d \
 ```
 
 Open `http://localhost:5001`. On first visit you'll be taken to a setup page to create your admin account. After that, go to **Settings** and enter your LLM provider and API key.
+
+> **Don't want to run servers?** A managed version is available at
+> [console.swarmwright.com](https://console.swarmwright.com) — the same product
+> on a dedicated, isolated instance with its own subdomain and encryption key.
+> See [pricing](https://www.swarmwright.com/#pricing).
 
 ---
 
