@@ -2,8 +2,34 @@ from __future__ import annotations
 
 import logging
 import os
+import random
+import time
 
 logger = logging.getLogger(__name__)
+
+# Transient provider failures are retried with exponential backoff before the
+# error reaches the runtime (where it would fail the whole run).
+_MAX_ATTEMPTS = int(os.environ.get("LLM_MAX_ATTEMPTS", "4"))
+_BACKOFF_BASE_SECONDS = 1.0
+_RETRYABLE_STATUS = {408, 409, 429, 500, 502, 503, 504, 529}
+_RETRYABLE_CLASS_HINTS = (
+    "RateLimit", "Overloaded", "InternalServer", "APIConnection",
+    "APITimeout", "Timeout", "ServiceUnavailable",
+)
+
+
+def _is_retryable(exc: Exception) -> bool:
+    """Transient errors only — auth/validation errors must surface immediately.
+
+    Works across the anthropic and openai SDKs without importing either here:
+    both attach `status_code` to API errors and use comparable class names for
+    connection-level failures.
+    """
+    status = getattr(exc, "status_code", None)
+    if status is not None:
+        return status in _RETRYABLE_STATUS
+    name = type(exc).__name__
+    return any(hint in name for hint in _RETRYABLE_CLASS_HINTS)
 
 
 class LLMClient:
@@ -83,10 +109,28 @@ class LLMClient:
         """Send a completion request and return (text, usage).
 
         usage dict has keys: input_tokens, output_tokens (both int).
+
+        Transient provider errors (rate limits, overloads, 5xx, connection
+        drops) are retried with exponential backoff; anything else raises
+        immediately.
         """
-        if self.provider == "anthropic":
-            return self._complete_anthropic(system, messages, **kwargs)
-        return self._complete_openai(system, messages, **kwargs)  # openai + deepseek share the same wire format
+        last_exc: Exception | None = None
+        for attempt in range(1, _MAX_ATTEMPTS + 1):
+            try:
+                if self.provider == "anthropic":
+                    return self._complete_anthropic(system, messages, **kwargs)
+                return self._complete_openai(system, messages, **kwargs)  # openai + deepseek share the same wire format
+            except Exception as exc:  # noqa: BLE001 — classified below
+                if not _is_retryable(exc) or attempt == _MAX_ATTEMPTS:
+                    raise
+                last_exc = exc
+                delay = _BACKOFF_BASE_SECONDS * (2 ** (attempt - 1)) + random.uniform(0, 0.5)
+                logger.warning(
+                    "Transient %s error from %s (attempt %d/%d), retrying in %.1fs: %s",
+                    type(exc).__name__, self.provider, attempt, _MAX_ATTEMPTS, delay, exc,
+                )
+                time.sleep(delay)
+        raise last_exc  # pragma: no cover — loop always returns or raises above
 
     def _complete_anthropic(self, system: str, messages: list[dict], **kwargs) -> tuple[str, dict]:
         max_tokens = kwargs.pop("max_tokens", 4096)

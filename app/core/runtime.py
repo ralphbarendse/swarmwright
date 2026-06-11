@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import frontmatter
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 from app.core.hierarchy import ParsedHierarchy
 from app.core.secrets import get_llm_credentials
@@ -75,6 +75,62 @@ def _get_max_agent_turns() -> int:
     except Exception:
         pass
     return MAX_AGENT_TURNS
+
+
+def _get_token_budget(key: str) -> int:
+    """Read a token-budget setting (0 = unlimited)."""
+    try:
+        with get_session() as session:
+            row = session.get(Setting, key)
+            if row is not None:
+                import json as _json
+                val = _json.loads(row.value_encrypted)
+                if isinstance(val, int) and val >= 0:
+                    return val
+    except Exception:
+        pass
+    return 0
+
+
+def _get_run_token_budget() -> int:
+    return _get_token_budget("runtime.run_token_budget")
+
+
+def _get_daily_token_budget() -> int:
+    return _get_token_budget("runtime.daily_token_budget")
+
+
+def _step_token_sum(*filters) -> int:
+    """Sum input+output tokens over run_steps matching the given filters."""
+    with get_session() as session:
+        total = session.execute(
+            select(
+                func.coalesce(func.sum(
+                    func.coalesce(RunStep.tokens_input, 0)
+                    + func.coalesce(RunStep.tokens_output, 0)
+                ), 0)
+            ).where(*filters)
+        ).scalar_one()
+    return int(total or 0)
+
+
+def _init_token_budgets(ctx: "RunContext") -> None:
+    """Resolve budgets and prior usage for a (re)starting run. A resumed run's
+    earlier steps still count against its per-run budget; today's other runs
+    count against the daily budget. Never raises — enforcement happens in the
+    agent loop via ctx.check_token_budget()."""
+    ctx.run_token_budget = _get_run_token_budget()
+    ctx.daily_token_budget = _get_daily_token_budget()
+    if not ctx.run_token_budget and not ctx.daily_token_budget:
+        return
+    try:
+        run_used = _step_token_sum(RunStep.run_id == ctx.run_id)
+        midnight = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        day_used = _step_token_sum(RunStep.started_at >= midnight)
+        ctx._token_state["used"] = run_used
+        ctx.daily_tokens_at_start = max(day_used - run_used, 0)
+    except Exception:
+        logger.exception("Failed to initialise token budgets for run %s", ctx.run_id)
 
 
 def _get_default_skill_timeout() -> int:
@@ -227,6 +283,10 @@ class RunDepthError(SwarmRuntimeError):
     """Raised when the maximum recursive call depth is exceeded."""
 
 
+class TokenBudgetError(SwarmRuntimeError):
+    """A token budget (per-run or per-day) was exhausted — the run is hard-stopped."""
+
+
 class MaxTurnsError(SwarmRuntimeError):
     """Raised when an agent exceeds the maximum number of LLM turns."""
 
@@ -257,6 +317,13 @@ class RunContext:
     hierarchy: ParsedHierarchy
     chat_session_id: str | None = field(default=None)
 
+    # Token budgets (0 = unlimited). Shared across child contexts so the whole
+    # run is metered as one, no matter how many sub-swarms it spans.
+    run_token_budget: int = field(default=0)
+    daily_token_budget: int = field(default=0)
+    daily_tokens_at_start: int = field(default=0)
+    _token_state: dict = field(default_factory=lambda: {"used": 0}, repr=False)
+
     _sequence: int = field(default=0, repr=False)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False)
     _next_seq_fn: Any = field(default=None, repr=False)
@@ -267,6 +334,28 @@ class RunContext:
         with self._lock:
             self._sequence += 1
             return self._sequence
+
+    @property
+    def tokens_used(self) -> int:
+        return self._token_state["used"]
+
+    def add_tokens(self, n: int) -> None:
+        with self._lock:
+            self._token_state["used"] += n
+
+    def check_token_budget(self) -> None:
+        """Hard-stop the run the moment either budget is exhausted."""
+        used = self.tokens_used
+        if self.run_token_budget and used > self.run_token_budget:
+            raise TokenBudgetError(
+                f"Run token budget exceeded: {used:,} tokens used, "
+                f"budget is {self.run_token_budget:,} (Settings → System → Token budget per run)"
+            )
+        if self.daily_token_budget and self.daily_tokens_at_start + used > self.daily_token_budget:
+            raise TokenBudgetError(
+                f"Daily token budget exceeded: {self.daily_tokens_at_start + used:,} tokens used today, "
+                f"budget is {self.daily_token_budget:,} (Settings → System → Token budget per day)"
+            )
 
     def spawn_child(
         self,
@@ -284,8 +373,13 @@ class RunContext:
             data_dir=self.data_dir,
             hierarchy=hierarchy,
             chat_session_id=self.chat_session_id,
+            run_token_budget=self.run_token_budget,
+            daily_token_budget=self.daily_token_budget,
+            daily_tokens_at_start=self.daily_tokens_at_start,
         )
         child._next_seq_fn = self.next_sequence
+        child._token_state = self._token_state
+        child._lock = self._lock
         return child
 
 
@@ -411,6 +505,7 @@ def start_run(
         hierarchy=hierarchy,
         chat_session_id=chat_session_id,
     )
+    _init_token_budgets(ctx)
 
     try:
         initial_messages = _build_initial_messages(payload)
@@ -518,6 +613,7 @@ def resume_run(human_action_id: str) -> Run | None:
         data_dir=data_dir,
         hierarchy=hierarchy,
     )
+    _init_token_budgets(ctx)
 
     # Build the decision result the agent sees as the call's outcome.
     # `payload` is always the original; `amend` is the human's optional
@@ -734,9 +830,11 @@ def _run_agent_loop(
     _max_turns = _get_max_agent_turns()
     _json_failures = 0
     for turn in range(_max_turns):
+        ctx.check_token_budget()  # never start an LLM call over budget
         raw, usage = llm.complete_with_usage(system=system_prompt, messages=messages, **llm_kwargs)
         total_input_tokens += usage.get("input_tokens", 0)
         total_output_tokens += usage.get("output_tokens", 0)
+        ctx.add_tokens(usage.get("input_tokens", 0) + usage.get("output_tokens", 0))
         messages.append({"role": "assistant", "content": raw})
 
         try:
