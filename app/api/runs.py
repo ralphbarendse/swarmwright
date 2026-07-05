@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, date
+from datetime import datetime, date, timezone
 
 from flask import Blueprint, current_app, jsonify, request
 from sqlalchemy import select, func
@@ -20,7 +20,13 @@ bp = Blueprint("runs", __name__, url_prefix="/api/v1")
 
 @bp.get("/runs/stats")
 def run_stats():
+    from app.core.runtime import _get_daily_token_budget, _step_token_sum
+
     today_start = datetime.combine(date.today(), datetime.min.time())
+    # Token usage counts from UTC midnight — same window the daily budget
+    # enforcement in runtime uses, so this readout matches what gets enforced.
+    utc_midnight = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    tokens_today = _step_token_sum(RunStep.started_at >= utc_midnight)
     with get_session() as session:
         running = session.execute(
             select(func.count()).select_from(Run).where(Run.status == STATUS_RUNNING)
@@ -45,6 +51,8 @@ def run_stats():
         "awaiting_human": awaiting,
         "completed_today": completed_today,
         "failed_today": failed_today,
+        "tokens_today": tokens_today,
+        "daily_token_budget": _get_daily_token_budget(),
     })
 
 

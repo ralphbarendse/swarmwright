@@ -88,6 +88,7 @@ async function _renderControlRoom(container, addCleanup) {
             <span id="stat-awaiting" style="color:var(--color-orchestrator);white-space:nowrap;opacity:.4">● 0 awaiting</span>
             <span id="stat-completed" style="color:var(--color-success);white-space:nowrap;opacity:.4">${icon("check", { size: 12 })} 0 done today</span>
             <span id="stat-failed" style="color:var(--color-danger);white-space:nowrap;opacity:.4">${icon("x", { size: 12 })} 0 failed today</span>
+            <span id="stat-tokens" style="color:var(--color-ink-soft);white-space:nowrap;opacity:.4" title="LLM tokens used today (input + output, UTC day)">0 tok today</span>
           </div>
           <div style="display:flex;gap:3px;flex-shrink:0">
             <button id="tab-log" style="
@@ -212,11 +213,24 @@ async function _renderControlRoom(container, addCleanup) {
         awaiting:  container.querySelector("#stat-awaiting"),
         completed: container.querySelector("#stat-completed"),
         failed:    container.querySelector("#stat-failed"),
+        tokens:    container.querySelector("#stat-tokens"),
       };
       if (els.running)   { els.running.textContent   = `● ${s.running} running`;      els.running.style.opacity   = s.running > 0 ? "1" : ".35"; }
       if (els.awaiting)  { els.awaiting.textContent  = `● ${s.awaiting_human} awaiting`; els.awaiting.style.opacity  = s.awaiting_human > 0 ? "1" : ".35"; }
       if (els.completed) { els.completed.innerHTML = `${icon("check", { size: 12 })} ${s.completed_today} done today`; els.completed.style.opacity = s.completed_today > 0 ? "1" : ".35"; }
       if (els.failed)    { els.failed.innerHTML    = `${icon("x", { size: 12 })} ${s.failed_today} failed today`; els.failed.style.opacity    = s.failed_today > 0 ? "1" : ".35"; }
+      if (els.tokens) {
+        const used   = s.tokens_today || 0;
+        const budget = s.daily_token_budget || 0;
+        els.tokens.textContent = budget
+          ? `${used.toLocaleString()} / ${budget.toLocaleString()} tok today`
+          : `${used.toLocaleString()} tok today`;
+        const ratio = budget ? used / budget : 0;
+        els.tokens.style.color = ratio >= 1 ? "var(--color-danger)"
+          : ratio >= 0.8 ? "var(--color-amber)"
+          : "var(--color-ink-soft)";
+        els.tokens.style.opacity = used > 0 ? "1" : ".35";
+      }
     } catch { /* silently ignore */ }
   };
 
@@ -1562,7 +1576,7 @@ function _renderSteps(container, steps, activeIdx = -1, onSeek = null) {
           <div style="width:28px;height:28px;border-radius:50%;background:var(--color-surface);border:2px solid ${borderColor};display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:var(--color-ink-soft);font-family:var(--font-mono)">${i + 1}</div>
           ${i < steps.length - 1 ? `<div style="width:2px;flex:1;background:var(--color-border-soft);margin-top:4px"></div>` : ""}
         </div>
-        <div style="flex:1;border:1px solid ${borderColor};border-radius:6px;padding:12px 14px;margin-bottom:4px;background:${isViolation ? "var(--color-amber)0a" : "var(--color-surface)"}">
+        <div style="flex:1;min-width:0;border:1px solid ${borderColor};border-radius:6px;padding:12px 14px;margin-bottom:4px;background:${isViolation ? "var(--color-amber)0a" : "var(--color-surface)"}">
           <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:${step.error || hasIO ? 8 : 0}px">
             <span style="font-weight:600;font-size:13px;font-family:var(--font-display)">${_esc(step.step_name)}</span>
             <span style="font-size:10px;font-family:var(--font-mono);background:${typeColor}18;color:${typeColor};padding:1px 6px;border-radius:4px;border:1px solid ${typeColor}33">${typeLabel}</span>

@@ -41,3 +41,11 @@ export function connect() {
 export function disconnect() {
   if (_es) { _es.close(); _es = null; }
 }
+
+// Force a fresh connection. A backgrounded tab (especially a mobile PWA) can be
+// left with a frozen/half-dead EventSource that never recovers on its own;
+// tearing it down and reconnecting on foreground guarantees a live stream.
+export function reconnect() {
+  disconnect();
+  connect();
+}

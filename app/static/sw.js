@@ -8,7 +8,7 @@
  *
  * Bump CACHE_VERSION whenever the precached shell list changes.
  */
-const CACHE_VERSION = "sw-v1";
+const CACHE_VERSION = "sw-v2";
 const SHELL = [
   "/",
   "/static/css/tokens.css",
@@ -41,11 +41,16 @@ self.addEventListener("fetch", (event) => {
   if (url.origin !== self.location.origin) return;
   if (url.pathname.startsWith("/api/")) return;
 
+  // Runtime-cache the navigation document and every static asset as it loads.
+  // app.js pulls in ~15 ES modules + CSS; caching the whole graph on the fly
+  // (rather than a hand-maintained SHELL list) is what actually lets the app
+  // boot offline. Still network-first — the cache is only the fallback.
+  const cacheable = req.mode === "navigate" || url.pathname.startsWith("/static/");
+
   event.respondWith(
     fetch(req)
       .then((res) => {
-        // Refresh the cached copy of shell-eligible responses opportunistically.
-        if (res.ok && (req.mode === "navigate" || SHELL.includes(url.pathname))) {
+        if (res.ok && cacheable) {
           const copy = res.clone();
           caches.open(CACHE_VERSION).then((c) => c.put(req, copy)).catch(() => {});
         }
