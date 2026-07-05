@@ -13,7 +13,7 @@
  */
 
 import * as api from "./api.js";
-import { connect as sseConnect, onEvent as onSseEvent } from "./sse.js";
+import { connect as sseConnect, reconnect as sseReconnect, onEvent as onSseEvent } from "./sse.js";
 import { renderOrgView }          from "./views/org-design.js";
 import { renderSwarmCanvas }      from "./views/swarm-canvas.js";
 import { renderConstitutionEditor } from "./views/constitution-editor.js";
@@ -232,6 +232,9 @@ function _isMobile() {
 // which lives under the Runs tab and is navigated to internally).
 function _mobileAllowed(view) {
   if (view === "runs") return MOBILE_TABS.find(t => t.id === "runs").show();
+  // Settings is reachable from the header gear, but only for admins (every tab
+  // is admin config). It has no bottom tab, hence the explicit allowance.
+  if (view === "settings") return !!currentUser()?.is_admin;
   return MOBILE_TABS.some(t => t.show() && t.view === view);
 }
 
@@ -239,6 +242,11 @@ function _bootMobile() {
   _mobileMode = true;
   document.documentElement.classList.add("sw-mobile");
   document.querySelector(".topbar").style.display = "none";
+
+  // The desktop topbar (and its user widget / logout) is hidden on mobile, so
+  // give the phone its own slim header: identity + sign-out for everyone, plus
+  // a gear into Settings for admins.
+  _buildMobileHeader();
 
   const visible = MOBILE_TABS.filter(t => t.show());
 
@@ -262,6 +270,28 @@ function _bootMobile() {
   const { view } = parseHash();
   if (!_mobileAllowed(view)) history.replaceState(null, "", "#" + MOBILE_HOME);
   render();
+}
+
+function _buildMobileHeader() {
+  const user = currentUser();
+  const isAdmin = !!user?.is_admin;
+  const header = document.createElement("header");
+  header.className = "mobile-topbar";
+  header.innerHTML = `
+    <button class="mobile-topbar-logo" data-act="home">SwarmWright</button>
+    <div class="mobile-topbar-right">
+      <span class="mobile-topbar-user">${_escHtml(user?.display_name || user?.username || "")}</span>
+      ${isAdmin ? `<button class="mobile-topbar-btn" data-act="settings" title="Settings">${icon("settings", { size: 18 })}</button>` : ""}
+      <button class="mobile-topbar-btn" data-act="logout" title="Sign out">${icon("log-out", { size: 18 })}</button>
+    </div>`;
+  header.addEventListener("click", e => {
+    const act = e.target.closest("[data-act]")?.dataset.act;
+    if (act === "home")          navigate(MOBILE_HOME);
+    else if (act === "settings") navigate("settings");
+    else if (act === "logout")   logout();
+  });
+  const app = document.getElementById("app");
+  app.insertBefore(header, document.getElementById("main"));
 }
 
 function _buildMobileNav(tabs) {
@@ -396,6 +426,15 @@ async function boot() {
   }
 
   _registerServiceWorker();
+
+  // Returning to the foreground: revive a possibly-frozen SSE stream and refresh
+  // the pending-actions badge so the user never sees stale state after a switch.
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState !== "visible") return;
+    sseReconnect();
+    if (_mobileMode) _updateMobilePip();
+    else refreshInboxPip();
+  });
 
   if (_isMobile()) {
     _bootMobile();

@@ -696,6 +696,7 @@ function _renderSystemTab(pane) {
           </div>
         </div>
         <div class="form-helper">Hard limits on LLM tokens (input + output combined). A run is stopped the moment it exceeds its budget, and no new agent calls start once the daily budget across all runs is spent. <strong>0 = unlimited.</strong> Counted in tokens, not currency — check your provider's pricing to translate.</div>
+        <div id="sys-token-usage" style="margin-top:10px;font-family:var(--font-mono);font-size:11px;color:var(--color-ink-soft)"></div>
       </div>
 
       <div class="card" style="padding:18px 20px">
@@ -746,6 +747,22 @@ function _renderSystemTab(pane) {
     `;
     document.head.appendChild(s);
   }
+
+  // Token usage readout — show today's consumption next to the budget inputs.
+  api.getRunStats().then(s => {
+    const el = pane.querySelector("#sys-token-usage");
+    if (!el) return;
+    const used   = s.tokens_today || 0;
+    const budget = s.daily_token_budget || 0;
+    if (budget) {
+      const pct = Math.round((used / budget) * 100);
+      el.textContent = `Used today: ${used.toLocaleString()} / ${budget.toLocaleString()} tokens (${pct}%)`;
+      if (pct >= 100)     el.style.color = "var(--color-danger)";
+      else if (pct >= 80) el.style.color = "var(--color-amber)";
+    } else {
+      el.textContent = `Used today: ${used.toLocaleString()} tokens`;
+    }
+  }).catch(() => {});
 
   // Package manifest — install + allowlist in one action.
   const chips = pane.querySelector("#sys-pkg-chips");
